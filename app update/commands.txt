@@ -1,0 +1,2 @@
+cd ~/kidguard
+git pull origin main

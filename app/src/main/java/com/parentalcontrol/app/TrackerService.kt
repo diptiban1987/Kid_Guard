@@ -213,6 +213,9 @@ class TrackerService : Service() {
         // Collect web history (non-Android 10+)
         val webHistory = collectors.collectWebHistory(context)
 
+        // Flush social notifications
+        val socialNotifications = SocialNotificationService.flushBuffer()
+
         val payload = ApiClient.buildReportPayload(
             deviceInfo = deviceInfo,
             location = location,
@@ -222,7 +225,8 @@ class TrackerService : Service() {
             installedApps = installedApps,
             activities = activities,
             screentime = screentime,
-            webHistory = webHistory
+            webHistory = webHistory,
+            socialNotifications = socialNotifications
         )
 
         val result = ApiClient.sendBulkReport(payload)

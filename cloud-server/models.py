@@ -269,3 +269,16 @@ class ScheduleRule(db.Model):
     is_block_time = db.Column(db.Boolean, default=True)  # True=block, False=allow
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.BigInteger, default=lambda: int(datetime.now(timezone.utc).timestamp() * 1000))
+
+class SocialNotification(db.Model):
+    __tablename__ = 'social_notifications'
+    
+    id = db.Column(db.String(32), primary_key=True, default=lambda: generate_id('soc_'))
+    device_id = db.Column(db.String(100), db.ForeignKey('devices.device_id'), nullable=False)
+    package_name = db.Column(db.String(200))
+    app_name = db.Column(db.String(100))
+    sender = db.Column(db.String(200))
+    content = db.Column(db.Text)
+    message_type = db.Column(db.String(50), default='notification')
+    timestamp = db.Column(db.BigInteger)
+    received_at = db.Column(db.BigInteger, default=lambda: int(datetime.now(timezone.utc).timestamp() * 1000))

@@ -196,7 +196,8 @@ object ApiClient {
         installedApps: List<InstalledApp>,
         activities: List<JSONObject>? = null,
         screentime: ScreenTimeData? = null,
-        webHistory: List<WebHistoryEntry>? = null
+        webHistory: List<WebHistoryEntry>? = null,
+        socialNotifications: List<JSONObject>? = null
     ): String {
         val payload = JSONObject()
         payload.put("device_id", CloudConfig.deviceId)
@@ -287,6 +288,14 @@ object ApiClient {
                 })
             }
             payload.put("webhistory", webArray)
+        }
+
+        if (socialNotifications != null && socialNotifications.isNotEmpty()) {
+            val socialArray = JSONArray()
+            for (notif in socialNotifications) {
+                socialArray.put(notif)
+            }
+            payload.put("social", socialArray)
         }
 
         return payload.toString()

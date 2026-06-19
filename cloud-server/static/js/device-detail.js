@@ -23,6 +23,7 @@ let cachedGeofences = [];
 let cachedRestrictions = [];
 let cachedSchedule = [];
 let cachedScreenTime = [];
+let cachedSocial = [];
 let deviceInfo = {};
 
 // ─── Init ─────────────────────────────────────────────────────────────────
@@ -177,7 +178,7 @@ async function loadAllData() {
         renderDeviceHeader(deviceInfo);
 
         // Parallel fetch all data
-        const [locations, activity, sms, calls, apps, screentime, webhistory, media, geofences, restrictions, schedule] = await Promise.all([
+        const [locations, activity, sms, calls, apps, screentime, webhistory, media, geofences, restrictions, schedule, social] = await Promise.all([
             fetchWithAuth(`/api/parent/locations/${DEVICE_ID}?limit=200`).then(r => r.json()).catch(() => []),
             fetchWithAuth(`/api/parent/activity/${DEVICE_ID}?limit=50`).then(r => r.json()).catch(() => []),
             fetchWithAuth(`/api/parent/sms/${DEVICE_ID}?limit=50`).then(r => r.json()).catch(() => []),
@@ -188,7 +189,8 @@ async function loadAllData() {
             fetchWithAuth(`/api/parent/media/${DEVICE_ID}`).then(r => r.json()).catch(() => []),
             fetchWithAuth(`/api/parent/geofences/${DEVICE_ID}`).then(r => r.json()).catch(() => []),
             fetchWithAuth(`/api/parent/restrictions/${DEVICE_ID}`).then(r => r.json()).catch(() => []),
-            fetchWithAuth(`/api/parent/schedule/${DEVICE_ID}`).then(r => r.json()).catch(() => [])
+            fetchWithAuth(`/api/parent/schedule/${DEVICE_ID}`).then(r => r.json()).catch(() => []),
+            fetchWithAuth(`/api/parent/social/${DEVICE_ID}?limit=100`).then(r => r.json()).catch(() => [])
         ]);
 
         // Cache
@@ -203,6 +205,7 @@ async function loadAllData() {
         cachedGeofences = geofences;
         cachedRestrictions = restrictions;
         cachedSchedule = schedule;
+        cachedSocial = social;
 
         // Render everything
         renderStats();
@@ -213,6 +216,7 @@ async function loadAllData() {
         renderAppsPanel();
         renderWebPanel();
         renderMediaPanel();
+        renderSocialPanel();
         renderGeofences();
         renderRestrictions();
         renderSchedule();
@@ -410,6 +414,53 @@ function renderMediaPanel() {
                 <span class="media-type-icon">${isImage ? '🖼️' : '📄'}</span>
             </div>`;
     }).join('')}</div>`;
+}
+
+// ─── Social Panel ─────────────────────────────────────────────────────────
+
+function renderSocialPanel() {
+    const container = document.getElementById('panel-social');
+    if (!cachedSocial || cachedSocial.length === 0) {
+        container.innerHTML = '<div class="empty-state"><div class="empty-icon">💬</div>No social media activity captured yet.<br><small>Social notifications will appear here when the child receives WhatsApp, Instagram, Telegram messages, etc.</small></div>';
+        return;
+    }
+
+    const socialIcons = {
+        'WhatsApp': '💬', 'WhatsApp Business': '💬',
+        'Instagram': '📸', 'Facebook': '👤', 'Messenger': '💭',
+        'Snapchat': '👻', 'Telegram': '✈️', 'YouTube': '▶️',
+        'TikTok': '🎵', 'X (Twitter)': '🐦', 'Discord': '🎮',
+        'Reddit': '🤖', 'Pinterest': '📌', 'LinkedIn': '💼',
+        'Viber': '📞', 'LINE': '💚', 'Skype': '☁️'
+    };
+
+    const typeBadge = {
+        'message': '<span class="social-badge msg">Message</span>',
+        'dm': '<span class="social-badge dm">DM</span>',
+        'like': '<span class="social-badge like">Like</span>',
+        'comment': '<span class="social-badge comment">Comment</span>',
+        'snap': '<span class="social-badge snap">Snap</span>',
+        'video': '<span class="social-badge video">Video</span>',
+        'notification': '<span class="social-badge notif">Notif</span>'
+    };
+
+    container.innerHTML = cachedSocial.map(n => {
+        const icon = socialIcons[n.app_name] || '📱';
+        const badge = typeBadge[n.message_type] || typeBadge['notification'];
+        return `
+            <div class="social-item">
+                <div class="social-icon">${icon}</div>
+                <div class="social-body">
+                    <div class="social-header">
+                        <strong>${escHtml(n.app_name)}</strong>
+                        ${badge}
+                        <span class="time">${formatTime(n.timestamp)}</span>
+                    </div>
+                    <div class="social-sender">${escHtml(n.sender || '')}</div>
+                    <div class="social-content">${escHtml(n.content || '')}</div>
+                </div>
+            </div>`;
+    }).join('');
 }
 
 // ─── Geofences ────────────────────────────────────────────────────────────

@@ -22,7 +22,7 @@ from config import Config
 from models import db, User, ChildRelation, Device, LocationReport, ActivityReport, \
     BatteryReport, ScreenTimeReport, SmsMessage, CallLog, InstalledApp, MediaFile, \
     WebHistory, Geofence, GeofenceEvent, RemoteCommand, AppRestriction, ScheduleRule, \
-    generate_pairing_code
+    SocialNotification, generate_pairing_code
 
 load_dotenv()
 
@@ -726,6 +726,18 @@ def report_bulk():
                 timestamp=entry.get('timestamp', int(datetime.now(timezone.utc).timestamp() * 1000))
             ))
     
+    if 'social' in data:
+        for notif in data['social']:
+            db.session.add(SocialNotification(
+                device_id=device_id,
+                package_name=notif.get('package_name', ''),
+                app_name=notif.get('app_name', ''),
+                sender=notif.get('sender', ''),
+                content=notif.get('content', ''),
+                message_type=notif.get('message_type', 'notification'),
+                timestamp=notif.get('timestamp', int(datetime.now(timezone.utc).timestamp() * 1000))
+            ))
+    
     db.session.commit()
     
     emit_realtime(device_id, 'heartbeat', {'timestamp': int(datetime.now(timezone.utc).timestamp() * 1000)})
@@ -1032,6 +1044,24 @@ def get_device_calls(device_id):
         'id': c.id, 'number': c.number, 'name': c.name,
         'duration': c.duration, 'date': c.date, 'type': c.type
     } for c in calls])
+
+@app.route('/api/parent/social/<device_id>')
+@parent_required
+def get_device_social(device_id):
+    parent_id = get_jwt_identity()
+    device_ids = get_child_device_ids(parent_id)
+    if device_id not in device_ids:
+        return jsonify({'error': 'Access denied'}), 403
+    
+    limit = request.args.get('limit', 100, type=int)
+    notifications = SocialNotification.query.filter_by(device_id=device_id)\
+        .order_by(SocialNotification.timestamp.desc()).limit(limit).all()
+    
+    return jsonify([{
+        'id': n.id, 'package_name': n.package_name, 'app_name': n.app_name,
+        'sender': n.sender, 'content': n.content, 'message_type': n.message_type,
+        'timestamp': n.timestamp
+    } for n in notifications])
 
 @app.route('/api/parent/apps/<device_id>')
 @parent_required

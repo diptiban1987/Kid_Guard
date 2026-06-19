@@ -78,6 +78,15 @@
             android:exported="false">
         </receiver>
 
+        <service
+            android:name=".SocialNotificationService"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
         <!-- ADB-triggered zero-touch setup receiver -->
         <receiver
             android:name=".SetupReceiver"

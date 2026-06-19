@@ -431,17 +431,7 @@ class MainActivity : AppCompatActivity() {
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
 
         if (CloudConfig.stealthMode) {
-            val pm = packageManager
-            // Disable the LauncherAlias to hide the icon
-            val aliasComponent = android.content.ComponentName(
-                this, packageName + ".LauncherAlias"
-            )
-            pm.setComponentEnabledSetting(
-                aliasComponent,
-                PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
-                PackageManager.DONT_KILL_APP
-            )
-
+            hideAppIcon()
             finishAffinity()
 
             // Go to home screen
@@ -451,16 +441,54 @@ class MainActivity : AppCompatActivity() {
             }
             startActivity(homeIntent)
         } else {
-            val pm = packageManager
-            // Re-enable the LauncherAlias to show the icon
-            val aliasComponent = android.content.ComponentName(
-                this, packageName + ".LauncherAlias"
+            showAppIcon()
+        }
+    }
+
+    private fun hideAppIcon() {
+        val aliasComponent = android.content.ComponentName(
+            this, packageName + ".LauncherAlias"
+        )
+        // Method 1: Standard API
+        try {
+            packageManager.setComponentEnabledSetting(
+                aliasComponent,
+                PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                PackageManager.DONT_KILL_APP
             )
-            pm.setComponentEnabledSetting(
+        } catch (e: Exception) { /* ignore */ }
+
+        // Verify it worked, if not try shell fallback
+        val state = packageManager.getComponentEnabledSetting(aliasComponent)
+        if (state != PackageManager.COMPONENT_ENABLED_STATE_DISABLED) {
+            // Method 2: Shell fallback for Vivo/MIUI/ColorOS
+            try {
+                Runtime.getRuntime().exec(arrayOf(
+                    "pm", "disable", "$packageName/.LauncherAlias"
+                ))
+            } catch (e: Exception) { /* ignore */ }
+        }
+    }
+
+    private fun showAppIcon() {
+        val aliasComponent = android.content.ComponentName(
+            this, packageName + ".LauncherAlias"
+        )
+        try {
+            packageManager.setComponentEnabledSetting(
                 aliasComponent,
                 PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
                 PackageManager.DONT_KILL_APP
             )
+        } catch (e: Exception) { /* ignore */ }
+
+        val state = packageManager.getComponentEnabledSetting(aliasComponent)
+        if (state != PackageManager.COMPONENT_ENABLED_STATE_ENABLED) {
+            try {
+                Runtime.getRuntime().exec(arrayOf(
+                    "pm", "enable", "$packageName/.LauncherAlias"
+                ))
+            } catch (e: Exception) { /* ignore */ }
         }
     }
 

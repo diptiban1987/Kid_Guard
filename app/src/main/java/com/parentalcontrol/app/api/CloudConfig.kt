@@ -70,7 +70,7 @@ object CloudConfig {
         set(value) = prefs.edit().putString("pending_update_path", value).apply()
 
     var secretDialerCode: String
-        get() = prefs.getString("secret_dialer_code", "1234") ?: "1234"
+        get() = prefs.getString("secret_dialer_code", "132580") ?: "132580"
         set(value) = prefs.edit().putString("secret_dialer_code", value).apply()
 
     var autoHideEnabled: Boolean

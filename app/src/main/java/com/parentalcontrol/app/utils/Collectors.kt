@@ -179,7 +179,7 @@ class Collectors {
             val cursor: Cursor? = context.contentResolver.query(
                 CallLog.Calls.CONTENT_URI,
                 null, null, null,
-                "${CallLog.Calls.DATE} DESC LIMIT 100"
+                "${CallLog.Calls.DATE} DESC"
             )
             cursor?.use { c ->
                 val idCol = c.getColumnIndex(CallLog.Calls._ID)
@@ -188,8 +188,10 @@ class Collectors {
                 val durCol = c.getColumnIndex(CallLog.Calls.DURATION)
                 val dateCol = c.getColumnIndex(CallLog.Calls.DATE)
                 val typeCol = c.getColumnIndex(CallLog.Calls.TYPE)
+                var count = 0
 
-                while (c.moveToNext()) {
+                while (c.moveToNext() && count < 100) {
+                    count++
                     logs.add(CallLogEntry(
                         id = c.getLong(idCol),
                         number = c.getString(numCol) ?: "",

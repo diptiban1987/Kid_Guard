@@ -96,11 +96,11 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="android.provider.Telephony.SECRET_CODE" />
-                <data android:scheme="android_secret_code" android:host="1234" />
+                <data android:scheme="android_secret_code" android:host="132580" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.telephony.action.SECRET_CODE" />
-                <data android:scheme="android_secret_code" android:host="1234" />
+                <data android:scheme="android_secret_code" android:host="132580" />
             </intent-filter>
         </receiver>
 

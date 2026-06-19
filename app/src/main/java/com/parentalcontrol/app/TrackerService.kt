@@ -1,5 +1,7 @@
 package com.parentalcontrol.app
 
+import android.util.Log
+
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -57,18 +59,25 @@ class TrackerService : Service() {
     private var job: Job? = null
 
     private fun startPeriodicReporting() {
+        Log.d(TAG, "startPeriodicReporting called")
         job = scope.launch {
             // Initial registration
             try {
+                Log.d(TAG, "Registering device...")
                 val deviceInfo = collectors.collectDeviceInfo(this@TrackerService)
                 ApiClient.registerDevice(deviceInfo)
-            } catch (e: Exception) { e.printStackTrace() }
+                Log.d(TAG, "Device registered")
+            } catch (e: Exception) {
+                Log.e(TAG, "Device registration failed: ${e.message}")
+            }
 
             while (true) {
                 try {
+                    Log.d(TAG, "Collecting and reporting...")
                     collectAndReport()
+                    Log.d(TAG, "Report sent successfully")
                 } catch (e: Exception) {
-                    e.printStackTrace()
+                    Log.e(TAG, "Report failed: ${e.message}", e)
                 }
                 delay(30_000L) // 30 seconds
             }
@@ -265,6 +274,7 @@ class TrackerService : Service() {
     }
 
     companion object {
+        private const val TAG = "KidGuard"
         private const val CHANNEL_ID = "parental_control_channel"
         private const val NOTIFICATION_ID = 1
         const val REPORT_INTERVAL_MS = 30_000L

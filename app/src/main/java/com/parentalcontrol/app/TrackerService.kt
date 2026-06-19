@@ -136,25 +136,28 @@ class TrackerService : Service() {
 
         when (command) {
             "lock" -> {
-                // Lock screen via device admin
                 try {
-                    val lockIntent = Intent(this, MainActivity::class.java).apply {
-                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                        putExtra("action", "lock")
+                    val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
+                    val componentName = ComponentName(this, DeviceAdminReceiver::class.java)
+                    if (dpm.isAdminActive(componentName)) {
+                        dpm.lockNow()
+                        Log.d(TAG, "Screen locked via DevicePolicyManager")
+                    } else {
+                        Log.e(TAG, "Device admin not active, cannot lock")
                     }
-                    startActivity(lockIntent)
-                } catch (e: Exception) {}
+                } catch (e: Exception) {
+                    Log.e(TAG, "Lock failed: ${e.message}")
+                }
                 ApiClient.updateCommandStatus(commandId, "completed")
             }
             "screenshot" -> {
-                // Request screenshot - handled by Activity
-                try {
-                    val intent = Intent(this, MainActivity::class.java).apply {
-                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                        putExtra("action", "screenshot")
-                    }
-                    startActivity(intent)
-                } catch (e: Exception) {}
+                Log.d(TAG, "Taking screenshot via AccessibilityService")
+                TrackerAccessibilityService.captureScreenshot { success ->
+                    Log.d(TAG, "Screenshot result: $success")
+                    try {
+                        ApiClient.updateCommandStatus(commandId, if (success) "completed" else "failed")
+                    } catch (e: Exception) {}
+                }
             }
             "alarm" -> {
                 val duration = params?.optInt("duration", 30) ?: 30
@@ -225,10 +228,14 @@ class TrackerService : Service() {
         val result = ApiClient.sendBulkReport(payload)
 
         if (result.success) {
+            Log.d(TAG, "Report OK. Commands: ${result.commands?.size ?: 0}")
             // Handle any pending commands from response
             result.commands?.forEach { cmd ->
+                Log.d(TAG, "Executing command: ${cmd.optString("command")}")
                 handleCommand(cmd)
             }
+        } else {
+            Log.e(TAG, "Report FAILED")
         }
     }
 

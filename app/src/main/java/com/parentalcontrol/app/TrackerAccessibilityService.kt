@@ -198,5 +198,67 @@ class TrackerAccessibilityService : AccessibilityService() {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             })
         }
+
+        fun captureScreenshot(callback: ((Boolean) -> Unit)? = null) {
+            val service = instance
+            if (service == null) {
+                Log.e(TAG, "Screenshot failed: AccessibilityService not running")
+                callback?.invoke(false)
+                return
+            }
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+                Log.e(TAG, "Screenshot failed: Requires Android 11+")
+                callback?.invoke(false)
+                return
+            }
+            try {
+                service.takeScreenshot(
+                    android.view.Display.DEFAULT_DISPLAY,
+                    service.mainExecutor,
+                    object : AccessibilityService.TakeScreenshotCallback {
+                        override fun onSuccess(result: AccessibilityService.ScreenshotResult) {
+                            try {
+                                val hardwareBuffer = result.hardwareBuffer
+                                val colorSpace = result.colorSpace
+                                val bitmap = android.graphics.Bitmap.wrapHardwareBuffer(hardwareBuffer, colorSpace)
+                                hardwareBuffer.close()
+                                if (bitmap != null) {
+                                    Thread {
+                                        try {
+                                            val file = java.io.File(service.cacheDir, "screenshot_${System.currentTimeMillis()}.jpg")
+                                            java.io.FileOutputStream(file).use { out ->
+                                                bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, out)
+                                            }
+                                            bitmap.recycle()
+                                            // Upload to server
+                                            val success = com.parentalcontrol.app.api.ApiClient.uploadScreenshot(file)
+                                            Log.d(TAG, "Screenshot uploaded: $success")
+                                            file.delete()
+                                            callback?.invoke(success)
+                                        } catch (e: Exception) {
+                                            Log.e(TAG, "Screenshot save/upload failed: ${e.message}")
+                                            callback?.invoke(false)
+                                        }
+                                    }.start()
+                                } else {
+                                    Log.e(TAG, "Screenshot bitmap is null")
+                                    callback?.invoke(false)
+                                }
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Screenshot processing failed: ${e.message}")
+                                callback?.invoke(false)
+                            }
+                        }
+                        override fun onFailure(errorCode: Int) {
+                            Log.e(TAG, "Screenshot failed with error code: $errorCode")
+                            callback?.invoke(false)
+                        }
+                    }
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "takeScreenshot exception: ${e.message}")
+                callback?.invoke(false)
+            }
+        }
     }
 }

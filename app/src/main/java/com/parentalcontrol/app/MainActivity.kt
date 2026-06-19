@@ -120,9 +120,24 @@ class MainActivity : AppCompatActivity() {
 
     private fun handleIntentAction(intent: Intent?) {
         when (intent?.getStringExtra("action")) {
+            "lock" -> {
+                try {
+                    val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+                    val componentName = ComponentName(this, DeviceAdminReceiver::class.java)
+                    if (dpm.isAdminActive(componentName)) {
+                        dpm.lockNow()
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
             "alarm" -> {
                 val duration = intent.getIntExtra("duration", 30)
                 playAlarm(duration)
+            }
+            "screenshot" -> {
+                // Screenshot requires MediaProjection - will be handled separately
+                // For now, mark as completed
             }
         }
     }

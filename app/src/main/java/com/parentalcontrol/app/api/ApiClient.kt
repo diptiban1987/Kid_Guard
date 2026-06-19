@@ -9,8 +9,10 @@ import com.parentalcontrol.app.utils.SmsMessage
 import com.parentalcontrol.app.utils.ScreenTimeData
 import com.parentalcontrol.app.utils.WebHistoryEntry
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
@@ -405,5 +407,28 @@ object ApiClient {
     sealed class Result {
         data class Success(val data: JSONObject) : Result()
         data class Error(val message: String) : Result()
+    }
+
+    fun uploadScreenshot(file: java.io.File): Boolean {
+        return try {
+            val mediaType = "image/jpeg".toMediaType()
+            val requestBody = MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("device_id", CloudConfig.deviceId)
+                .addFormDataPart("type", "screenshot")
+                .addFormDataPart("file", file.name, file.asRequestBody(mediaType))
+                .build()
+
+            val request = Request.Builder()
+                .url("${CloudConfig.apiBaseUrl}/report/media")
+                .addHeader("Authorization", "Bearer ${CloudConfig.accessToken}")
+                .post(requestBody)
+                .build()
+
+            val response = client.newCall(request).execute()
+            response.isSuccessful
+        } catch (e: Exception) {
+            false
+        }
     }
 }

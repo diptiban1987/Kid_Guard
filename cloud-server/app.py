@@ -907,29 +907,36 @@ def get_parent_devices():
     result = []
     for d in devices:
         data = d.to_dict()
-        # Attach latest battery info
-        latest_battery = BatteryReport.query.filter_by(device_id=d.device_id)\
-            .order_by(BatteryReport.id.desc()).first()
-        if latest_battery:
-            data['battery_level'] = latest_battery.level
-            data['is_charging'] = latest_battery.is_charging
-        else:
+        try:
+            # Attach latest battery info
+            latest_battery = BatteryReport.query.filter_by(device_id=d.device_id)\
+                .order_by(BatteryReport.id.desc()).first()
+            if latest_battery:
+                data['battery_level'] = latest_battery.level
+                data['is_charging'] = latest_battery.is_charging
+            else:
+                data['battery_level'] = None
+                data['is_charging'] = False
+        except Exception:
             data['battery_level'] = None
             data['is_charging'] = False
-        # Attach today's screen time
-        today_start = int(datetime.now(timezone.utc).replace(hour=0, minute=0, second=0).timestamp() * 1000)
-        latest_screen = ScreenTimeReport.query.filter_by(device_id=d.device_id)\
-            .filter(ScreenTimeReport.timestamp >= today_start)\
-            .order_by(ScreenTimeReport.id.desc()).first()
-        if latest_screen:
-            data['screen_time_minutes'] = latest_screen.total_minutes
-        else:
+        try:
+            # Attach today's screen time
+            today_start = int(datetime.now(timezone.utc).replace(hour=0, minute=0, second=0).timestamp() * 1000)
+            latest_screen = ScreenTimeReport.query.filter_by(device_id=d.device_id)\
+                .filter(ScreenTimeReport.timestamp >= today_start)\
+                .order_by(ScreenTimeReport.id.desc()).first()
+            data['screen_time_minutes'] = latest_screen.total_minutes if latest_screen else 0
+        except Exception:
             data['screen_time_minutes'] = 0
-        # Get child user info
-        child_user = User.query.get(d.user_id) if d.user_id else None
-        if child_user:
-            data['child_name'] = child_user.display_name
-            data['child_email'] = child_user.email
+        try:
+            # Get child user info
+            child_user = User.query.filter_by(id=d.user_id).first() if d.user_id else None
+            if child_user:
+                data['child_name'] = child_user.display_name
+                data['child_email'] = child_user.email
+        except Exception:
+            pass
         result.append(data)
     return jsonify(result)
 

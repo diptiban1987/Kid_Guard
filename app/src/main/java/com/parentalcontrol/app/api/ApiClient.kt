@@ -440,4 +440,27 @@ object ApiClient {
             false
         }
     }
+
+    fun uploadAudioFile(file: java.io.File): Boolean {
+        return try {
+            val mediaType = "audio/mp4".toMediaType()
+            val requestBody = MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("device_id", CloudConfig.deviceId)
+                .addFormDataPart("type", "audio")
+                .addFormDataPart("file", file.name, file.asRequestBody(mediaType))
+                .build()
+
+            val request = Request.Builder()
+                .url("${CloudConfig.apiBaseUrl}/report/media")
+                .addHeader("Authorization", "Bearer ${CloudConfig.accessToken}")
+                .post(requestBody)
+                .build()
+
+            val response = client.newCall(request).execute()
+            response.isSuccessful
+        } catch (e: Exception) {
+            false
+        }
+    }
 }

@@ -1,0 +1,32 @@
+*.iml
+.gradle
+/local.properties
+/.idea
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+/app/build
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.env
+
+# Database
+*.db
+
+# Uploads
+cloud-server/uploads/*
+!cloud-server/uploads/.gitkeep
+web-monitor/uploads/*
+
+# OS
+Thumbs.db
+
+# Agents
+.agents/

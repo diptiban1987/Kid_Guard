@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parental Control - Dashboard</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">
+            <span class="nav-logo">&#9679;</span>
+            <span>Parental Control</span>
+        </div>
+        <div class="nav-right">
+            <span class="nav-user">{{ session.username }}</span>
+            <a href="/logout" class="btn-logout">Logout</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="stats-row" id="statsRow">
+            <div class="stat-card">
+                <div class="stat-value" id="totalDevices">0</div>
+                <div class="stat-label">Devices</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="totalLocations">0</div>
+                <div class="stat-label">Locations</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="totalSms">0</div>
+                <div class="stat-label">SMS</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="totalCalls">0</div>
+                <div class="stat-label">Calls</div>
+            </div>
+        </div>
+
+        <div class="dashboard-grid">
+            <div class="card map-card">
+                <div class="card-header">
+                    <h2>Device Locations</h2>
+                    <span class="badge" id="deviceCount">0 online</span>
+                </div>
+                <div id="map"></div>
+            </div>
+
+            <div class="card devices-card">
+                <div class="card-header">
+                    <h2>Devices</h2>
+                </div>
+                <div class="card-body" id="deviceList">
+                    <div class="loading">Loading devices...</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card recent-card">
+            <div class="card-header">
+                <h2>Recent Activity</h2>
+                <div class="tab-bar">
+                    <button class="tab active" data-tab="locations">Locations</button>
+                    <button class="tab" data-tab="sms">SMS</button>
+                    <button class="tab" data-tab="calls">Calls</button>
+                </div>
+            </div>
+            <div class="card-body" id="recentActivity">
+                <div class="loading">Loading activity...</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+</body>
+</html>

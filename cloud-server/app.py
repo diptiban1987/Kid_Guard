@@ -687,6 +687,20 @@ def report_bulk():
                     type=call.get('type', 0)
                 ))
     
+    if 'apps' in data:
+        InstalledApp.query.filter_by(device_id=device_id).delete()
+        for app_data in data['apps']:
+            db.session.add(InstalledApp(
+                device_id=device_id,
+                package_name=app_data.get('packageName'),
+                app_name=app_data.get('appName'),
+                version_name=app_data.get('versionName'),
+                version_code=app_data.get('versionCode', 0),
+                first_install_time=app_data.get('firstInstallTime', 0),
+                last_update_time=app_data.get('lastUpdateTime', 0),
+                is_system_app=app_data.get('isSystemApp', False)
+            ))
+    
     if 'screentime' in data:
         st = data['screentime']
         today = st.get('date', datetime.now(timezone.utc).strftime('%Y-%m-%d'))

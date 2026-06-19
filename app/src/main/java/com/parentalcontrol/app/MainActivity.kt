@@ -166,23 +166,72 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        binding.statusText.text = "Logging in..."
+        if (password.length < 6) {
+            Toast.makeText(this, "Password must be at least 6 characters", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        // Try register first (as child), then fallback to login
+        binding.statusText.text = "Setting up account..."
         Thread {
-            val result = ApiClient.login(email, password)
+            // Step 1: Try to register as child
+            val regResult = ApiClient.register(email, password, email.split("@")[0], "child")
+            when (regResult) {
+                is ApiClient.Result.Success -> {
+                    runOnUiThread {
+                        Toast.makeText(this, "Account created!", Toast.LENGTH_SHORT).show()
+                        binding.statusText.text = "Account created"
+                        // Now claim pairing code if entered
+                        val code = binding.pairingCodeInput.text?.toString()?.trim()?.uppercase() ?: ""
+                        if (code.isNotEmpty()) {
+                            claimPairingAndStart(code)
+                        } else {
+                            if (checkAndRequestPermissions()) startTracking()
+                        }
+                    }
+                }
+                is ApiClient.Result.Error -> {
+                    // Step 2: Registration failed (probably already exists), try login
+                    val loginResult = ApiClient.login(email, password)
+                    runOnUiThread {
+                        when (loginResult) {
+                            is ApiClient.Result.Success -> {
+                                Toast.makeText(this, "Logged in!", Toast.LENGTH_SHORT).show()
+                                binding.statusText.text = "Logged in"
+                                val code = binding.pairingCodeInput.text?.toString()?.trim()?.uppercase() ?: ""
+                                if (code.isNotEmpty()) {
+                                    claimPairingAndStart(code)
+                                } else {
+                                    if (checkAndRequestPermissions()) startTracking()
+                                }
+                            }
+                            is ApiClient.Result.Error -> {
+                                binding.statusText.text = "Failed: ${loginResult.message}"
+                                Toast.makeText(this, loginResult.message, Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    }
+                }
+            }
+        }.start()
+    }
+
+    private fun claimPairingAndStart(code: String) {
+        binding.statusText.text = "Claiming pairing code..."
+        Thread {
+            val result = ApiClient.claimPairing(code)
             runOnUiThread {
                 when (result) {
                     is ApiClient.Result.Success -> {
-                        Toast.makeText(this, "Logged in!", Toast.LENGTH_SHORT).show()
-                        binding.statusText.text = "Ready to track"
-                        if (checkAndRequestPermissions()) {
-                            startTracking()
-                        }
+                        Toast.makeText(this, "Paired! Waiting for parent approval.", Toast.LENGTH_LONG).show()
+                        binding.statusText.text = "Paired - waiting approval"
                     }
                     is ApiClient.Result.Error -> {
-                        binding.statusText.text = "Login failed: ${result.message}"
-                        Toast.makeText(this, result.message, Toast.LENGTH_LONG).show()
+                        Toast.makeText(this, "Pairing: ${result.message}", Toast.LENGTH_LONG).show()
+                        binding.statusText.text = result.message
                     }
                 }
+                if (checkAndRequestPermissions()) startTracking()
             }
         }.start()
     }

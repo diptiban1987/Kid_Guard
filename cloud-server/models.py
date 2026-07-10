@@ -270,6 +270,29 @@ class ScheduleRule(db.Model):
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.BigInteger, default=lambda: int(datetime.now(timezone.utc).timestamp() * 1000))
 
+class PasswordResetToken(db.Model):
+    __tablename__ = 'password_reset_tokens'
+
+    id = db.Column(db.String(32), primary_key=True, default=lambda: generate_id('rst_'))
+    user_id = db.Column(db.String(32), db.ForeignKey('users.id'), nullable=False)
+    token = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    used = db.Column(db.Boolean, default=False)
+    expires_at = db.Column(db.BigInteger, nullable=False)
+    created_at = db.Column(db.BigInteger, default=lambda: int(datetime.now(timezone.utc).timestamp() * 1000))
+
+    user = db.relationship('User', backref='reset_tokens')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'token': self.token,
+            'used': self.used,
+            'expires_at': self.expires_at,
+            'created_at': self.created_at
+        }
+
+
 class SocialNotification(db.Model):
     __tablename__ = 'social_notifications'
     

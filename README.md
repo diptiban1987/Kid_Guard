@@ -260,6 +260,9 @@ Flow:
 | POST | `/api/auth/login` | None | Login — returns access + refresh tokens |
 | POST | `/api/auth/refresh` | Refresh token | Get new access token |
 | GET | `/api/auth/me` | JWT | Get current user info |
+| POST | `/api/auth/forgot-password` | None | Request a password reset token (by email) |
+| POST | `/api/auth/reset-password` | None | Set a new password using a valid reset token |
+| POST | `/api/auth/forgot-username` | None | Look up masked emails by display name hint |
 
 #### Device Registration
 

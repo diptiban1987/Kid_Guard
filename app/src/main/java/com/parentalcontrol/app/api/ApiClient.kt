@@ -131,6 +131,70 @@ object ApiClient {
         }
     }
 
+    // ─── Account Recovery ──────────────────────────────────────────────
+
+    fun requestPasswordReset(email: String): Result {
+        return try {
+            val payload = JSONObject().apply { put("email", email.trim().lowercase()) }
+            val request = Request.Builder()
+                .url("${CloudConfig.apiBaseUrl}/auth/forgot-password")
+                .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .addHeader("Content-Type", "application/json")
+                .build()
+            val response = client.newCall(request).execute()
+            val body = response.body?.string() ?: "{}"
+            if (response.isSuccessful) Result.Success(JSONObject(body))
+            else Result.Error(JSONObject(body).optString("error", "Request failed"))
+        } catch (e: Exception) {
+            Result.Error(e.message ?: "Connection error")
+        }
+    }
+
+    fun resetPassword(email: String, token: String, newPassword: String): Result {
+        return try {
+            val payload = JSONObject().apply {
+                put("email", email.trim().lowercase())
+                put("token", token.trim().uppercase())
+                put("new_password", newPassword)
+            }
+            val request = Request.Builder()
+                .url("${CloudConfig.apiBaseUrl}/auth/reset-password")
+                .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .addHeader("Content-Type", "application/json")
+                .build()
+            val response = client.newCall(request).execute()
+            val body = response.body?.string() ?: "{}"
+            val json = JSONObject(body)
+            if (response.isSuccessful) {
+                CloudConfig.accessToken = json.getString("token")
+                CloudConfig.refreshToken = json.optString("refresh_token", null)
+                CloudConfig.userId = json.getJSONObject("user").getString("id")
+                CloudConfig.userEmail = json.getJSONObject("user").getString("email")
+                CloudConfig.userRole = json.getJSONObject("user").getString("role")
+                Result.Success(json)
+            } else Result.Error(json.optString("error", "Reset failed"))
+        } catch (e: Exception) {
+            Result.Error(e.message ?: "Connection error")
+        }
+    }
+
+    fun lookupUsername(displayNameHint: String): Result {
+        return try {
+            val payload = JSONObject().apply { put("display_name", displayNameHint.trim()) }
+            val request = Request.Builder()
+                .url("${CloudConfig.apiBaseUrl}/auth/forgot-username")
+                .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .addHeader("Content-Type", "application/json")
+                .build()
+            val response = client.newCall(request).execute()
+            val body = response.body?.string() ?: "{}"
+            if (response.isSuccessful) Result.Success(JSONObject(body))
+            else Result.Error(JSONObject(body).optString("error", "Lookup failed"))
+        } catch (e: Exception) {
+            Result.Error(e.message ?: "Connection error")
+        }
+    }
+
     // ─── Pairing ────────────────────────────────────────────────────────
 
     fun claimPairing(code: String): Result {

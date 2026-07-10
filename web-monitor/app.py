@@ -2,6 +2,8 @@ import json
 import sqlite3
 import hashlib
 import os
+import random
+import string
 from datetime import datetime
 from functools import wraps
 
@@ -33,6 +35,18 @@ def init_db():
             password_hash TEXT NOT NULL,
             created_at INTEGER NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS reset_tokens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            token TEXT UNIQUE NOT NULL,
+            used INTEGER DEFAULT 0,
+            expires_at INTEGER NOT NULL,
+            created_at INTEGER INTEGER NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_reset_tokens_token ON reset_tokens(token);
 
         CREATE TABLE IF NOT EXISTS devices (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -175,6 +189,181 @@ def login():
         return render_template('login.html', error="Invalid credentials")
 
     return render_template('login.html')
+
+
+def _generate_reset_token():
+    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+
+
+def _mask_username(username):
+    """Mask username for safe display: a****123"""
+    if not username or len(username) < 3:
+        return username
+    return username[0] + '*' * (len(username) - 2) + username[-1]
+
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        username = (request.form.get('username') or '').strip()
+        password = request.form.get('password') or ''
+
+        if not username or not password:
+            return render_template('login.html', reg_error="Username and password are required",
+                                   active_tab='register')
+        if len(password) < 6:
+            return render_template('login.html', reg_error="Password must be at least 6 characters",
+                                   active_tab='register')
+
+        conn = get_db()
+        existing = conn.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()
+        if existing:
+            conn.close()
+            return render_template('login.html', reg_error="Username already taken",
+                                   active_tab='register')
+
+        pw_hash = hashlib.sha256(password.encode()).hexdigest()
+        conn.execute(
+            "INSERT INTO users (username, password_hash, created_at) VALUES (?, ?, ?)",
+            (username, pw_hash, int(datetime.now().timestamp() * 1000))
+        )
+        conn.commit()
+
+        # Auto-login after register
+        user = conn.execute(
+            "SELECT id, username FROM users WHERE username = ?", (username,)
+        ).fetchone()
+        conn.close()
+
+        if user:
+            session['user_id'] = user['id']
+            session['username'] = user['username']
+            return redirect(url_for('dashboard'))
+        return redirect(url_for('login'))
+
+    return render_template('login.html', active_tab='register')
+
+
+@app.route('/forgot-password', methods=['GET'])
+def forgot_password_form():
+    return render_template('login.html', active_tab='forgot_password')
+
+
+@app.route('/forgot-password/request', methods=['POST'])
+def forgot_password_request():
+    """Generate a reset token and display it inline (no SMTP configured)."""
+    username = (request.form.get('username') or '').strip()
+    if not username:
+        return render_template('login.html',
+                               fp_error="Enter your username",
+                               active_tab='forgot_password')
+
+    conn = get_db()
+    user = conn.execute("SELECT id, username FROM users WHERE username = ?", (username,)).fetchone()
+
+    if not user:
+        # Generic message — do not leak which usernames exist
+        conn.close()
+        return render_template('login.html',
+                               fp_error="If that username exists, a reset token has been issued. If not, contact an admin.",
+                               active_tab='forgot_password')
+
+    # Invalidate any unused previous tokens for this user
+    conn.execute("UPDATE reset_tokens SET used = 1 WHERE user_id = ? AND used = 0", (user['id'],))
+
+    token = _generate_reset_token()
+    expires_at = int(datetime.now().timestamp() * 1000) + 30 * 60 * 1000  # 30 min
+    conn.execute(
+        "INSERT INTO reset_tokens (user_id, token, used, expires_at, created_at) VALUES (?, ?, 0, ?, ?)",
+        (user['id'], token, expires_at, int(datetime.now().timestamp() * 1000))
+    )
+    conn.commit()
+    conn.close()
+
+    # No SMTP in this project — show token inline
+    return render_template('login.html',
+                           fp_token=token,
+                           fp_username_masked=_mask_username(user['username']),
+                           active_tab='forgot_password')
+
+
+@app.route('/forgot-password/reset', methods=['POST'])
+def forgot_password_reset():
+    """Reset a password using a valid token."""
+    username = (request.form.get('username') or '').strip()
+    token = (request.form.get('token') or '').strip().upper()
+    new_password = request.form.get('new_password') or ''
+
+    if not username or not token or not new_password:
+        return render_template('login.html',
+                               fp_error="Username, token, and new password are all required",
+                               active_tab='forgot_password')
+    if len(new_password) < 6:
+        return render_template('login.html',
+                               fp_error="New password must be at least 6 characters",
+                               active_tab='forgot_password')
+
+    conn = get_db()
+    user = conn.execute("SELECT id, username FROM users WHERE username = ?", (username,)).fetchone()
+    if not user:
+        conn.close()
+        return render_template('login.html',
+                               fp_error="Invalid or expired token",
+                               active_tab='forgot_password')
+
+    reset = conn.execute(
+        "SELECT id, used, expires_at FROM reset_tokens WHERE user_id = ? AND token = ? ORDER BY created_at DESC LIMIT 1",
+        (user['id'], token)
+    ).fetchone()
+
+    now_ms = int(datetime.now().timestamp() * 1000)
+    if not reset or reset['used'] == 1 or reset['expires_at'] < now_ms:
+        if reset and reset['expires_at'] < now_ms:
+            conn.execute("UPDATE reset_tokens SET used = 1 WHERE id = ?", (reset['id'],))
+            conn.commit()
+        conn.close()
+        return render_template('login.html',
+                               fp_error="Invalid or expired token. Please request a new one.",
+                               active_tab='forgot_password')
+
+    pw_hash = hashlib.sha256(new_password.encode()).hexdigest()
+    conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (pw_hash, user['id']))
+    conn.execute("UPDATE reset_tokens SET used = 1 WHERE id = ?", (reset['id'],))
+    conn.commit()
+    conn.close()
+
+    # Auto-login after reset
+    session['user_id'] = user['id']
+    session['username'] = user['username']
+    return redirect(url_for('dashboard'))
+
+
+@app.route('/forgot-username', methods=['GET'])
+def forgot_username_form():
+    return render_template('login.html', active_tab='forgot_username')
+
+
+@app.route('/forgot-username/lookup', methods=['POST'])
+def forgot_username_lookup():
+    """Find accounts whose username contains the given hint. Returns masked usernames."""
+    hint = (request.form.get('hint') or '').strip()
+    if not hint or len(hint) < 2:
+        return render_template('login.html',
+                               fu_error="Enter at least 2 characters to search",
+                               active_tab='forgot_username')
+
+    conn = get_db()
+    users = conn.execute(
+        "SELECT username, created_at FROM users WHERE username LIKE ? LIMIT 10",
+        (f"%{hint}%",)
+    ).fetchall()
+    conn.close()
+
+    accounts = [{"username_masked": _mask_username(u['username']), "created_at": u['created_at']} for u in users]
+    return render_template('login.html',
+                           fu_accounts=accounts,
+                           active_tab='forgot_username')
+
 
 @app.route('/logout')
 def logout():

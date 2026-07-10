@@ -1,4 +1,4 @@
-import os, json, hashlib, uuid, hmac, base64, time
+import os, json, hashlib, uuid, hmac, base64, time, random
 from datetime import datetime, timezone, timedelta
 from functools import wraps
 
@@ -22,7 +22,7 @@ from config import Config
 from models import db, User, ChildRelation, Device, LocationReport, ActivityReport, \
     BatteryReport, ScreenTimeReport, SmsMessage, CallLog, InstalledApp, MediaFile, \
     WebHistory, Geofence, GeofenceEvent, RemoteCommand, AppRestriction, ScheduleRule, \
-    SocialNotification, generate_pairing_code
+    SocialNotification, PasswordResetToken, generate_pairing_code
 
 load_dotenv()
 
@@ -159,6 +159,122 @@ def get_me():
     if not user:
         return jsonify({'error': 'User not found'}), 404
     return jsonify({'user': user.to_dict()})
+
+@app.route('/api/auth/forgot-password', methods=['POST'])
+def forgot_password():
+    """Request a password reset token. Returns the token (for display / dev use,
+    since this project has no SMTP configured). The client should prompt the
+    user to enter the token shown/known to them to set a new password."""
+    data = request.get_json() or {}
+    email = data.get('email', '').strip().lower()
+    if not email:
+        return jsonify({'error': 'Email is required'}), 400
+
+    user = User.query.filter_by(email=email).first()
+    # Generic response to avoid leaking which emails are registered
+    if not user:
+        return jsonify({'message': 'If that email exists, a reset token has been issued.',
+                        'token': None}), 200
+
+    # Invalidate any unused previous tokens for this user
+    PasswordResetToken.query.filter_by(user_id=user.id, used=False).update({'used': True})
+
+    # Generate a short, human-friendly token (8 chars, uppercase + digits)
+    import string as _string
+    token = ''.join(random.choices(_string.ascii_uppercase + _string.digits, k=8))
+    ttl_ms = 30 * 60 * 1000  # 30 minutes
+    reset = PasswordResetToken(
+        user_id=user.id,
+        token=token,
+        expires_at=int(datetime.now(timezone.utc).timestamp() * 1000) + ttl_ms
+    )
+    db.session.add(reset)
+    db.session.commit()
+
+    # No SMTP configured in this project, so we return the token directly.
+    # In production, you would email it and NOT return it here.
+    return jsonify({
+        'message': 'Reset token generated. Use it to set a new password.',
+        'token': token,                        # remove in prod when SMTP is wired
+        'expires_in_seconds': 1800,
+        'email_masked': _mask_email(user.email)
+    }), 200
+
+@app.route('/api/auth/reset-password', methods=['POST'])
+def reset_password():
+    """Set a new password using a valid reset token."""
+    data = request.get_json() or {}
+    email = data.get('email', '').strip().lower()
+    token = data.get('token', '').strip().upper()
+    new_password = data.get('new_password', '')
+
+    if not email or not token or not new_password:
+        return jsonify({'error': 'Email, token, and new_password are required'}), 400
+    if len(new_password) < 6:
+        return jsonify({'error': 'New password must be at least 6 characters'}), 400
+
+    user = User.query.filter_by(email=email).first()
+    if not user:
+        return jsonify({'error': 'Invalid or expired token'}), 400
+
+    reset = PasswordResetToken.query.filter_by(
+        user_id=user.id, token=token, used=False
+    ).order_by(PasswordResetToken.created_at.desc()).first()
+
+    if not reset:
+        return jsonify({'error': 'Invalid or expired token'}), 400
+    if reset.expires_at < int(datetime.now(timezone.utc).timestamp() * 1000):
+        reset.used = True
+        db.session.commit()
+        return jsonify({'error': 'Token has expired. Please request a new one.'}), 400
+
+    user.password_hash = hash_password(new_password)
+    reset.used = True
+    db.session.commit()
+
+    # Issue fresh tokens so the user is logged in immediately
+    access_token = create_access_token(identity=user.id)
+    refresh_token = create_refresh_token(identity=user.id)
+    return jsonify({
+        'message': 'Password updated successfully',
+        'token': access_token,
+        'refresh_token': refresh_token,
+        'user': user.to_dict()
+    }), 200
+
+@app.route('/api/auth/forgot-username', methods=['POST'])
+def forgot_username():
+    """Lookup helper for users who forgot their email/username.
+    Accepts a display_name hint and returns all matching emails (masked)
+    so the user can identify theirs."""
+    data = request.get_json() or {}
+    name_hint = data.get('display_name', '').strip().lower()
+    if not name_hint or len(name_hint) < 2:
+        return jsonify({'error': 'display_name hint (min 2 chars) is required'}), 400
+
+    users = User.query.filter(
+        User.display_name.ilike(f'%{name_hint}%')
+    ).limit(10).all()
+
+    if not users:
+        return jsonify({'message': 'No matching accounts found', 'accounts': []}), 200
+
+    accounts = [{
+        'email_masked': _mask_email(u.email),
+        'display_name': u.display_name,
+        'role': u.role
+    } for u in users]
+    return jsonify({'message': 'Matching accounts', 'accounts': accounts}), 200
+
+
+def _mask_email(email):
+    """Mask an email for safe display: a***@example.com"""
+    if not email or '@' not in email:
+        return email
+    local, domain = email.split('@', 1)
+    if len(local) <= 2:
+        return local[0] + '*' + '@' + domain
+    return local[0] + '*' * (len(local) - 2) + local[-1] + '@' + domain
 
 # ─── Parent-Child Pairing ─────────────────────────────────────────────────
 

@@ -152,6 +152,9 @@ The Android app connects to the cloud server. After deployment:
 | POST | /api/auth/register | Create account |
 | POST | /api/auth/login | Login |
 | GET | /api/auth/me | Get user profile |
+| POST | /api/auth/forgot-password | Request password reset token |
+| POST | /api/auth/reset-password | Set new password with token |
+| POST | /api/auth/forgot-username | Find account by display name |
 | POST | /api/pairing/generate | Generate pairing code |
 | POST | /api/pairing/claim | Claim pairing code |
 | POST | /api/device/register | Register Android device |

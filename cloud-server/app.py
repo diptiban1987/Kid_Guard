@@ -382,12 +382,10 @@ def claim_pairing():
 def claim_pairing_direct():
     data = request.get_json()
     code = data.get('pairing_code', '').strip().upper()
-    email = data.get('email', '').strip().lower()
-    password = data.get('password', '')
     device_id = data.get('device_id', '')
 
-    if not code or not email or not password:
-        return jsonify({'error': 'pairing_code, email, and password required'}), 400
+    if not code:
+        return jsonify({'error': 'pairing_code required'}), 400
 
     pairing = ChildRelation.query.filter_by(
         pairing_code=code, child_id='pending', is_active=False
@@ -396,20 +394,18 @@ def claim_pairing_direct():
     if not pairing:
         return jsonify({'error': 'Invalid or expired pairing code'}), 404
 
-    # Create child account with unique email to avoid conflicts
-    child_email = f"child_{device_id or email.split('@')[0]}@kidguard.local"
-    existing = User.query.filter_by(email=child_email).first()
-    if existing:
-        child = existing
-    else:
-        child = User(
-            email=child_email,
-            password_hash=hash_password(password),
-            display_name=f"Child ({device_id})",
-            role='child'
-        )
-        db.session.add(child)
-        db.session.commit()
+    # Auto-create child account
+    child_email = f"child_{device_id}_{int(datetime.now(timezone.utc).timestamp())}@kidguard.local"
+    child_password = f"pair_{code}_{device_id}"
+
+    child = User(
+        email=child_email,
+        password_hash=hash_password(child_password),
+        display_name=f"Child ({device_id})",
+        role='child'
+    )
+    db.session.add(child)
+    db.session.commit()
 
     # Link child to parent
     pairing.child_id = child.id

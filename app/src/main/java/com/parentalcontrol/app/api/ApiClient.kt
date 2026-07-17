@@ -213,12 +213,10 @@ object ApiClient {
         }
     }
 
-    fun claimPairingDirect(code: String, email: String, password: String, deviceId: String): Result {
+    fun claimPairingDirect(code: String, deviceId: String): Result {
         return try {
             val payload = JSONObject().apply {
                 put("pairing_code", code)
-                put("email", email)
-                put("password", password)
                 put("device_id", deviceId)
             }
             val request = Request.Builder()

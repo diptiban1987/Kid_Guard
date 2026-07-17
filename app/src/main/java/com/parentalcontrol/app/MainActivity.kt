@@ -200,33 +200,23 @@ class MainActivity : AppCompatActivity() {
         }
 
         val serverUrl = binding.serverUrlInput.text?.toString()?.trim() ?: ""
-        val email = binding.emailInput.text?.toString()?.trim() ?: ""
-        val password = binding.passwordInput.text?.toString() ?: ""
-
-        if (email.isEmpty() || password.isEmpty()) {
-            // If not logged in and no credentials, show server config
-            if (!CloudConfig.isLoggedIn) {
-                showRegistrationChoice()
-            }
-            return
-        }
-
-        if (password.length < 6) {
-            Toast.makeText(this, "Password must be at least 6 characters", Toast.LENGTH_LONG).show()
-            return
-        }
+        val pairingCode = binding.pairingCodeInput.text?.toString()?.trim()?.uppercase() ?: ""
 
         if (serverUrl.isNotEmpty()) {
             CloudConfig.serverUrl = serverUrl.removeSuffix("/")
         }
 
-        val pairingCode = binding.pairingCodeInput.text?.toString()?.trim()?.uppercase() ?: ""
+        if (pairingCode.isEmpty()) {
+            if (!CloudConfig.isLoggedIn) {
+                binding.statusText.text = "Enter pairing code from parent dashboard"
+            }
+            return
+        }
 
-        if (pairingCode.isNotEmpty()) {
-            // Direct pairing flow — no separate register/login needed
-            binding.statusText.text = "Pairing device..."
-            Thread {
-                val result = ApiClient.claimPairingDirect(pairingCode, email, password, CloudConfig.deviceId)
+        // Direct pairing flow — no separate register/login needed
+        binding.statusText.text = "Pairing device..."
+        Thread {
+            val result = ApiClient.claimPairingDirect(pairingCode, CloudConfig.deviceId)
                 runOnUiThread {
                     when (result) {
                         is ApiClient.Result.Success -> {
@@ -241,11 +231,6 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }.start()
-        } else {
-            // No pairing code — just save server URL
-            binding.statusText.text = "Enter pairing code to connect"
-            Toast.makeText(this, "Enter a pairing code from the parent dashboard", Toast.LENGTH_LONG).show()
-        }
     }
 
     private fun claimPairingAndStart(code: String) {
@@ -291,7 +276,7 @@ class MainActivity : AppCompatActivity() {
 
         binding.statusText.text = "Pairing device..."
         Thread {
-            val result = ApiClient.claimPairingDirect(pairingCode, email, password, CloudConfig.deviceId)
+            val result = ApiClient.claimPairingDirect(pairingCode, CloudConfig.deviceId)
             runOnUiThread {
                 when (result) {
                     is ApiClient.Result.Success -> {
@@ -864,12 +849,12 @@ class MainActivity : AppCompatActivity() {
             binding.pairingCodeInput.visibility = android.view.View.GONE
             binding.logoutButton.visibility = android.view.View.VISIBLE
         } else {
-            binding.statusText.text = "Not logged in - enter credentials"
+            binding.statusText.text = "Enter pairing code to connect"
             binding.startTrackingButton.isEnabled = true
             binding.stopTrackingButton.isEnabled = false
             binding.serverUrlInput.visibility = android.view.View.VISIBLE
-            binding.emailInput.visibility = android.view.View.VISIBLE
-            binding.passwordInput.visibility = android.view.View.VISIBLE
+            binding.emailInput.visibility = android.view.View.GONE
+            binding.passwordInput.visibility = android.view.View.GONE
             binding.pairingCodeInput.visibility = android.view.View.VISIBLE
             binding.logoutButton.visibility = android.view.View.GONE
         }

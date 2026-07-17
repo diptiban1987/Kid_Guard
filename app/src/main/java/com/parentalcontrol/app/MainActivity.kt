@@ -220,49 +220,32 @@ class MainActivity : AppCompatActivity() {
             CloudConfig.serverUrl = serverUrl.removeSuffix("/")
         }
 
-        // Try register first (as child), then fallback to login
-        binding.statusText.text = "Setting up account..."
-        Thread {
-            // Step 1: Try to register as child
-            val regResult = ApiClient.register(email, password, email.split("@")[0], "child")
-            when (regResult) {
-                is ApiClient.Result.Success -> {
-                    runOnUiThread {
-                        Toast.makeText(this, "Account created!", Toast.LENGTH_SHORT).show()
-                        binding.statusText.text = "Account created"
-                        // Now claim pairing code if entered
-                        val code = binding.pairingCodeInput.text?.toString()?.trim()?.uppercase() ?: ""
-                        if (code.isNotEmpty()) {
-                            claimPairingAndStart(code)
-                        } else {
+        val pairingCode = binding.pairingCodeInput.text?.toString()?.trim()?.uppercase() ?: ""
+
+        if (pairingCode.isNotEmpty()) {
+            // Direct pairing flow — no separate register/login needed
+            binding.statusText.text = "Pairing device..."
+            Thread {
+                val result = ApiClient.claimPairingDirect(pairingCode, email, password, CloudConfig.deviceId)
+                runOnUiThread {
+                    when (result) {
+                        is ApiClient.Result.Success -> {
+                            Toast.makeText(this, "Paired! Waiting for parent approval.", Toast.LENGTH_LONG).show()
+                            binding.statusText.text = "Paired - waiting approval"
                             if (checkAndRequestPermissions()) startTracking()
                         }
-                    }
-                }
-                is ApiClient.Result.Error -> {
-                    // Step 2: Registration failed (probably already exists), try login
-                    val loginResult = ApiClient.login(email, password, "child")
-                    runOnUiThread {
-                        when (loginResult) {
-                            is ApiClient.Result.Success -> {
-                                Toast.makeText(this, "Logged in!", Toast.LENGTH_SHORT).show()
-                                binding.statusText.text = "Logged in"
-                                val code = binding.pairingCodeInput.text?.toString()?.trim()?.uppercase() ?: ""
-                                if (code.isNotEmpty()) {
-                                    claimPairingAndStart(code)
-                                } else {
-                                    if (checkAndRequestPermissions()) startTracking()
-                                }
-                            }
-                            is ApiClient.Result.Error -> {
-                                binding.statusText.text = "Failed: ${loginResult.message}"
-                                Toast.makeText(this, loginResult.message, Toast.LENGTH_LONG).show()
-                            }
+                        is ApiClient.Result.Error -> {
+                            binding.statusText.text = "Failed: ${result.message}"
+                            Toast.makeText(this, result.message, Toast.LENGTH_LONG).show()
                         }
                     }
                 }
-            }
-        }.start()
+            }.start()
+        } else {
+            // No pairing code — just save server URL
+            binding.statusText.text = "Enter pairing code to connect"
+            Toast.makeText(this, "Enter a pairing code from the parent dashboard", Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun claimPairingAndStart(code: String) {
@@ -296,39 +279,29 @@ class MainActivity : AppCompatActivity() {
         val email = binding.emailInput.text?.toString()?.trim() ?: ""
         val password = binding.passwordInput.text?.toString() ?: ""
 
-        if (email.isEmpty() || password.length < 6) {
-            Toast.makeText(this, "Enter email and password (min 6 chars)", Toast.LENGTH_LONG).show()
-            return
-        }
-
         if (serverUrl.isNotEmpty()) {
             CloudConfig.serverUrl = serverUrl.removeSuffix("/")
         }
 
-        // Try register as child
-        binding.statusText.text = "Creating account..."
+        val pairingCode = binding.pairingCodeInput.text?.toString()?.trim()?.uppercase() ?: ""
+        if (pairingCode.isEmpty()) {
+            Toast.makeText(this, "Enter pairing code from parent dashboard", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        binding.statusText.text = "Pairing device..."
         Thread {
-            val result = ApiClient.register(email, password, email.split("@")[0], "child")
+            val result = ApiClient.claimPairingDirect(pairingCode, email, password, CloudConfig.deviceId)
             runOnUiThread {
                 when (result) {
                     is ApiClient.Result.Success -> {
-                        Toast.makeText(this, "Account created!", Toast.LENGTH_SHORT).show()
-                        showPairingDialog()
+                        Toast.makeText(this, "Paired! Waiting for parent approval.", Toast.LENGTH_SHORT).show()
+                        binding.statusText.text = "Paired - waiting approval"
+                        if (checkAndRequestPermissions()) startTracking()
                     }
                     is ApiClient.Result.Error -> {
-                        // If already exists, try login
                         binding.statusText.text = result.message
-                        val loginResult = ApiClient.login(email, password, "child")
-                        when (loginResult) {
-                            is ApiClient.Result.Success -> {
-                                Toast.makeText(this, "Logged in!", Toast.LENGTH_SHORT).show()
-                                if (checkAndRequestPermissions()) startTracking()
-                            }
-                            is ApiClient.Result.Error -> {
-                                binding.statusText.text = loginResult.message
-                                Toast.makeText(this, loginResult.message, Toast.LENGTH_LONG).show()
-                            }
-                        }
+                        Toast.makeText(this, result.message, Toast.LENGTH_LONG).show()
                     }
                 }
             }

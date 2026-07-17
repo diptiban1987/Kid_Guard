@@ -377,6 +377,55 @@ def claim_pairing():
             'pairing_id': pairing.id
         })
 
+
+@app.route('/api/pairing/claim-direct', methods=['POST'])
+def claim_pairing_direct():
+    data = request.get_json()
+    code = data.get('pairing_code', '').strip().upper()
+    email = data.get('email', '').strip().lower()
+    password = data.get('password', '')
+    device_id = data.get('device_id', '')
+
+    if not code or not email or not password:
+        return jsonify({'error': 'pairing_code, email, and password required'}), 400
+
+    pairing = ChildRelation.query.filter_by(
+        pairing_code=code, child_id='pending', is_active=False
+    ).first()
+
+    if not pairing:
+        return jsonify({'error': 'Invalid or expired pairing code'}), 404
+
+    # Create child account with unique email to avoid conflicts
+    child_email = f"child_{device_id or email.split('@')[0]}@kidguard.local"
+    existing = User.query.filter_by(email=child_email).first()
+    if existing:
+        child = existing
+    else:
+        child = User(
+            email=child_email,
+            password_hash=hash_password(password),
+            display_name=f"Child ({device_id})",
+            role='child'
+        )
+        db.session.add(child)
+        db.session.commit()
+
+    # Link child to parent
+    pairing.child_id = child.id
+    db.session.commit()
+
+    access_token = create_access_token(identity=child.id)
+    refresh_token = create_refresh_token(identity=child.id)
+
+    return jsonify({
+        'token': access_token,
+        'refresh_token': refresh_token,
+        'user': child.to_dict(),
+        'pairing_id': pairing.id,
+        'message': 'Account created and paired. Waiting for parent approval.'
+    }), 201
+
 @app.route('/api/pairing/pending', methods=['GET'])
 @parent_required
 def get_pending_pairings():

@@ -213,6 +213,37 @@ object ApiClient {
         }
     }
 
+    fun claimPairingDirect(code: String, email: String, password: String, deviceId: String): Result {
+        return try {
+            val payload = JSONObject().apply {
+                put("pairing_code", code)
+                put("email", email)
+                put("password", password)
+                put("device_id", deviceId)
+            }
+            val request = Request.Builder()
+                .url("${CloudConfig.apiBaseUrl}/pairing/claim-direct")
+                .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .addHeader("Content-Type", "application/json")
+                .build()
+            val response = client.newCall(request).execute()
+            val body = response.body?.string() ?: "{}"
+            if (response.isSuccessful) {
+                val json = JSONObject(body)
+                CloudConfig.accessToken = json.getString("token")
+                CloudConfig.refreshToken = json.optString("refresh_token", null)
+                CloudConfig.userId = json.getJSONObject("user").getString("id")
+                CloudConfig.userEmail = json.getJSONObject("user").getString("email")
+                CloudConfig.userRole = json.getJSONObject("user").getString("role")
+                Result.Success(json)
+            } else {
+                Result.Error(JSONObject(body).optString("error", "Pairing failed"))
+            }
+        } catch (e: Exception) {
+            Result.Error(e.message ?: "Connection error")
+        }
+    }
+
     // ─── Device Registration ────────────────────────────────────────────
 
     fun registerDevice(deviceInfo: DeviceInfo): Result {

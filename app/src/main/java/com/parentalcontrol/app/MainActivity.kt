@@ -756,13 +756,9 @@ class MainActivity : AppCompatActivity() {
 
         needed.add(Manifest.permission.ACCESS_FINE_LOCATION)
         needed.add(Manifest.permission.ACCESS_COARSE_LOCATION)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            needed.add(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
-        }
         needed.add(Manifest.permission.POST_NOTIFICATIONS)
         needed.add(Manifest.permission.READ_SMS)
         needed.add(Manifest.permission.READ_CALL_LOG)
-        needed.add(Manifest.permission.FOREGROUND_SERVICE)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             needed.add(Manifest.permission.POST_NOTIFICATIONS)
         }
@@ -774,6 +770,18 @@ class MainActivity : AppCompatActivity() {
         if (ungranted.isNotEmpty()) {
             requestPermissionLauncher.launch(ungranted.toTypedArray())
             return false
+        }
+
+        // Request background location separately (cannot be auto-granted)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_BACKGROUND_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                try {
+                    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                    intent.data = Uri.parse("package:$packageName")
+                    startActivity(intent)
+                    Toast.makeText(this, "Please enable 'Allow all the time' for Location", Toast.LENGTH_LONG).show()
+                } catch (e: Exception) {}
+            }
         }
 
         // Battery optimization - ask via launcher so we get a callback

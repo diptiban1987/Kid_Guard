@@ -35,7 +35,14 @@ object AutoConnectManager {
                 return saved
             }
 
-            // Priority 2: Production domain (if set)
+            // Priority 2: Cloud server
+            if (pingServer(CloudConfig.CLOUD_SERVER)) {
+                CloudConfig.serverUrl = CloudConfig.CLOUD_SERVER
+                Log.d(TAG, "Found cloud server: ${CloudConfig.CLOUD_SERVER}")
+                return CloudConfig.CLOUD_SERVER
+            }
+
+            // Priority 3: Production domain (if set)
             if (PRODUCTION_DOMAIN.isNotEmpty()) {
                 val prodUrl = "https://$PRODUCTION_DOMAIN"
                 if (pingServer(prodUrl)) {
@@ -44,7 +51,7 @@ object AutoConnectManager {
                 }
             }
 
-            // Priority 3: BuildConfig default
+            // Priority 4: BuildConfig default (local server)
             val buildUrl = BuildConfig.SERVER_URL
             if (pingServer(buildUrl)) {
                 CloudConfig.serverUrl = buildUrl
@@ -52,7 +59,7 @@ object AutoConnectManager {
                 return buildUrl
             }
 
-            // Priority 4: Scan local network
+            // Priority 5: Scan local network
             val subnet = getDeviceSubnet() ?: run {
                 Log.d(TAG, "No WiFi subnet found")
                 return@run null

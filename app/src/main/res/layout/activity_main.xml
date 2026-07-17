@@ -172,8 +172,23 @@
             android:contentDescription="Settings"
             android:layout_marginTop="16dp"
             app:layout_constraintTop_toBottomOf="@id/openDashboardButton"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintStart_toStartOf="parent" />
+            app:layout_constraintEnd_toStartOf="@id/logoutButton"
+            app:layout_constraintHorizontal_chainStyle="packed" />
+
+        <Button
+            android:id="@+id/logoutButton"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:text="Reset Account"
+            android:textSize="12sp"
+            android:textAllCaps="false"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_marginTop="16dp"
+            android:visibility="gone"
+            app:cornerRadius="8dp"
+            app:layout_constraintTop_toBottomOf="@id/openDashboardButton"
+            app:layout_constraintStart_toEndOf="@id/settingsButton"
+            app:layout_constraintEnd_toEndOf="parent" />
 
         <TextView
             android:id="@+id/infoText"

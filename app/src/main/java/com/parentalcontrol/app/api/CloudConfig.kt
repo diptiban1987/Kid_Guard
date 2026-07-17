@@ -17,6 +17,7 @@ object CloudConfig {
     private const val KEY_DEVICE_ID = "device_id"
     private const val KEY_STEALTH_MODE = "stealth_mode"
     const val DEFAULT_SERVER = BuildConfig.SERVER_URL
+    const val CLOUD_SERVER = "https://diptiban2021.pythonanywhere.com"
 
     const val SERVER_TYPE_AUTO = "auto"
     const val SERVER_TYPE_CLOUD = "cloud"

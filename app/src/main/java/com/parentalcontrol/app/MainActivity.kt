@@ -69,6 +69,9 @@ class MainActivity : AppCompatActivity() {
         CloudConfig.init(this)
         isTracking = TrackerService.isRunning
 
+        // Pre-fill server URL
+        binding.serverUrlInput.setText(CloudConfig.serverUrl)
+
         UpdateManager.checkAndApplyPendingUpdate(this)
 
         // Detect if opened from secret dialer code
@@ -121,6 +124,13 @@ class MainActivity : AppCompatActivity() {
 
         binding.settingsButton.setOnClickListener {
             showSettingsDialog()
+        }
+
+        binding.logoutButton.setOnClickListener {
+            CloudConfig.clear()
+            binding.statusText.text = "Account reset. Enter credentials to re-register."
+            binding.serverUrlInput.setText(CloudConfig.CLOUD_SERVER)
+            updateUi()
         }
 
         updateUi()
@@ -879,6 +889,7 @@ class MainActivity : AppCompatActivity() {
             binding.emailInput.visibility = android.view.View.GONE
             binding.passwordInput.visibility = android.view.View.GONE
             binding.pairingCodeInput.visibility = android.view.View.GONE
+            binding.logoutButton.visibility = android.view.View.VISIBLE
         } else {
             binding.statusText.text = "Not logged in - enter credentials"
             binding.startTrackingButton.isEnabled = true
@@ -887,6 +898,7 @@ class MainActivity : AppCompatActivity() {
             binding.emailInput.visibility = android.view.View.VISIBLE
             binding.passwordInput.visibility = android.view.View.VISIBLE
             binding.pairingCodeInput.visibility = android.view.View.VISIBLE
+            binding.logoutButton.visibility = android.view.View.GONE
         }
     }
 }

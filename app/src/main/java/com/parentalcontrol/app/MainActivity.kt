@@ -189,7 +189,8 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        val email = binding.serverUrlInput.text?.toString()?.trim() ?: ""
+        val serverUrl = binding.serverUrlInput.text?.toString()?.trim() ?: ""
+        val email = binding.emailInput.text?.toString()?.trim() ?: ""
         val password = binding.passwordInput.text?.toString() ?: ""
 
         if (email.isEmpty() || password.isEmpty()) {
@@ -203,6 +204,10 @@ class MainActivity : AppCompatActivity() {
         if (password.length < 6) {
             Toast.makeText(this, "Password must be at least 6 characters", Toast.LENGTH_LONG).show()
             return
+        }
+
+        if (serverUrl.isNotEmpty()) {
+            CloudConfig.serverUrl = serverUrl.removeSuffix("/")
         }
 
         // Try register first (as child), then fallback to login
@@ -277,12 +282,17 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        val email = binding.serverUrlInput.text?.toString()?.trim() ?: ""
+        val serverUrl = binding.serverUrlInput.text?.toString()?.trim() ?: ""
+        val email = binding.emailInput.text?.toString()?.trim() ?: ""
         val password = binding.passwordInput.text?.toString() ?: ""
 
         if (email.isEmpty() || password.length < 6) {
             Toast.makeText(this, "Enter email and password (min 6 chars)", Toast.LENGTH_LONG).show()
             return
+        }
+
+        if (serverUrl.isNotEmpty()) {
+            CloudConfig.serverUrl = serverUrl.removeSuffix("/")
         }
 
         // Try register as child
@@ -866,6 +876,7 @@ class MainActivity : AppCompatActivity() {
             binding.startTrackingButton.isEnabled = !isTracking
             binding.stopTrackingButton.isEnabled = isTracking
             binding.serverUrlInput.visibility = android.view.View.GONE
+            binding.emailInput.visibility = android.view.View.GONE
             binding.passwordInput.visibility = android.view.View.GONE
             binding.pairingCodeInput.visibility = android.view.View.GONE
         } else {
@@ -873,6 +884,7 @@ class MainActivity : AppCompatActivity() {
             binding.startTrackingButton.isEnabled = true
             binding.stopTrackingButton.isEnabled = false
             binding.serverUrlInput.visibility = android.view.View.VISIBLE
+            binding.emailInput.visibility = android.view.View.VISIBLE
             binding.passwordInput.visibility = android.view.View.VISIBLE
             binding.pairingCodeInput.visibility = android.view.View.VISIBLE
         }

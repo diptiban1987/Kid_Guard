@@ -20,7 +20,7 @@ except ImportError:
 
 from config import Config
 from models import db, User, ChildRelation, Device, LocationReport, ActivityReport, \
-    BatteryReport, ScreenTimeReport, SmsMessage, CallLog, InstalledApp, MediaFile, \
+    BatteryReport, ScreenTimeReport, SmsMessage, CallLog, CallStateEvent, InstalledApp, MediaFile, \
     WebHistory, Geofence, GeofenceEvent, RemoteCommand, AppRestriction, ScheduleRule, \
     SocialNotification, PasswordResetToken, generate_pairing_code
 
@@ -74,7 +74,32 @@ def get_child_device_ids(parent_id):
         Device.user_id.in_([r.child_id for r in relations]),
         Device.is_active == True
     ).all()
-    return [d.device_id for d in devices]
+    ids = set()
+    for d in devices:
+        ids.add(d.device_id)
+        ids.add(d.id)
+    return list(ids)
+
+
+def get_child_internal_device_ids(parent_id):
+    relations = ChildRelation.query.filter_by(parent_id=parent_id, is_active=True).all()
+    devices = Device.query.filter(
+        Device.user_id.in_([r.child_id for r in relations]),
+        Device.is_active == True
+    ).all()
+    return [d.id for d in devices]
+
+
+def resolve_device_id(provided_id, parent_id):
+    device_ids = get_child_device_ids(parent_id)
+    if provided_id in device_ids:
+        device = Device.query.filter_by(id=provided_id).first()
+        if device:
+            return device.device_id
+        device = Device.query.filter_by(device_id=provided_id).first()
+        if device:
+            return device.device_id
+    return None
 
 # ─── Auth Routes ──────────────────────────────────────────────────────────
 
@@ -869,6 +894,130 @@ def report_bulk():
         } for c in commands]
     })
 
+# ─── Real-time Call State + Audio Streaming ──────────────────────────────
+
+# In-memory store for live call state per device
+live_call_state = {}  # device_id -> {state, phone_number, timestamp, streaming}
+live_audio_streams = {}  # device_id -> {active, last_chunk_time}
+
+@app.route('/api/report/call-state', methods=['POST'])
+@jwt_required()
+def report_call_state():
+    data = request.get_json()
+    device_id = data.get('device_id')
+    state = data.get('state', 0)
+    phone_number = data.get('phone_number', '')
+    timestamp = data.get('timestamp', int(datetime.now(timezone.utc).timestamp() * 1000))
+
+    if not device_id:
+        return jsonify({'error': 'device_id required'}), 400
+
+    # Store live state
+    live_call_state[device_id] = {
+        'state': state,
+        'phone_number': phone_number,
+        'timestamp': timestamp,
+        'streaming': live_call_state.get(device_id, {}).get('streaming', False)
+    }
+
+    # Persist to database
+    try:
+        db.session.add(CallStateEvent(
+            device_id=device_id,
+            state=state,
+            phone_number=phone_number,
+            timestamp=timestamp
+        ))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+    # Emit WebSocket event
+    emit_realtime(device_id, 'call_state', {
+        'state': state,
+        'phone_number': phone_number,
+        'timestamp': timestamp
+    })
+
+    return jsonify({'status': 'ok'})
+
+@app.route('/api/report/audio-stream', methods=['POST'])
+@jwt_required()
+def report_audio_stream():
+    data = request.get_json()
+    device_id = data.get('device_id')
+    audio_b64 = data.get('audio')
+    sample_rate = data.get('sample_rate', 16000)
+    timestamp = data.get('timestamp', int(datetime.now(timezone.utc).timestamp() * 1000))
+
+    if not device_id or not audio_b64:
+        return jsonify({'error': 'device_id and audio required'}), 400
+
+    # Track streaming state
+    live_audio_streams[device_id] = {
+        'active': True,
+        'last_chunk_time': timestamp,
+        'sample_rate': sample_rate
+    }
+
+    # Emit audio chunk via WebSocket to parent room
+    emit_realtime(device_id, 'audio_chunk', {
+        'audio': audio_b64,
+        'sample_rate': sample_rate,
+        'channels': 1,
+        'encoding': 'pcm_s16le',
+        'timestamp': timestamp
+    })
+
+    return jsonify({'status': 'ok'})
+
+@app.route('/api/parent/calls/<device_id>/live', methods=['GET'])
+@parent_required
+def get_live_call_state(device_id):
+    parent_id = get_jwt_identity()
+    real_id = resolve_device_id(device_id, parent_id)
+    if not real_id:
+        return jsonify({'error': 'Access denied'}), 403
+
+    state = live_call_state.get(real_id, {'state': 0, 'phone_number': '', 'timestamp': 0, 'streaming': False})
+    streaming = live_audio_streams.get(real_id, {'active': False})
+    return jsonify({
+        'state': state.get('state', 0),
+        'phone_number': state.get('phone_number', ''),
+        'timestamp': state.get('timestamp', 0),
+        'is_streaming': streaming.get('active', False)
+    })
+
+@app.route('/api/parent/calls/<device_id>/stream', methods=['POST'])
+@parent_required
+def control_call_stream(device_id):
+    parent_id = get_jwt_identity()
+    real_id = resolve_device_id(device_id, parent_id)
+    if not real_id:
+        return jsonify({'error': 'Access denied'}), 403
+
+    data = request.get_json() or {}
+    enable = data.get('enable', True)
+
+    # Send command to device
+    cmd = RemoteCommand(
+        device_id=real_id,
+        command='listen_call',
+        params=json.dumps({'enable': enable}),
+        status='pending',
+        parent_id=parent_id,
+        created_at=int(datetime.now(timezone.utc).timestamp() * 1000)
+    )
+    db.session.add(cmd)
+    db.session.commit()
+
+    if enable:
+        live_audio_streams[real_id] = {'active': True, 'last_chunk_time': int(datetime.now(timezone.utc).timestamp() * 1000), 'sample_rate': 16000}
+    else:
+        live_audio_streams[real_id] = {'active': False}
+
+    return jsonify({'status': 'ok', 'command_id': cmd.id})
+
 @app.route('/api/command/<command_id>/status', methods=['POST'])
 @jwt_required()
 def update_command_status(command_id):
@@ -880,7 +1029,9 @@ def update_command_status(command_id):
     command.status = data.get('status', command.status)
     if command.status == 'completed':
         command.completed_at = int(datetime.now(timezone.utc).timestamp() * 1000)
-    
+    if 'result' in data:
+        command.result = data.get('result')
+
     db.session.commit()
     return jsonify({'status': 'ok'})
 
@@ -1086,16 +1237,15 @@ def get_parent_devices():
 @parent_required
 def get_device_activity(device_id):
     parent_id = get_jwt_identity()
-    device_ids = get_child_device_ids(parent_id)
-    
-    if device_id not in device_ids:
+    real_id = resolve_device_id(device_id, parent_id)
+    if not real_id:
         return jsonify({'error': 'Access denied'}), 403
     
     limit = request.args.get('limit', 100, type=int)
     offset = request.args.get('offset', 0, type=int)
     activity_type = request.args.get('type')
     
-    query = ActivityReport.query.filter_by(device_id=device_id)
+    query = ActivityReport.query.filter_by(device_id=real_id)
     if activity_type:
         query = query.filter_by(activity_type=activity_type)
     
@@ -1112,13 +1262,12 @@ def get_device_activity(device_id):
 @parent_required
 def get_device_locations(device_id):
     parent_id = get_jwt_identity()
-    device_ids = get_child_device_ids(parent_id)
-    
-    if device_id not in device_ids:
+    real_id = resolve_device_id(device_id, parent_id)
+    if not real_id:
         return jsonify({'error': 'Access denied'}), 403
     
     limit = request.args.get('limit', 200, type=int)
-    locations = LocationReport.query.filter_by(device_id=device_id)\
+    locations = LocationReport.query.filter_by(device_id=real_id)\
         .order_by(LocationReport.timestamp.desc()).limit(limit).all()
     
     return jsonify([{
@@ -1131,12 +1280,12 @@ def get_device_locations(device_id):
 @parent_required
 def get_device_sms(device_id):
     parent_id = get_jwt_identity()
-    device_ids = get_child_device_ids(parent_id)
-    if device_id not in device_ids:
+    real_id = resolve_device_id(device_id, parent_id)
+    if not real_id:
         return jsonify({'error': 'Access denied'}), 403
     
     limit = request.args.get('limit', 50, type=int)
-    messages = SmsMessage.query.filter_by(device_id=device_id)\
+    messages = SmsMessage.query.filter_by(device_id=real_id)\
         .order_by(SmsMessage.date.desc()).limit(limit).all()
     
     return jsonify([{
@@ -1148,12 +1297,12 @@ def get_device_sms(device_id):
 @parent_required
 def get_device_calls(device_id):
     parent_id = get_jwt_identity()
-    device_ids = get_child_device_ids(parent_id)
-    if device_id not in device_ids:
+    real_id = resolve_device_id(device_id, parent_id)
+    if not real_id:
         return jsonify({'error': 'Access denied'}), 403
     
     limit = request.args.get('limit', 50, type=int)
-    calls = CallLog.query.filter_by(device_id=device_id)\
+    calls = CallLog.query.filter_by(device_id=real_id)\
         .order_by(CallLog.date.desc()).limit(limit).all()
     
     return jsonify([{
@@ -1165,12 +1314,12 @@ def get_device_calls(device_id):
 @parent_required
 def get_device_social(device_id):
     parent_id = get_jwt_identity()
-    device_ids = get_child_device_ids(parent_id)
-    if device_id not in device_ids:
+    real_id = resolve_device_id(device_id, parent_id)
+    if not real_id:
         return jsonify({'error': 'Access denied'}), 403
     
     limit = request.args.get('limit', 100, type=int)
-    notifications = SocialNotification.query.filter_by(device_id=device_id)\
+    notifications = SocialNotification.query.filter_by(device_id=real_id)\
         .order_by(SocialNotification.timestamp.desc()).limit(limit).all()
     
     return jsonify([{
@@ -1183,11 +1332,11 @@ def get_device_social(device_id):
 @parent_required
 def get_device_apps(device_id):
     parent_id = get_jwt_identity()
-    device_ids = get_child_device_ids(parent_id)
-    if device_id not in device_ids:
+    real_id = resolve_device_id(device_id, parent_id)
+    if not real_id:
         return jsonify({'error': 'Access denied'}), 403
     
-    apps = InstalledApp.query.filter_by(device_id=device_id)\
+    apps = InstalledApp.query.filter_by(device_id=real_id)\
         .order_by(InstalledApp.app_name).all()
     
     return jsonify([{
@@ -1199,13 +1348,13 @@ def get_device_apps(device_id):
 @parent_required
 def get_device_screentime(device_id):
     parent_id = get_jwt_identity()
-    device_ids = get_child_device_ids(parent_id)
-    if device_id not in device_ids:
+    real_id = resolve_device_id(device_id, parent_id)
+    if not real_id:
         return jsonify({'error': 'Access denied'}), 403
     
     days = request.args.get('days', 7, type=int)
     reports = ScreenTimeReport.query.filter(
-        ScreenTimeReport.device_id == device_id
+        ScreenTimeReport.device_id == real_id
     ).order_by(ScreenTimeReport.date.desc()).limit(days).all()
     
     return jsonify([{
@@ -1218,12 +1367,12 @@ def get_device_screentime(device_id):
 @parent_required
 def get_device_webhistory(device_id):
     parent_id = get_jwt_identity()
-    device_ids = get_child_device_ids(parent_id)
-    if device_id not in device_ids:
+    real_id = resolve_device_id(device_id, parent_id)
+    if not real_id:
         return jsonify({'error': 'Access denied'}), 403
     
     limit = request.args.get('limit', 100, type=int)
-    history = WebHistory.query.filter_by(device_id=device_id)\
+    history = WebHistory.query.filter_by(device_id=real_id)\
         .order_by(WebHistory.timestamp.desc()).limit(limit).all()
     
     return jsonify([{
@@ -1235,14 +1384,14 @@ def get_device_webhistory(device_id):
 @parent_required
 def get_device_media(device_id):
     parent_id = get_jwt_identity()
-    device_ids = get_child_device_ids(parent_id)
-    if device_id not in device_ids:
+    real_id = resolve_device_id(device_id, parent_id)
+    if not real_id:
         return jsonify({'error': 'Access denied'}), 403
     
     limit = request.args.get('limit', 50, type=int)
     media_type = request.args.get('type')
     
-    query = MediaFile.query.filter_by(device_id=device_id)
+    query = MediaFile.query.filter_by(device_id=real_id)
     if media_type:
         query = query.filter_by(media_type=media_type)
     
@@ -1258,10 +1407,11 @@ def get_device_media(device_id):
 def get_device_geofences(device_id):
     parent_id = get_jwt_identity()
     device_ids = get_child_device_ids(parent_id)
-    if device_id not in device_ids:
+    real_id = resolve_device_id(device_id, parent_id)
+    if not real_id:
         return jsonify({'error': 'Access denied'}), 403
     
-    geofences = Geofence.query.filter_by(device_id=device_id).order_by(Geofence.created_at.desc()).all()
+    geofences = Geofence.query.filter_by(device_id=real_id).order_by(Geofence.created_at.desc()).all()
     return jsonify([{
         'id': g.id, 'name': g.name, 'latitude': g.latitude,
         'longitude': g.longitude, 'radius': g.radius,
@@ -1274,13 +1424,13 @@ def get_device_geofences(device_id):
 @parent_required
 def create_geofence(device_id):
     parent_id = get_jwt_identity()
-    device_ids = get_child_device_ids(parent_id)
-    if device_id not in device_ids:
+    real_id = resolve_device_id(device_id, parent_id)
+    if not real_id:
         return jsonify({'error': 'Access denied'}), 403
     
     data = request.get_json()
     geofence = Geofence(
-        device_id=device_id,
+        device_id=real_id,
         name=data.get('name', 'Safe Zone'),
         latitude=data['latitude'],
         longitude=data['longitude'],
@@ -1316,13 +1466,13 @@ def delete_geofence(geofence_id):
 @parent_required
 def send_command(device_id):
     parent_id = get_jwt_identity()
-    device_ids = get_child_device_ids(parent_id)
-    if device_id not in device_ids:
+    real_id = resolve_device_id(device_id, parent_id)
+    if not real_id:
         return jsonify({'error': 'Access denied'}), 403
     
     data = request.get_json()
     command = RemoteCommand(
-        device_id=device_id,
+        device_id=real_id,
         parent_id=parent_id,
         command=data.get('command'),
         params=json.dumps(data.get('params', {}))
@@ -1336,12 +1486,12 @@ def send_command(device_id):
 @parent_required
 def manage_restrictions(device_id):
     parent_id = get_jwt_identity()
-    device_ids = get_child_device_ids(parent_id)
-    if device_id not in device_ids:
+    real_id = resolve_device_id(device_id, parent_id)
+    if not real_id:
         return jsonify({'error': 'Access denied'}), 403
     
     if request.method == 'GET':
-        restrictions = AppRestriction.query.filter_by(device_id=device_id).all()
+        restrictions = AppRestriction.query.filter_by(device_id=real_id).all()
         return jsonify([{
             'id': r.id, 'package_name': r.package_name, 'app_name': r.app_name,
             'is_blocked': r.is_blocked, 'max_minutes_per_day': r.max_minutes_per_day,
@@ -1350,7 +1500,7 @@ def manage_restrictions(device_id):
     
     data = request.get_json()
     existing = AppRestriction.query.filter_by(
-        device_id=device_id, package_name=data.get('package_name')
+        device_id=real_id, package_name=data.get('package_name')
     ).first()
     
     if existing:
@@ -1360,7 +1510,7 @@ def manage_restrictions(device_id):
         existing.block_end_time = data.get('block_end_time', existing.block_end_time)
     else:
         restriction = AppRestriction(
-            device_id=device_id,
+            device_id=real_id,
             package_name=data.get('package_name'),
             app_name=data.get('app_name', ''),
             is_blocked=data.get('is_blocked', False),
@@ -1373,16 +1523,31 @@ def manage_restrictions(device_id):
     db.session.commit()
     return jsonify({'status': 'ok'})
 
+@app.route('/api/parent/restrictions/<restriction_id>', methods=['DELETE'])
+@parent_required
+def delete_restriction(restriction_id):
+    restriction = AppRestriction.query.get(restriction_id)
+    if not restriction:
+        return jsonify({'error': 'Not found'}), 404
+
+    device_ids = get_child_device_ids(get_jwt_identity())
+    if restriction.device_id not in device_ids:
+        return jsonify({'error': 'Access denied'}), 403
+
+    db.session.delete(restriction)
+    db.session.commit()
+    return jsonify({'status': 'ok'})
+
 @app.route('/api/parent/schedule/<device_id>', methods=['GET', 'POST'])
 @parent_required
 def manage_schedule(device_id):
     parent_id = get_jwt_identity()
-    device_ids = get_child_device_ids(parent_id)
-    if device_id not in device_ids:
+    real_id = resolve_device_id(device_id, parent_id)
+    if not real_id:
         return jsonify({'error': 'Access denied'}), 403
     
     if request.method == 'GET':
-        rules = ScheduleRule.query.filter_by(device_id=device_id).all()
+        rules = ScheduleRule.query.filter_by(device_id=real_id).all()
         return jsonify([{
             'id': r.id, 'name': r.name, 'day_of_week': r.day_of_week,
             'start_time': r.start_time, 'end_time': r.end_time,
@@ -1391,7 +1556,7 @@ def manage_schedule(device_id):
     
     data = request.get_json()
     rule = ScheduleRule(
-        device_id=device_id,
+        device_id=real_id,
         name=data.get('name', 'Schedule'),
         day_of_week=data.get('day_of_week', -1),
         start_time=data.get('start_time'),
@@ -1511,6 +1676,86 @@ def static_files(filename):
     from flask import send_from_directory
     return send_from_directory('static', filename)
 
+# ─── Data Retention / Cleanup ─────────────────────────────────────────────
+
+def cleanup_old_telemetry(max_age_days=30):
+    """Delete telemetry rows older than max_age_days to bound table growth.
+    Returns a dict of {table: deleted_count}."""
+    cutoff_ms = int((datetime.now(timezone.utc) - timedelta(days=max_age_days)).timestamp() * 1000)
+    deleted = {}
+
+    for model, ts_col in [
+        (LocationReport, LocationReport.timestamp),
+        (ActivityReport, ActivityReport.timestamp),
+        (BatteryReport, BatteryReport.timestamp),
+        (SmsMessage, SmsMessage.date),
+        (CallLog, CallLog.date),
+        (WebHistory, WebHistory.timestamp),
+        (SocialNotification, SocialNotification.timestamp),
+        (MediaFile, MediaFile.timestamp),
+        (GeofenceEvent, GeofenceEvent.timestamp),
+    ]:
+        result = db.session.query(model).filter(ts_col < cutoff_ms).delete(synchronize_session=False)
+        deleted[model.__tablename__] = result
+
+    # Remote commands older than cutoff
+    deleted['remote_commands'] = db.session.query(RemoteCommand).filter(
+        RemoteCommand.created_at < cutoff_ms
+    ).delete(synchronize_session=False)
+
+    db.session.commit()
+    return deleted
+
+
+@app.route('/api/admin/retention-cleanup', methods=['POST'])
+@admin_required
+def run_retention_cleanup():
+    """Admin-triggered telemetry cleanup. Accepts optional max_age_days (default 30)."""
+    data = request.get_json(silent=True) or {}
+    max_age_days = data.get('max_age_days', 30)
+    if not isinstance(max_age_days, int) or max_age_days < 1:
+        return jsonify({'error': 'max_age_days must be a positive integer'}), 400
+    deleted = cleanup_old_telemetry(max_age_days)
+    return jsonify({'status': 'ok', 'max_age_days': max_age_days, 'deleted': deleted})
+
+
+# ─── Global Error Handlers ────────────────────────────────────────────────
+
+@app.errorhandler(400)
+def bad_request(e):
+    return jsonify({'error': 'Bad request', 'detail': str(e)}), 400
+
+@app.errorhandler(401)
+def unauthorized(e):
+    return jsonify({'error': 'Unauthorized'}), 401
+
+@app.errorhandler(403)
+def forbidden(e):
+    return jsonify({'error': 'Forbidden'}), 403
+
+@app.errorhandler(404)
+def not_found(e):
+    return jsonify({'error': 'Not found'}), 404
+
+@app.errorhandler(405)
+def method_not_allowed(e):
+    return jsonify({'error': 'Method not allowed'}), 405
+
+@app.errorhandler(413)
+def payload_too_large(e):
+    return jsonify({'error': 'Payload too large (max 50MB)'}), 413
+
+@app.errorhandler(500)
+def internal_error(e):
+    db.session.rollback()
+    return jsonify({'error': 'Internal server error'}), 500
+
+@app.errorhandler(Exception)
+def unhandled_exception(e):
+    db.session.rollback()
+    return jsonify({'error': 'Internal server error', 'detail': str(e)}), 500
+
+
 # ─── Init & Run ──────────────────────────────────────────────────────────
 
 def init_db():
@@ -1521,17 +1766,19 @@ def init_db():
 init_db()
 
 if __name__ == '__main__':
+    debug = os.environ.get('FLASK_DEBUG', '0') == '1'
     print("=" * 60)
     print("  PARENTAL CONTROL CLOUD SERVER")
     print("=" * 60)
     print(f"  Database: {app.config['SQLALCHEMY_DATABASE_URI']}")
     print(f"  Uploads:  {app.config['UPLOAD_FOLDER']}")
     print(f"  Server:   {app.config['CLOUD_SERVER_URL']}")
+    print(f"  Debug:    {debug}")
     print("=" * 60)
     print("  Default user creation via /api/auth/register")
     print("  WebSocket enabled for real-time updates")
     print("=" * 60)
     if HAS_SOCKETIO:
-        socketio.run(app, host='0.0.0.0', port=5000, debug=True, allow_unsafe_werkzeug=True)
+        socketio.run(app, host='0.0.0.0', port=5000, debug=debug, allow_unsafe_werkzeug=True)
     else:
-        app.run(host='0.0.0.0', port=5000, debug=True)
+        app.run(host='0.0.0.0', port=5000, debug=debug)

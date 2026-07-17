@@ -82,9 +82,22 @@ class MainActivity : AppCompatActivity() {
             autoConnectToServer()
         }
 
+        // Detect whether the configured server is the cloud backend or the simple legacy backend.
+        // If it's legacy, we can skip the cloud login flow.
+        Thread {
+            val detected = ApiClient.probeServerType()
+            if (detected != CloudConfig.SERVER_TYPE_AUTO) {
+                CloudConfig.serverType = detected
+                runOnUiThread { updateUi() }
+            }
+        }.start()
+
         // Show setup wizard on first launch if not fully set up
         if (!prefs.getBoolean("setup_completed", false)) {
             showSetupWizard()
+        } else if (CloudConfig.isLoggedIn && !TrackerService.isRunning) {
+            TrackerService.start(this)
+            isTracking = true
         }
 
         binding.startTrackingButton.setOnClickListener {
@@ -170,6 +183,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showLoginDialog() {
+        // Simple legacy servers don't use email/password login.
+        if (CloudConfig.serverType == CloudConfig.SERVER_TYPE_LEGACY) {
+            if (checkAndRequestPermissions()) startTracking()
+            return
+        }
+
         val email = binding.serverUrlInput.text?.toString()?.trim() ?: ""
         val password = binding.passwordInput.text?.toString() ?: ""
 
@@ -252,6 +271,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showRegistrationChoice() {
+        // Simple legacy servers don't need account creation.
+        if (CloudConfig.serverType == CloudConfig.SERVER_TYPE_LEGACY) {
+            if (checkAndRequestPermissions()) startTracking()
+            return
+        }
+
         val email = binding.serverUrlInput.text?.toString()?.trim() ?: ""
         val password = binding.passwordInput.text?.toString() ?: ""
 

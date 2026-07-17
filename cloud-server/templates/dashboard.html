@@ -79,6 +79,18 @@
         <main class="content" id="mainContent">
             <!-- Overview -->
             <div class="content-section" id="overviewSection">
+                <!-- Active Call Alert -->
+                <div class="active-call-alert" id="activeCallAlert" style="display:none;">
+                    <div class="call-pulse-dot"></div>
+                    <div class="call-alert-info">
+                        <span class="call-alert-title">📞 Active Call</span>
+                        <span class="call-alert-device" id="callAlertDevice"></span>
+                        <span class="call-alert-number" id="callAlertNumber"></span>
+                    </div>
+                    <div class="call-alert-timer" id="callAlertTimer">00:00</div>
+                    <button class="btn-listen-sm" onclick="listenToDevice(currentCallDevice)">🎧 Listen</button>
+                </div>
+
                 <div class="stats-row" id="statsRow">
                     <div class="stat-card stat-children">
                         <div class="stat-value" id="statChildren">0</div>
@@ -491,6 +503,133 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <script src="/static/js/cloud-dashboard.js"></script>
+    <style>
+        .active-call-alert {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 14px 20px;
+            background: linear-gradient(135deg, rgba(239,68,68,0.12), rgba(220,38,38,0.06));
+            border: 1px solid rgba(239,68,68,0.35);
+            border-radius: 12px;
+            margin-bottom: 16px;
+            animation: alertPulse 2s ease-in-out infinite;
+        }
+        @keyframes alertPulse {
+            0%, 100% { border-color: rgba(239,68,68,0.3); box-shadow: 0 0 0 0 rgba(239,68,68,0); }
+            50% { border-color: rgba(239,68,68,0.7); box-shadow: 0 0 15px rgba(239,68,68,0.15); }
+        }
+        .call-pulse-dot {
+            width: 12px; height: 12px;
+            background: #ef4444;
+            border-radius: 50%;
+            flex-shrink: 0;
+            animation: pulseDot 1.5s ease-in-out infinite;
+        }
+        @keyframes pulseDot {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.4; transform: scale(1.4); }
+        }
+        .call-alert-info { display: flex; flex-direction: column; gap: 1px; flex: 1; }
+        .call-alert-title { font-weight: 700; font-size: 14px; color: #ef4444; }
+        .call-alert-device { font-size: 12px; color: rgba(255,255,255,0.5); }
+        .call-alert-number { font-size: 16px; font-weight: 700; color: white; }
+        .call-alert-timer {
+            font-family: 'Courier New', monospace;
+            font-size: 18px;
+            font-weight: 700;
+            color: #ef4444;
+            min-width: 60px;
+            text-align: center;
+        }
+        .btn-listen-sm {
+            padding: 8px 16px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 13px;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .btn-listen-sm:hover { transform: scale(1.05); box-shadow: 0 3px 12px rgba(102,126,234,0.4); }
+    </style>
+    <script>
+        let currentCallDevice = null;
+        let dashboardCallPolling = null;
+        let dashboardCallTimer = null;
+        let dashboardCallStart = 0;
+
+        function startDashboardCallPolling() {
+            if (dashboardCallPolling) return;
+            checkDashboardCallState();
+            dashboardCallPolling = setInterval(checkDashboardCallState, 3000);
+        }
+
+        async function checkDashboardCallState() {
+            try {
+                if (typeof fetchWithAuth === 'undefined' || !TOKEN) return;
+                const devicesRes = await fetchWithAuth('/api/parent/devices');
+                if (!devicesRes.ok) return;
+                const devices = await devicesRes.json();
+                if (!Array.isArray(devices)) return;
+
+                let activeCall = null;
+                for (const dev of devices) {
+                    try {
+                        const liveRes = await fetchWithAuth(`/api/parent/calls/${dev.device_id}/live`);
+                        if (liveRes.ok) {
+                            const live = await liveRes.json();
+                            if (live.state > 0) {
+                                activeCall = { device: dev, live: live };
+                                break;
+                            }
+                        }
+                    } catch (e) {}
+                }
+
+                const alert = document.getElementById('activeCallAlert');
+                if (activeCall) {
+                    alert.style.display = 'flex';
+                    currentCallDevice = activeCall.device.device_id;
+                    document.getElementById('callAlertDevice').textContent = activeCall.device.child_name || activeCall.device.device_name || activeCall.device.device_id;
+                    document.getElementById('callAlertNumber').textContent = activeCall.live.phone_number || 'Unknown';
+                    dashboardCallStart = activeCall.live.timestamp;
+                    startDashboardCallTimer();
+                } else {
+                    alert.style.display = 'none';
+                    stopDashboardCallTimer();
+                }
+            } catch (e) {}
+        }
+
+        function startDashboardCallTimer() {
+            if (dashboardCallTimer) return;
+            updateDashboardCallTimer();
+            dashboardCallTimer = setInterval(updateDashboardCallTimer, 1000);
+        }
+
+        function stopDashboardCallTimer() {
+            if (dashboardCallTimer) { clearInterval(dashboardCallTimer); dashboardCallTimer = null; }
+        }
+
+        function updateDashboardCallTimer() {
+            if (!dashboardCallStart) return;
+            const elapsed = Math.floor((Date.now() - dashboardCallStart) / 1000);
+            const mins = Math.floor(elapsed / 60).toString().padStart(2, '0');
+            const secs = (elapsed % 60).toString().padStart(2, '0');
+            document.getElementById('callAlertTimer').textContent = mins + ':' + secs;
+        }
+
+        function listenToDevice(deviceId) {
+            if (!deviceId) return;
+            window.location.href = '/device/' + deviceId;
+        }
+
+        startDashboardCallPolling();
+    </script>
 </body>
 </html>

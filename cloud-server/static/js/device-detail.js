@@ -70,7 +70,7 @@ async function fetchWithAuth(url, options = {}) {
     options.headers['Content-Type'] = 'application/json';
 
     const res = await fetch(url, options);
-    if (res.status === 401) {
+    if (res.status === 401 || res.status === 403) {
         const refresh = localStorage.getItem(REFRESH_KEY);
         if (refresh) {
             const refreshRes = await fetch('/api/auth/refresh', {
@@ -82,12 +82,14 @@ async function fetchWithAuth(url, options = {}) {
                 TOKEN = data.token;
                 localStorage.setItem(TOKEN_KEY, TOKEN);
                 options.headers['Authorization'] = `Bearer ${TOKEN}`;
-                return fetch(url, options);
+                const retryRes = await fetch(url, options);
+                if (retryRes.ok) return retryRes;
             }
         }
         localStorage.removeItem(TOKEN_KEY);
         localStorage.removeItem(REFRESH_KEY);
         window.location.href = '/';
+        return res;
     }
     return res;
 }
@@ -563,14 +565,14 @@ function renderRestrictions() {
         return;
     }
     container.innerHTML = cachedRestrictions.map(r => {
-        const isBlocked = r.blocked;
+        const isBlocked = r.is_blocked;
         return `
             <div class="restriction-item">
                 <div class="restriction-info">
-                    <div class="restriction-name">${escHtml(r.package_name)}</div>
+                    <div class="restriction-name">${escHtml(r.app_name || r.package_name)}</div>
                     <div class="restriction-detail">
-                        ${r.daily_limit_minutes ? `Limit: ${r.daily_limit_minutes} min/day` : ''}
-                        ${r.start_hour != null ? ` · ${r.start_hour}:00–${r.end_hour}:00` : ''}
+                        ${r.max_minutes_per_day ? `Limit: ${r.max_minutes_per_day} min/day` : ''}
+                        ${r.block_start_time ? ` · ${r.block_start_time}–${r.block_end_time || ''}` : ''}
                     </div>
                 </div>
                 <span class="restriction-badge ${isBlocked ? 'blocked' : 'limited'}">${isBlocked ? 'Blocked' : 'Limited'}</span>
@@ -586,12 +588,15 @@ async function addRestriction() {
         return;
     }
 
+    const startHour = parseInt(document.getElementById('restrictStart').value) || 0;
+    const endHour = parseInt(document.getElementById('restrictEnd').value) || 23;
+
     const data = {
         package_name: pkg,
-        blocked: true,
-        daily_limit_minutes: parseInt(document.getElementById('restrictLimit').value) || null,
-        start_hour: parseInt(document.getElementById('restrictStart').value) || 0,
-        end_hour: parseInt(document.getElementById('restrictEnd').value) || 23
+        is_blocked: true,
+        max_minutes_per_day: parseInt(document.getElementById('restrictLimit').value) || 0,
+        block_start_time: `${String(startHour).padStart(2, '0')}:00`,
+        block_end_time: `${String(endHour).padStart(2, '0')}:00`
     };
 
     try {
@@ -636,8 +641,8 @@ function renderSchedule() {
             return `
                 <div class="schedule-day has-rule">
                     <div class="schedule-day-name">${dayName}</div>
-                    <div class="schedule-day-time">${padHour(rule.start_hour)}–${padHour(rule.end_hour)}</div>
-                    <div class="schedule-day-rule">${escHtml(rule.restrictions || 'Restricted')}</div>
+                    <div class="schedule-day-time">${rule.start_time || '—'}–${rule.end_time || ''}</div>
+                    <div class="schedule-day-rule">${rule.is_block_time ? 'Blocked' : 'Allowed'}</div>
                 </div>`;
         }
         return `
@@ -650,11 +655,14 @@ function renderSchedule() {
 }
 
 async function addScheduleRule() {
+    const startHour = parseInt(document.getElementById('schedStart').value) || 0;
+    const endHour = parseInt(document.getElementById('schedEnd').value) || 23;
+
     const data = {
         day_of_week: parseInt(document.getElementById('schedDay').value),
-        start_hour: parseInt(document.getElementById('schedStart').value) || 0,
-        end_hour: parseInt(document.getElementById('schedEnd').value) || 23,
-        restrictions: document.getElementById('schedRestrictions').value.trim() || 'no_apps'
+        start_time: `${String(startHour).padStart(2, '0')}:00`,
+        end_time: `${String(endHour).padStart(2, '0')}:00`,
+        is_block_time: true
     };
 
     try {

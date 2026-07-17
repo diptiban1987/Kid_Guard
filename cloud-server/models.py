@@ -164,6 +164,16 @@ class CallLog(db.Model):
     type = db.Column(db.Integer)
     received_at = db.Column(db.BigInteger, default=lambda: int(datetime.now(timezone.utc).timestamp() * 1000))
 
+class CallStateEvent(db.Model):
+    __tablename__ = 'call_state_events'
+    
+    id = db.Column(db.String(32), primary_key=True, default=lambda: generate_id('cse_'))
+    device_id = db.Column(db.String(100), db.ForeignKey('devices.device_id'), nullable=False)
+    state = db.Column(db.Integer)  # 0=idle, 1=ringing, 2=active
+    phone_number = db.Column(db.String(50))
+    timestamp = db.Column(db.BigInteger)
+    received_at = db.Column(db.BigInteger, default=lambda: int(datetime.now(timezone.utc).timestamp() * 1000))
+
 class InstalledApp(db.Model):
     __tablename__ = 'installed_apps'
     

@@ -38,7 +38,8 @@ object ShizukuPermissionManager {
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_LOCATION",
         "android.permission.SCHEDULE_EXACT_ALARM",
-        "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"
+        "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
+        "android.permission.READ_PHONE_STATE"
     )
 
     /**
@@ -58,6 +59,14 @@ object ShizukuPermissionManager {
                 results.add("✗ Failed: $permission — ${result.error}")
                 Log.w(TAG, "Failed to grant $permission: ${result.error}")
             }
+        }
+
+        val usageStatsResult = executeShellCommand("appops set $PACKAGE_NAME GET_USAGE_STATS allow")
+        if (usageStatsResult.success) {
+            results.add("✓ Granted: GET_USAGE_STATS (appops)")
+            Log.d(TAG, "Granted: GET_USAGE_STATS via appops")
+        } else {
+            results.add("✗ Failed: GET_USAGE_STATS — ${usageStatsResult.error}")
         }
 
         return results

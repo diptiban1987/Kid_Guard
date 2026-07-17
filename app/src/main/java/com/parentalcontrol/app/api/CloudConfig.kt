@@ -2,10 +2,13 @@ package com.parentalcontrol.app.api
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.parentalcontrol.app.BuildConfig
 
 object CloudConfig {
     private const val PREFS_NAME = "cloud_config"
     private const val KEY_SERVER_URL = "server_url"
+    private const val KEY_SERVER_TYPE = "server_type"
+    private const val KEY_API_KEY = "api_key"
     private const val KEY_ACCESS_TOKEN = "access_token"
     private const val KEY_REFRESH_TOKEN = "refresh_token"
     private const val KEY_USER_ID = "user_id"
@@ -13,7 +16,11 @@ object CloudConfig {
     private const val KEY_USER_ROLE = "user_role"
     private const val KEY_DEVICE_ID = "device_id"
     private const val KEY_STEALTH_MODE = "stealth_mode"
-    const val DEFAULT_SERVER = "http://10.90.4.102:5000"
+    const val DEFAULT_SERVER = BuildConfig.SERVER_URL
+
+    const val SERVER_TYPE_AUTO = "auto"
+    const val SERVER_TYPE_CLOUD = "cloud"
+    const val SERVER_TYPE_LEGACY = "legacy"
 
     private lateinit var prefs: SharedPreferences
 
@@ -24,6 +31,14 @@ object CloudConfig {
     var serverUrl: String
         get() = prefs.getString(KEY_SERVER_URL, DEFAULT_SERVER) ?: DEFAULT_SERVER
         set(value) = prefs.edit().putString(KEY_SERVER_URL, value).apply()
+
+    var serverType: String
+        get() = prefs.getString(KEY_SERVER_TYPE, SERVER_TYPE_AUTO) ?: SERVER_TYPE_AUTO
+        set(value) = prefs.edit().putString(KEY_SERVER_TYPE, value).apply()
+
+    var apiKey: String
+        get() = prefs.getString(KEY_API_KEY, BuildConfig.API_KEY) ?: BuildConfig.API_KEY
+        set(value) = prefs.edit().putString(KEY_API_KEY, value).apply()
 
     var accessToken: String?
         get() = prefs.getString(KEY_ACCESS_TOKEN, null)
@@ -82,7 +97,7 @@ object CloudConfig {
         set(value) = prefs.edit().putBoolean("setup_fully_completed", value).apply()
 
     val isLoggedIn: Boolean
-        get() = accessToken != null
+        get() = accessToken != null || serverType == SERVER_TYPE_LEGACY
 
     val isChildAccount: Boolean
         get() = userRole == "child"

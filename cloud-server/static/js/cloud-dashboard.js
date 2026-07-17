@@ -194,6 +194,13 @@ async function loadDashboard() {
         const stats = await statsRes.json();
         const devices = await devicesRes.json();
 
+        if (!Array.isArray(devices) || statsRes.status === 403) {
+            localStorage.removeItem('kidguard_token');
+            localStorage.removeItem('kidguard_refresh');
+            window.location.href = '/';
+            return;
+        }
+
         // Stats
         document.getElementById('statChildren').textContent = stats.children?.length || 0;
         document.getElementById('statOnline').textContent = stats.online_devices || 0;
@@ -707,12 +714,12 @@ function renderRestrictions(restrictions) {
     }
     container.innerHTML = restrictions.map(r => `
         <div class="restriction-item">
-            <div class="restriction-icon">${r.blocked ? '🚫' : '⏱️'}</div>
+            <div class="restriction-icon">${r.is_blocked ? '🚫' : '⏱️'}</div>
             <div class="restriction-info">
                 <div class="restriction-name">${escapeHtml(r.app_name || r.package_name)}</div>
-                <div class="restriction-detail">${r.blocked ? 'Blocked' : ''}${r.daily_limit_minutes ? ` Limit: ${r.daily_limit_minutes} min/day` : ''}${r.start_hour != null ? ` Blocked ${r.start_hour}:00–${r.end_hour}:00` : ''}</div>
+                <div class="restriction-detail">${r.is_blocked ? 'Blocked' : ''}${r.max_minutes_per_day ? ` Limit: ${r.max_minutes_per_day} min/day` : ''}${r.block_start_time ? ` Blocked ${r.block_start_time}–${r.block_end_time || ''}` : ''}</div>
             </div>
-            <span class="restriction-status ${r.blocked ? 'blocked' : 'limited'}">${r.blocked ? 'Blocked' : 'Limited'}</span>
+            <span class="restriction-status ${r.is_blocked ? 'blocked' : 'limited'}">${r.is_blocked ? 'Blocked' : 'Limited'}</span>
         </div>
     `).join('');
 }
@@ -735,13 +742,15 @@ function populateRestrictionApps(apps) {
 async function saveRestriction() {
     const select = document.getElementById('restrictionApp');
     const action = document.getElementById('restrictionAction').value;
+    const startHour = (action === 'schedule' || action === 'limit') ? parseInt(document.getElementById('restrictionStartHour').value) : null;
+    const endHour = (action === 'schedule' || action === 'limit') ? parseInt(document.getElementById('restrictionEndHour').value) : null;
     const data = {
         package_name: select.value,
         app_name: select.selectedOptions[0]?.dataset.name || select.value,
-        blocked: action === 'block',
-        daily_limit_minutes: action === 'limit' ? parseInt(document.getElementById('restrictionLimit').value) || null : null,
-        start_hour: (action === 'schedule' || action === 'limit') ? parseInt(document.getElementById('restrictionStartHour').value) : null,
-        end_hour: (action === 'schedule' || action === 'limit') ? parseInt(document.getElementById('restrictionEndHour').value) : null
+        is_blocked: action === 'block',
+        max_minutes_per_day: action === 'limit' ? parseInt(document.getElementById('restrictionLimit').value) || 0 : 0,
+        block_start_time: startHour != null ? `${String(startHour).padStart(2, '0')}:00` : null,
+        block_end_time: endHour != null ? `${String(endHour).padStart(2, '0')}:00` : null
     };
 
     if (!data.package_name) {
@@ -785,7 +794,7 @@ function renderSchedule(schedule) {
         const active = rule ? ' active' : '';
         gridHtml += `<div class="schedule-day${active}">
             <span class="day-name">${DAY_NAMES[d]}</span>
-            <span class="day-time">${rule ? `${rule.start_hour}:00-${rule.end_hour}:00` : 'No rule'}</span>
+            <span class="day-time">${rule ? `${rule.start_time || '—'}-${rule.end_time || ''}` : 'No rule'}</span>
         </div>`;
     }
     gridHtml += '</div>';
@@ -795,7 +804,7 @@ function renderSchedule(schedule) {
         <div class="schedule-rule">
             <div style="flex:1">
                 <div style="color:white;font-weight:500;font-size:14px">${DAY_NAMES[s.day_of_week] || 'Day ' + s.day_of_week}</div>
-                <div style="color:rgba(255,255,255,0.4);font-size:12px">Allowed: ${s.start_hour}:00 – ${s.end_hour}:00 ${s.restrictions ? '· ' + escapeHtml(s.restrictions) : ''}</div>
+                <div style="color:rgba(255,255,255,0.4);font-size:12px">${s.is_block_time ? 'Blocked' : 'Allowed'}: ${s.start_time || '?'} – ${s.end_time || '?'}</div>
             </div>
         </div>
     `).join('');
@@ -808,11 +817,13 @@ function showAddSchedule() {
 }
 
 async function saveSchedule() {
+    const startHour = parseInt(document.getElementById('scheduleStartHour').value) || 0;
+    const endHour = parseInt(document.getElementById('scheduleEndHour').value) || 23;
     const data = {
         day_of_week: parseInt(document.getElementById('scheduleDay').value),
-        start_hour: parseInt(document.getElementById('scheduleStartHour').value),
-        end_hour: parseInt(document.getElementById('scheduleEndHour').value),
-        restrictions: document.getElementById('scheduleRestrictions').value.trim()
+        start_time: `${String(startHour).padStart(2, '0')}:00`,
+        end_time: `${String(endHour).padStart(2, '0')}:00`,
+        is_block_time: true
     };
 
     const res = await fetchWithAuth(`/api/parent/schedule/${currentDeviceId}`, {
@@ -1048,7 +1059,7 @@ async function fetchWithAuth(url, options = {}) {
     options.headers['Content-Type'] = 'application/json';
     
     const res = await fetch(url, options);
-    if (res.status === 401) {
+    if (res.status === 401 || res.status === 403) {
         const refresh = localStorage.getItem('kidguard_refresh');
         if (refresh) {
             const refreshRes = await fetch('/api/auth/refresh', {
@@ -1060,12 +1071,14 @@ async function fetchWithAuth(url, options = {}) {
                 TOKEN = data.token;
                 localStorage.setItem('kidguard_token', TOKEN);
                 options.headers['Authorization'] = `Bearer ${TOKEN}`;
-                return fetch(url, options);
+                const retryRes = await fetch(url, options);
+                if (retryRes.ok) return retryRes;
             }
         }
         localStorage.removeItem('kidguard_token');
         localStorage.removeItem('kidguard_refresh');
         window.location.href = '/';
+        return res;
     }
     return res;
 }

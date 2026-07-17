@@ -116,8 +116,14 @@ def register():
     
     if not email or not password or len(password) < 6:
         return jsonify({'error': 'Email and password (min 6 chars) required'}), 400
-    if User.query.filter_by(email=email).first():
-        return jsonify({'error': 'Email already registered'}), 409
+    existing = User.query.filter_by(email=email).first()
+    if existing:
+        if role == 'child' and existing.role == 'parent':
+            pass  # Allow child to register with parent's email
+        elif role == 'parent' and existing.role == 'child':
+            pass  # Allow parent to register with child's email
+        else:
+            return jsonify({'error': 'Email already registered'}), 409
     
     user = User(
         email=email,
@@ -145,8 +151,12 @@ def login():
     
     email = data.get('email', '').strip().lower()
     password = data.get('password', '')
+    role = data.get('role', '').strip().lower()
     
-    user = User.query.filter_by(email=email).first()
+    if role and role in ('parent', 'child'):
+        user = User.query.filter_by(email=email, role=role).first()
+    else:
+        user = User.query.filter_by(email=email).first()
     if not user or user.password_hash != hash_password(password):
         return jsonify({'error': 'Invalid credentials'}), 401
     

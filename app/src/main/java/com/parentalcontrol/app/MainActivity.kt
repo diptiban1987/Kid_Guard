@@ -226,7 +226,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 is ApiClient.Result.Error -> {
                     // Step 2: Registration failed (probably already exists), try login
-                    val loginResult = ApiClient.login(email, password)
+                    val loginResult = ApiClient.login(email, password, "child")
                     runOnUiThread {
                         when (loginResult) {
                             is ApiClient.Result.Success -> {
@@ -298,7 +298,7 @@ class MainActivity : AppCompatActivity() {
                     is ApiClient.Result.Error -> {
                         // If already exists, try login
                         binding.statusText.text = result.message
-                        val loginResult = ApiClient.login(email, password)
+                        val loginResult = ApiClient.login(email, password, "child")
                         when (loginResult) {
                             is ApiClient.Result.Success -> {
                                 Toast.makeText(this, "Logged in!", Toast.LENGTH_SHORT).show()

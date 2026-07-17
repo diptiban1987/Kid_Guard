@@ -82,11 +82,12 @@ object ApiClient {
         }
     }
 
-    fun login(email: String, password: String): Result {
+    fun login(email: String, password: String, role: String = ""): Result {
         return try {
             val payload = JSONObject().apply {
                 put("email", email)
                 put("password", password)
+                if (role.isNotEmpty()) put("role", role)
             }
             val request = Request.Builder()
                 .url("${CloudConfig.apiBaseUrl}/auth/login")

@@ -109,7 +109,7 @@ class SetupReceiver : BroadcastReceiver() {
                         is ApiClient.Result.Error -> {
                             // Already exists, try login
                             Log.d(TAG, "Registration failed (may already exist), trying login...")
-                            val loginResult = ApiClient.login(email, password)
+                            val loginResult = ApiClient.login(email, password, "child")
                             when (loginResult) {
                                 is ApiClient.Result.Success -> {
                                     Log.d(TAG, "Login successful")

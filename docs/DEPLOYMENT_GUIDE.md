@@ -59,11 +59,13 @@ Your app is now live at: `https://diptiban2021.pythonanywhere.com/`
    ```
    https://diptiban2021.pythonanywhere.com
    ```
-5. Enter **child credentials**:
-   - **Email**: `child@local.com` (or any email)
-   - **Password**: `child123`
+5. Enter the **same email and password** you used for the parent account:
+   - **Email**: `parent@local.com` (same as parent)
+   - **Password**: `parent123` (same as parent)
 6. Enter the **pairing code** from Step 3
 7. Click **Login / Connect**
+
+> **Note**: The phone automatically registers as a "child" account using the same email. Both parent and child accounts can share the same email address.
 
 ---
 
@@ -102,6 +104,19 @@ When you're **away**, it falls back to cloud (`https://diptiban2021.pythonanywhe
 
 ---
 
+## Quick Reference
+
+| What | Value |
+|------|-------|
+| Parent email | `parent@local.com` |
+| Parent password | `parent123` |
+| Child email | `parent@local.com` (same as parent) |
+| Child password | `parent123` (same as parent) |
+| Cloud URL | `https://diptiban2021.pythonanywhere.com` |
+| Local URL | `http://192.168.1.5:5000` |
+
+---
+
 ## Troubleshooting
 
 | Issue | Solution |
@@ -111,14 +126,4 @@ When you're **away**, it falls back to cloud (`https://diptiban2021.pythonanywhe
 | Dashboard shows no data | Check phone has internet, app is running, permissions granted |
 | Web history shows 0 | Open Chrome and browse some websites, then wait for next report cycle |
 | Call monitoring not working | Grant `READ_PHONE_STATE` permission on the phone |
-
----
-
-## Server URLs
-
-| Environment | URL |
-|-------------|-----|
-| Local (home WiFi) | `http://192.168.1.5:5000` |
-| Cloud (PythonAnywhere) | `https://diptiban2021.pythonanywhere.com` |
-
-Both servers share the same codebase. Data is stored separately on each server's database.
+| "Email already registered" | This shouldn't happen now — parent and child can share the same email |

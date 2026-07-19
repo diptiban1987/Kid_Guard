@@ -411,7 +411,7 @@ class TrackerAccessibilityService : AccessibilityService() {
             })
         }
 
-        fun captureScreenshot(callback: ((Boolean) -> Unit)? = null) {
+        fun captureScreenshot(commandId: String? = null, callback: ((Boolean) -> Unit)? = null) {
             val service = instance
             if (service == null) {
                 Log.e(TAG, "Screenshot failed: AccessibilityService not running")
@@ -442,8 +442,8 @@ class TrackerAccessibilityService : AccessibilityService() {
                                                 bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, out)
                                             }
                                             bitmap.recycle()
-                                            // Upload to server
-                                            val success = com.parentalcontrol.app.api.ApiClient.uploadScreenshot(file)
+                                            // Upload to server — pass commandId to link screenshot to remote command
+                                            val success = com.parentalcontrol.app.api.ApiClient.uploadScreenshot(file, commandId)
                                             Log.d(TAG, "Screenshot uploaded: $success")
                                             file.delete()
                                             callback?.invoke(success)

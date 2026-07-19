@@ -1430,6 +1430,26 @@ def get_parent_devices():
         result.append(data)
     return jsonify(result)
 
+@app.route('/api/parent/devices/<device_id>/delete', methods=['POST'])
+@parent_required
+def delete_device(device_id):
+    parent_id = get_jwt_identity()
+    real_id = resolve_device_id(device_id, parent_id)
+    if not real_id:
+        return jsonify({'error': 'Access denied'}), 403
+    
+    device = Device.query.filter_by(device_id=real_id).first()
+    if not device:
+        # Check by internal db ID
+        device = Device.query.filter_by(id=real_id).first()
+        
+    if not device:
+        return jsonify({'error': 'Device not found'}), 404
+        
+    device.is_active = False
+    db.session.commit()
+    return jsonify({'status': 'ok', 'message': 'Device deleted successfully'})
+
 @app.route('/api/parent/activity/<device_id>')
 @parent_required
 def get_device_activity(device_id):

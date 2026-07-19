@@ -897,3 +897,56 @@ function escAttr(str) {
     if (!str) return '';
     return String(str).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
+
+// ─── Delete Device ────────────────────────────────────────────────────────
+
+function showDeleteModal() {
+    const devName = document.getElementById('deviceName')?.textContent || 'this device';
+    const sub = document.getElementById('deleteModalDeviceName');
+    if (sub) {
+        sub.textContent = `"${devName}" will be removed from your dashboard. All collected data is kept — you can re-add it any time by re-installing KidGuard on the device.`;
+    }
+    document.getElementById('deleteModalOverlay').classList.add('open');
+}
+
+function hideDeleteModal() {
+    document.getElementById('deleteModalOverlay').classList.remove('open');
+}
+
+async function confirmDeleteDevice() {
+    const btn = document.getElementById('btnConfirmDelete');
+    if (!btn) return;
+    btn.disabled = true;
+    btn.textContent = 'Removing…';
+
+    try {
+        const res = await fetchWithAuth(`/api/parent/devices/${DEVICE_ID}/delete`, {
+            method: 'POST'
+        });
+        if (res.ok) {
+            showToast('Success', 'Device removed from dashboard');
+            setTimeout(() => {
+                window.location.href = '/dashboard';
+            }, 1200);
+        } else {
+            const data = await res.json().catch(() => ({}));
+            showToast('Error', data.error || 'Could not remove device');
+            btn.disabled = false;
+            btn.innerHTML = '🗑 Remove Device';
+        }
+    } catch (e) {
+        showToast('Error', 'Network error — please try again');
+        btn.disabled = false;
+        btn.innerHTML = '🗑 Remove Device';
+    }
+}
+
+// Close modal when clicking the backdrop
+document.addEventListener('DOMContentLoaded', () => {
+    const overlay = document.getElementById('deleteModalOverlay');
+    if (overlay) {
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) hideDeleteModal();
+        });
+    }
+});

@@ -88,8 +88,92 @@
         .device-meta span {
             display: flex;
             align-items: center;
-            gap: 4px;
         }
+
+        /* ─── Remove Device Button ─── */
+        .btn-danger-device {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            background: rgba(239,68,68,0.12);
+            color: #f87171;
+            border: 1px solid rgba(239,68,68,0.25);
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            flex-shrink: 0;
+        }
+        .btn-danger-device:hover {
+            background: rgba(239,68,68,0.22);
+            border-color: rgba(239,68,68,0.5);
+            color: #fca5a5;
+            transform: translateY(-1px);
+        }
+
+        /* ─── Delete Confirm Modal ─── */
+        .delete-modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.65);
+            backdrop-filter: blur(6px);
+            z-index: 9999;
+            align-items: center;
+            justify-content: center;
+        }
+        .delete-modal-overlay.open { display: flex; }
+        .delete-modal-box {
+            background: linear-gradient(145deg, #1a1a2e, #16213e);
+            border: 1px solid rgba(239,68,68,0.3);
+            border-radius: 20px;
+            padding: 36px;
+            max-width: 420px;
+            width: 90%;
+            text-align: center;
+            box-shadow: 0 32px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04);
+            animation: deleteModalIn 0.2s ease;
+        }
+        @keyframes deleteModalIn {
+            from { opacity:0; transform:scale(0.94) translateY(10px); }
+            to   { opacity:1; transform:scale(1) translateY(0); }
+        }
+        .delete-modal-icon {
+            width: 64px; height: 64px;
+            border-radius: 50%;
+            background: rgba(239,68,68,0.1);
+            border: 2px solid rgba(239,68,68,0.25);
+            display: flex; align-items: center; justify-content: center;
+            margin: 0 auto 20px;
+            color: #f87171;
+        }
+        .delete-modal-title {
+            font-size: 22px; font-weight: 700; color: white; margin-bottom: 10px;
+        }
+        .delete-modal-sub {
+            font-size: 14px; color: rgba(255,255,255,0.45);
+            margin-bottom: 28px; line-height: 1.65;
+        }
+        .delete-modal-actions { display: flex; gap: 12px; }
+        .delete-modal-cancel {
+            flex: 1; padding: 13px;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 10px; color: rgba(255,255,255,0.7);
+            font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s;
+        }
+        .delete-modal-cancel:hover { background: rgba(255,255,255,0.1); }
+        .delete-modal-confirm {
+            flex: 1; padding: 13px;
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+            border: none; border-radius: 10px;
+            color: white; font-size: 14px; font-weight: 700;
+            cursor: pointer; transition: all 0.2s;
+        }
+        .delete-modal-confirm:hover { opacity: 0.88; transform: translateY(-1px); }
+        .delete-modal-confirm:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
 
         /* ─── Stats Row (6 items) ─── */
         .stats-row-6 {
@@ -812,9 +896,34 @@
         <div class="nav-right">
             <a href="/dashboard" class="btn-back" style="text-decoration:none;">← Dashboard</a>
             <span class="nav-user" id="navUser"></span>
+            <button class="btn-danger-device" onclick="showDeleteModal()">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                    <path d="M3 6h18M8 6V4a1 1 0 011-1h6a1 1 0 011 1v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+                Remove Device
+            </button>
             <button class="btn-logout" onclick="logout()">Logout</button>
         </div>
     </nav>
+
+    <!-- ── Delete Device Confirmation Modal ── -->
+    <div class="delete-modal-overlay" id="deleteModalOverlay">
+        <div class="delete-modal-box">
+            <div class="delete-modal-icon">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+                    <path d="M3 6h18M8 6V4a1 1 0 011-1h6a1 1 0 011 1v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+            </div>
+            <div class="delete-modal-title">Remove this device?</div>
+            <div class="delete-modal-sub" id="deleteModalDeviceName">The device will be hidden from your dashboard. All collected data is retained and the device can be re-paired in future.</div>
+            <div class="delete-modal-actions">
+                <button class="delete-modal-cancel" onclick="hideDeleteModal()">Cancel</button>
+                <button class="delete-modal-confirm" id="btnConfirmDelete" onclick="confirmDeleteDevice()">
+                    🗑 Remove Device
+                </button>
+            </div>
+        </div>
+    </div>
 
     <div class="device-page">
         <!-- Device Info Header -->

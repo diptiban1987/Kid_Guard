@@ -11,12 +11,13 @@ from flask_jwt_extended import (
 from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
 
-# SocketIO is optional — falls back to polling when unavailable
+# SocketIO is optional — PythonAnywhere WSGI does NOT support WebSockets/SocketIO
+# even if flask-socketio is installed. Auto-detect the environment and disable it.
 try:
     from flask_socketio import SocketIO, emit, join_room, leave_room
-    HAS_SOCKETIO = True
+    _SOCKETIO_INSTALLED = True
 except ImportError:
-    HAS_SOCKETIO = False
+    _SOCKETIO_INSTALLED = False
 
 from config import Config
 from models import db, User, ChildRelation, Device, LocationReport, ActivityReport, \
@@ -30,11 +31,23 @@ app = Flask(__name__)
 app.config.from_object(Config)
 CORS(app, supports_credentials=True)
 
-# SocketIO only if available (PythonAnywhere has no WebSocket support)
-if HAS_SOCKETIO:
+# Disable SocketIO on PythonAnywhere (no WebSocket support) or if explicitly disabled.
+# PythonAnywhere always sets the PYTHONANYWHERE_SITE env var on hosted apps.
+_IS_PYTHONANYWHERE = bool(os.environ.get('PYTHONANYWHERE_SITE'))
+_SOCKETIO_DISABLED = bool(os.environ.get('DISABLE_SOCKETIO', ''))
+
+if _SOCKETIO_INSTALLED and not _IS_PYTHONANYWHERE and not _SOCKETIO_DISABLED:
+    HAS_SOCKETIO = True
     socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 else:
+    HAS_SOCKETIO = False
     socketio = None
+    if _IS_PYTHONANYWHERE:
+        print("[SocketIO] Disabled — PythonAnywhere WSGI does not support WebSockets.")
+    elif _SOCKETIO_DISABLED:
+        print("[SocketIO] Disabled — DISABLE_SOCKETIO env var is set.")
+    else:
+        print("[SocketIO] Disabled — flask-socketio not installed.")
 
 jwt = JWTManager(app)
 db.init_app(app)

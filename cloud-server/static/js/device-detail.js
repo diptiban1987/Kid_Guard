@@ -528,7 +528,7 @@ async function saveGeofence() {
 async function deleteGeofence(id) {
     if (!confirm('Delete this geofence?')) return;
     try {
-        await fetchWithAuth(`/api/parent/geofences/${id}`, { method: 'DELETE' });
+        await fetchWithAuth(`/api/parent/geofences/delete/${id}`, { method: 'DELETE' });
         showToast('🗑️ Deleted', 'Geofence removed');
         loadAllData();
     } catch (e) {
@@ -620,7 +620,7 @@ async function addRestriction() {
 async function deleteRestriction(id) {
     if (!confirm('Remove this restriction?')) return;
     try {
-        await fetchWithAuth(`/api/parent/restrictions/${id}`, { method: 'DELETE' });
+        await fetchWithAuth(`/api/parent/restrictions/delete/${id}`, { method: 'DELETE' });
         showToast('🗑️ Removed', 'Restriction removed');
         loadAllData();
     } catch (e) {
@@ -643,6 +643,7 @@ function renderSchedule() {
                     <div class="schedule-day-name">${dayName}</div>
                     <div class="schedule-day-time">${rule.start_time || '—'}–${rule.end_time || ''}</div>
                     <div class="schedule-day-rule">${rule.is_block_time ? 'Blocked' : 'Allowed'}</div>
+                    <button class="btn-delete" onclick="deleteScheduleRule('${rule.id}')" title="Remove" style="margin-top:6px;">×</button>
                 </div>`;
         }
         return `
@@ -652,6 +653,17 @@ function renderSchedule() {
                 <div class="schedule-day-rule">No rule</div>
             </div>`;
     }).join('');
+}
+
+async function deleteScheduleRule(id) {
+    if (!confirm('Remove this schedule rule?')) return;
+    try {
+        await fetchWithAuth(`/api/parent/schedule/delete/${id}`, { method: 'DELETE' });
+        showToast('🗑️ Removed', 'Schedule rule removed');
+        loadAllData();
+    } catch (e) {
+        showToast('⚠️ Error', 'Failed to remove schedule rule');
+    }
 }
 
 async function addScheduleRule() {

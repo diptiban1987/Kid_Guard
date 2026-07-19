@@ -91,14 +91,21 @@ def get_child_internal_device_ids(parent_id):
 
 
 def resolve_device_id(provided_id, parent_id):
-    device_ids = get_child_device_ids(parent_id)
-    if provided_id in device_ids:
-        device = Device.query.filter_by(id=provided_id).first()
+    # Normalise to strings for comparison (device_ids may contain ints from d.id)
+    device_ids_str = [str(x) for x in get_child_device_ids(parent_id)]
+    provided_str = str(provided_id)
+    if provided_str in device_ids_str:
+        # Try matching by device_id (string) first
+        device = Device.query.filter_by(device_id=provided_str).first()
         if device:
             return device.device_id
-        device = Device.query.filter_by(device_id=provided_id).first()
-        if device:
-            return device.device_id
+        # Fall back to matching by integer primary key
+        try:
+            device = Device.query.filter_by(id=int(provided_str)).first()
+            if device:
+                return device.device_id
+        except (ValueError, TypeError):
+            pass
     return None
 
 # ─── Auth Routes ──────────────────────────────────────────────────────────
@@ -1502,17 +1509,18 @@ def create_geofence(device_id):
         'radius': geofence.radius
     }}), 201
 
-@app.route('/api/parent/geofences/<geofence_id>', methods=['DELETE'])
+@app.route('/api/parent/geofences/delete/<geofence_id>', methods=['DELETE', 'POST'])
 @parent_required
 def delete_geofence(geofence_id):
     geofence = Geofence.query.get(geofence_id)
     if not geofence:
         return jsonify({'error': 'Not found'}), 404
-    
-    device_ids = get_child_device_ids(get_jwt_identity())
-    if geofence.device_id not in device_ids:
+
+    parent_id = get_jwt_identity()
+    device_ids_str = [str(x) for x in get_child_device_ids(parent_id)]
+    if str(geofence.device_id) not in device_ids_str:
         return jsonify({'error': 'Access denied'}), 403
-    
+
     db.session.delete(geofence)
     db.session.commit()
     return jsonify({'status': 'ok'})
@@ -1578,15 +1586,16 @@ def manage_restrictions(device_id):
     db.session.commit()
     return jsonify({'status': 'ok'})
 
-@app.route('/api/parent/restrictions/<restriction_id>', methods=['DELETE'])
+@app.route('/api/parent/restrictions/delete/<restriction_id>', methods=['DELETE', 'POST'])
 @parent_required
 def delete_restriction(restriction_id):
     restriction = AppRestriction.query.get(restriction_id)
     if not restriction:
         return jsonify({'error': 'Not found'}), 404
 
-    device_ids = get_child_device_ids(get_jwt_identity())
-    if restriction.device_id not in device_ids:
+    parent_id = get_jwt_identity()
+    device_ids_str = [str(x) for x in get_child_device_ids(parent_id)]
+    if str(restriction.device_id) not in device_ids_str:
         return jsonify({'error': 'Access denied'}), 403
 
     db.session.delete(restriction)
@@ -1600,7 +1609,7 @@ def manage_schedule(device_id):
     real_id = resolve_device_id(device_id, parent_id)
     if not real_id:
         return jsonify({'error': 'Access denied'}), 403
-    
+
     if request.method == 'GET':
         rules = ScheduleRule.query.filter_by(device_id=real_id).all()
         return jsonify([{
@@ -1608,7 +1617,7 @@ def manage_schedule(device_id):
             'start_time': r.start_time, 'end_time': r.end_time,
             'is_block_time': r.is_block_time
         } for r in rules])
-    
+
     data = request.get_json()
     rule = ScheduleRule(
         device_id=real_id,
@@ -1621,6 +1630,22 @@ def manage_schedule(device_id):
     db.session.add(rule)
     db.session.commit()
     return jsonify({'status': 'ok', 'rule_id': rule.id}), 201
+
+@app.route('/api/parent/schedule/delete/<rule_id>', methods=['DELETE', 'POST'])
+@parent_required
+def delete_schedule_rule(rule_id):
+    rule = ScheduleRule.query.get(rule_id)
+    if not rule:
+        return jsonify({'error': 'Not found'}), 404
+
+    parent_id = get_jwt_identity()
+    device_ids_str = [str(x) for x in get_child_device_ids(parent_id)]
+    if str(rule.device_id) not in device_ids_str:
+        return jsonify({'error': 'Access denied'}), 403
+
+    db.session.delete(rule)
+    db.session.commit()
+    return jsonify({'status': 'ok'})
 
 # ─── Remote Update / APK Management ─────────────────────────────────────
 

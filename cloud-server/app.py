@@ -803,15 +803,16 @@ def report_webhistory():
 def report_media():
     device_id = request.form.get('device_id')
     media_type = request.form.get('media_type', 'photo')
+    command_id  = request.form.get('command_id')   # links upload to a remote command
     file = request.files.get('file')
-    
+
     if not file:
         return jsonify({'error': 'No file'}), 400
-    
+
     filename = f"{device_id}_{int(time.time())}_{secure_filename(file.filename)}"
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
     file.save(filepath)
-    
+
     media = MediaFile(
         device_id=device_id,
         media_type=media_type,
@@ -821,12 +822,38 @@ def report_media():
         timestamp=int(datetime.now(timezone.utc).timestamp() * 1000)
     )
     db.session.add(media)
+
+    # If this upload is linked to a remote command, cache the image/audio in memory
+    # so the parent dashboard can show it immediately via poll_command_result
+    if command_id:
+        try:
+            import base64 as _b64
+            with open(filepath, 'rb') as fh:
+                raw = fh.read()
+            mime = file.mimetype or ('image/jpeg' if media_type != 'audio' else 'audio/mp4')
+            data_uri = f"data:{mime};base64," + _b64.b64encode(raw).decode('utf-8')
+            result_type = 'audio' if media_type == 'audio' else 'image'
+            live_command_results[command_id] = {
+                'status': 'completed',
+                'result_type': result_type,
+                'data': data_uri,
+                'command': media_type,
+                'updated_at': int(datetime.now(timezone.utc).timestamp() * 1000)
+            }
+            # Mark command completed in DB too
+            cmd = RemoteCommand.query.get(command_id)
+            if cmd:
+                cmd.status = 'completed'
+                cmd.completed_at = int(datetime.now(timezone.utc).timestamp() * 1000)
+        except Exception as e:
+            app.logger.warning(f"Failed to cache media result for command {command_id}: {e}")
+
     db.session.commit()
-    
+
     emit_realtime(device_id, 'media', {
         'media_type': media_type, 'file_size': media.file_size
     })
-    
+
     return jsonify({'status': 'ok', 'media_id': media.id})
 
 @app.route('/api/report/bulk', methods=['POST'])
@@ -863,7 +890,8 @@ def report_bulk():
             device_id=device_id,
             level=bat.get('level', -1),
             is_charging=bat.get('is_charging', False),
-            temperature=bat.get('temperature', -1)
+            temperature=bat.get('temperature', -1),
+            timestamp=bat.get('timestamp', int(datetime.now(timezone.utc).timestamp() * 1000))
         ))
     
     if 'activities' in data:
@@ -1304,8 +1332,8 @@ def get_parent_updates():
     # Check for low battery events on children's devices
     for did in device_ids:
         bat = BatteryReport.query.filter_by(device_id=did)\
-            .order_by(BatteryReport.id.desc()).first()
-        if bat and bat.level is not None and bat.level <= 15 and bat.timestamp > since:
+            .order_by(BatteryReport.received_at.desc()).first()
+        if bat and bat.level is not None and bat.level <= 15 and (bat.timestamp or bat.received_at) > since:
             device = Device.query.filter_by(device_id=did).first()
             name = device.device_name if device else did
             notifications.append({
@@ -1372,7 +1400,7 @@ def get_parent_devices():
         try:
             # Attach latest battery info
             latest_battery = BatteryReport.query.filter_by(device_id=d.device_id)\
-                .order_by(BatteryReport.id.desc()).first()
+                .order_by(BatteryReport.received_at.desc()).first()
             if latest_battery:
                 data['battery_level'] = latest_battery.level
                 data['is_charging'] = latest_battery.is_charging

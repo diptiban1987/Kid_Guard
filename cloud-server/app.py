@@ -972,8 +972,13 @@ def report_bulk():
 # ─── Real-time Call State + Audio Streaming ──────────────────────────────
 
 # In-memory store for live call state per device
-live_call_state = {}  # device_id -> {state, phone_number, timestamp, streaming}
+live_call_state = {}   # device_id -> {state, phone_number, timestamp, streaming}
 live_audio_streams = {}  # device_id -> {active, last_chunk_time}
+
+# In-memory command result cache (never persisted to disk for privacy)
+# Holds latest result per command_id: {status, result_type, data, updated_at}
+live_command_results = {}   # command_id -> {status, result_type, data, updated_at}
+live_mic_chunks = {}        # command_id -> {audio_b64, sample_rate, seq, updated_at}
 
 @app.route('/api/report/call-state', methods=['POST'])
 @jwt_required()
@@ -1023,6 +1028,9 @@ def report_audio_stream():
     device_id = data.get('device_id')
     audio_b64 = data.get('audio')
     sample_rate = data.get('sample_rate', 16000)
+    command_id = data.get('command_id')   # optional: link chunk to a mic command
+    seq = data.get('seq', 0)              # sequence number for ordering
+    done = data.get('done', False)        # True when recording finished
     timestamp = data.get('timestamp', int(datetime.now(timezone.utc).timestamp() * 1000))
 
     if not device_id or not audio_b64:
@@ -1030,17 +1038,33 @@ def report_audio_stream():
 
     # Track streaming state
     live_audio_streams[device_id] = {
-        'active': True,
+        'active': not done,
         'last_chunk_time': timestamp,
         'sample_rate': sample_rate
     }
 
-    # Emit audio chunk via WebSocket to parent room
+    # Buffer in mic_chunks for HTTP polling (parent polls audio-poll endpoint)
+    if command_id:
+        live_mic_chunks[command_id] = {
+            'audio_b64': audio_b64,
+            'sample_rate': sample_rate,
+            'seq': seq,
+            'done': done,
+            'updated_at': timestamp
+        }
+        # Mark command completed when done
+        if done and command_id in live_command_results:
+            live_command_results[command_id]['status'] = 'completed'
+
+    # Emit via WebSocket too if available
     emit_realtime(device_id, 'audio_chunk', {
         'audio': audio_b64,
         'sample_rate': sample_rate,
         'channels': 1,
         'encoding': 'pcm_s16le',
+        'command_id': command_id,
+        'seq': seq,
+        'done': done,
         'timestamp': timestamp
     })
 
@@ -1100,7 +1124,7 @@ def update_command_status(command_id):
     command = RemoteCommand.query.get(command_id)
     if not command:
         return jsonify({'error': 'Command not found'}), 404
-    
+
     command.status = data.get('status', command.status)
     if command.status == 'completed':
         command.completed_at = int(datetime.now(timezone.utc).timestamp() * 1000)
@@ -1108,7 +1132,77 @@ def update_command_status(command_id):
         command.result = data.get('result')
 
     db.session.commit()
+
+    # Cache result in memory for real-time parent polling (no disk save for media)
+    result_payload = data.get('result')
+    result_type = data.get('result_type', 'text')  # text | image | audio
+    live_command_results[command_id] = {
+        'status': command.status,
+        'result_type': result_type,
+        'data': result_payload,  # base64 string or text
+        'command': command.command,
+        'updated_at': int(datetime.now(timezone.utc).timestamp() * 1000)
+    }
+
     return jsonify({'status': 'ok'})
+
+
+@app.route('/api/parent/commands/<device_id>/result/<command_id>', methods=['GET'])
+@parent_required
+def poll_command_result(device_id, command_id):
+    """Parent polls this endpoint to get real-time command result (in-memory, not saved)."""
+    parent_id = get_jwt_identity()
+    real_id = resolve_device_id(device_id, parent_id)
+    if not real_id:
+        return jsonify({'error': 'Access denied'}), 403
+
+    command = RemoteCommand.query.get(command_id)
+    if not command or command.device_id != real_id:
+        return jsonify({'error': 'Not found'}), 404
+
+    # Return from in-memory cache first (includes unsaved image/audio data)
+    cached = live_command_results.get(command_id)
+    if cached:
+        return jsonify({
+            'status': cached['status'],
+            'result_type': cached['result_type'],
+            'data': cached['data'],
+            'command': cached['command'],
+            'updated_at': cached['updated_at']
+        })
+
+    # Fall back to DB status
+    return jsonify({
+        'status': command.status,
+        'result_type': 'text',
+        'data': command.result,
+        'command': command.command,
+        'updated_at': command.completed_at or command.created_at
+    })
+
+
+@app.route('/api/parent/commands/<device_id>/audio-poll/<command_id>', methods=['GET'])
+@parent_required
+def poll_mic_audio(device_id, command_id):
+    """Returns the latest audio chunk for a mic recording command.
+    Frontend polls this and plays each chunk via Web Audio API."""
+    parent_id = get_jwt_identity()
+    real_id = resolve_device_id(device_id, parent_id)
+    if not real_id:
+        return jsonify({'error': 'Access denied'}), 403
+
+    since = request.args.get('since', 0, type=int)
+    chunk = live_mic_chunks.get(command_id)
+    if chunk and chunk.get('updated_at', 0) > since:
+        return jsonify({
+            'has_chunk': True,
+            'audio': chunk['audio_b64'],
+            'sample_rate': chunk.get('sample_rate', 16000),
+            'seq': chunk.get('seq', 0),
+            'updated_at': chunk['updated_at'],
+            'done': chunk.get('done', False)
+        })
+    return jsonify({'has_chunk': False})
 
 # ─── Geofence Helper ──────────────────────────────────────────────────────
 

@@ -547,7 +547,13 @@ async function sendCommand(command) {
             body: JSON.stringify({ command, params: { duration: 30 } })
         });
         if (res.ok) {
+            const data = await res.json();
+            const commandId = data.command_id;
             showToast('📤 Command Sent', `${command} sent to device`);
+            // Open the live result modal
+            if (typeof openCmdModal === 'function' && commandId) {
+                openCmdModal(command, commandId);
+            }
         } else {
             showToast('⚠️ Error', 'Failed to send command');
         }

@@ -595,6 +595,206 @@
             font-size: 11px;
             color: rgba(255,255,255,0.5);
         }
+
+        /* ─── Command Result Modal ─── */
+        .cmd-result-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.85);
+            backdrop-filter: blur(12px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 5000;
+            animation: fadeIn 0.25s ease;
+        }
+        .cmd-result-overlay.hidden { display: none; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        .cmd-result-box {
+            background: rgba(15,15,28,0.97);
+            border: 1px solid rgba(102,126,234,0.3);
+            border-radius: 20px;
+            padding: 28px 32px;
+            min-width: 360px;
+            max-width: 680px;
+            width: 90vw;
+            position: relative;
+            animation: slideUp 0.3s cubic-bezier(0.34,1.56,0.64,1);
+            box-shadow: 0 30px 80px rgba(0,0,0,0.6);
+        }
+        @keyframes slideUp { from { transform: translateY(30px) scale(0.95); opacity: 0; } to { transform: translateY(0) scale(1); opacity: 1; } }
+
+        .cmd-result-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+        .cmd-result-icon {
+            font-size: 26px;
+            width: 48px; height: 48px;
+            border-radius: 12px;
+            background: rgba(102,126,234,0.12);
+            display: flex; align-items: center; justify-content: center;
+        }
+        .cmd-result-title {
+            font-size: 18px;
+            font-weight: 700;
+            color: white;
+        }
+        .cmd-result-sub {
+            font-size: 12px;
+            color: rgba(255,255,255,0.4);
+            margin-top: 2px;
+        }
+        .cmd-close-btn {
+            position: absolute;
+            top: 16px; right: 20px;
+            background: rgba(255,255,255,0.06);
+            border: none;
+            color: white;
+            width: 32px; height: 32px;
+            border-radius: 8px;
+            font-size: 18px;
+            cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            transition: background 0.2s;
+        }
+        .cmd-close-btn:hover { background: rgba(255,255,255,0.12); }
+
+        /* Waiting spinner */
+        .cmd-waiting {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 16px;
+            padding: 24px 0;
+        }
+        .cmd-spinner {
+            width: 48px; height: 48px;
+            border: 3px solid rgba(102,126,234,0.2);
+            border-top-color: #667eea;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .cmd-waiting-text {
+            font-size: 14px;
+            color: rgba(255,255,255,0.5);
+            text-align: center;
+        }
+
+        /* Status result (lock, alarm, wipe) */
+        .cmd-status-result {
+            text-align: center;
+            padding: 20px 0;
+        }
+        .cmd-status-icon-big {
+            font-size: 56px;
+            margin-bottom: 12px;
+            animation: popIn 0.4s cubic-bezier(0.34,1.56,0.64,1);
+        }
+        @keyframes popIn { from { transform: scale(0); } to { transform: scale(1); } }
+        .cmd-status-msg {
+            font-size: 16px;
+            font-weight: 600;
+            color: white;
+        }
+        .cmd-status-detail {
+            font-size: 13px;
+            color: rgba(255,255,255,0.4);
+            margin-top: 6px;
+        }
+
+        /* Image result (screenshot, camera) */
+        .cmd-image-result img {
+            width: 100%;
+            max-height: 60vh;
+            object-fit: contain;
+            border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.06);
+        }
+        .cmd-image-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 14px;
+            justify-content: flex-end;
+        }
+        .btn-download-img {
+            padding: 9px 20px;
+            border: none;
+            border-radius: 10px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            font-weight: 600;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-download-img:hover { transform: scale(1.04); box-shadow: 0 4px 15px rgba(102,126,234,0.4); }
+
+        /* Mic / Audio streaming result */
+        .cmd-mic-result {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 16px;
+            padding: 12px 0;
+        }
+        .mic-waveform {
+            display: flex;
+            gap: 5px;
+            align-items: center;
+            height: 60px;
+        }
+        .mic-wave-bar {
+            width: 5px;
+            background: linear-gradient(to top, #667eea, #a78bfa);
+            border-radius: 3px;
+            min-height: 6px;
+            transition: height 0.1s ease;
+        }
+        .mic-wave-bar.active {
+            animation: micWave 0.6s ease-in-out infinite;
+        }
+        .mic-wave-bar:nth-child(1) { animation-delay: 0s; }
+        .mic-wave-bar:nth-child(2) { animation-delay: 0.08s; }
+        .mic-wave-bar:nth-child(3) { animation-delay: 0.16s; }
+        .mic-wave-bar:nth-child(4) { animation-delay: 0.24s; }
+        .mic-wave-bar:nth-child(5) { animation-delay: 0.08s; }
+        .mic-wave-bar:nth-child(6) { animation-delay: 0.16s; }
+        .mic-wave-bar:nth-child(7) { animation-delay: 0.24s; }
+        .mic-wave-bar:nth-child(8) { animation-delay: 0.08s; }
+        @keyframes micWave {
+            0%, 100% { transform: scaleY(0.4); }
+            50% { transform: scaleY(1.8); }
+        }
+        .mic-status-line {
+            font-size: 14px;
+            font-weight: 600;
+            color: #a78bfa;
+        }
+        .mic-timer {
+            font-size: 28px;
+            font-weight: 700;
+            font-family: monospace;
+            color: white;
+            letter-spacing: 2px;
+        }
+        .btn-stop-mic {
+            padding: 10px 24px;
+            border: none;
+            border-radius: 10px;
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+            color: white;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .btn-stop-mic:hover { transform: scale(1.05); }
     </style>
 </head>
 <body>
@@ -1081,6 +1281,279 @@
 
         // Start polling when page loads
         startCallStatePolling();
+    </script>
+
+    <!-- ─── Command Result Modal ─── -->
+    <div class="cmd-result-overlay hidden" id="cmdResultOverlay">
+        <div class="cmd-result-box">
+            <button class="cmd-close-btn" onclick="closeCmdModal()" title="Close">&#x2715;</button>
+            <div class="cmd-result-header">
+                <div class="cmd-result-icon" id="cmdResultIcon">📤</div>
+                <div>
+                    <div class="cmd-result-title" id="cmdResultTitle">Sending Command…</div>
+                    <div class="cmd-result-sub" id="cmdResultSub">Waiting for device response</div>
+                </div>
+            </div>
+            <div id="cmdResultBody">
+                <!-- Filled dynamically -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+    // ─── Command Result Modal ──────────────────────────────────────────────
+    let cmdPollTimer = null;
+    let cmdMicPollTimer = null;
+    let cmdMicAudioCtx = null;
+    let cmdMicLastSeq = -1;
+    let cmdMicLastTs = 0;
+    let cmdMicElapsedTimer = null;
+    let cmdMicElapsed = 0;
+    let cmdCurrentId = null;
+    let cmdCurrentName = null;
+
+    const CMD_META = {
+        lock:          { icon: '🔒', label: 'Lock Device',      type: 'status' },
+        alarm:         { icon: '🔔', label: 'Play Alarm',        type: 'status' },
+        screenshot:    { icon: '📸', label: 'Screenshot',        type: 'image'  },
+        camera_front:  { icon: '📷', label: 'Front Camera',      type: 'image'  },
+        camera_back:   { icon: '📷', label: 'Back Camera',       type: 'image'  },
+        record_audio:  { icon: '🎙️', label: 'Mic Recording',    type: 'mic'    },
+        wipe:          { icon: '🗑️', label: 'Wipe Device',      type: 'status' },
+    };
+
+    function openCmdModal(command, commandId) {
+        const meta = CMD_META[command] || { icon: '📤', label: command, type: 'status' };
+        cmdCurrentId = commandId;
+        cmdCurrentName = command;
+
+        document.getElementById('cmdResultIcon').textContent = meta.icon;
+        document.getElementById('cmdResultTitle').textContent = meta.label;
+        document.getElementById('cmdResultSub').textContent = 'Command sent · Waiting for device…';
+        document.getElementById('cmdResultBody').innerHTML = `
+            <div class="cmd-waiting">
+                <div class="cmd-spinner"></div>
+                <div class="cmd-waiting-text">Waiting for the device to respond…<br>
+                    <small style="opacity:0.6;">Device must be online and app must be running</small>
+                </div>
+            </div>`;
+        document.getElementById('cmdResultOverlay').classList.remove('hidden');
+
+        // Start polling for result
+        if (meta.type === 'mic') {
+            startMicStream(commandId);
+        } else {
+            startResultPolling(commandId, meta.type);
+        }
+    }
+
+    function closeCmdModal() {
+        document.getElementById('cmdResultOverlay').classList.add('hidden');
+        stopResultPolling();
+        stopMicStream();
+    }
+
+    // ─── Generic result polling (screenshot / camera / status) ────────────
+    function startResultPolling(commandId, resultType) {
+        stopResultPolling();
+        let attempts = 0;
+        const maxAttempts = 30; // 60 seconds max
+        cmdPollTimer = setInterval(async () => {
+            attempts++;
+            if (attempts > maxAttempts) {
+                stopResultPolling();
+                showCmdError('Device did not respond in time.');
+                return;
+            }
+            try {
+                const res = await fetchWithAuth(
+                    `/api/parent/commands/${DEVICE_ID}/result/${commandId}`
+                );
+                if (!res.ok) return;
+                const data = await res.json();
+                if (data.status === 'completed') {
+                    stopResultPolling();
+                    renderCmdResult(data, resultType);
+                } else if (data.status === 'failed') {
+                    stopResultPolling();
+                    showCmdError('Command failed on device.');
+                }
+            } catch (e) { /* keep trying */ }
+        }, 2000);
+    }
+
+    function stopResultPolling() {
+        if (cmdPollTimer) { clearInterval(cmdPollTimer); cmdPollTimer = null; }
+    }
+
+    function renderCmdResult(data, resultType) {
+        const meta = CMD_META[cmdCurrentName] || {};
+        document.getElementById('cmdResultSub').textContent = '✅ Completed';
+
+        if (resultType === 'image' && data.data) {
+            // Base64 image — show inline, offer download
+            const imgSrc = data.data.startsWith('data:') ? data.data : `data:image/jpeg;base64,${data.data}`;
+            document.getElementById('cmdResultBody').innerHTML = `
+                <div class="cmd-image-result">
+                    <img src="${imgSrc}" alt="${meta.label || 'image'}">
+                    <div class="cmd-image-actions">
+                        <button class="btn-download-img" onclick="downloadCmdImage('${imgSrc}', '${cmdCurrentName}')">
+                            ⬇️ Download
+                        </button>
+                    </div>
+                </div>`;
+        } else {
+            // Text / status result
+            const statusMessages = {
+                lock:  { icon: '🔒', msg: 'Device Locked',     detail: 'The device screen has been locked.' },
+                alarm: { icon: '🔔', msg: 'Alarm Playing',     detail: 'Alarm sound is playing on the device.' },
+                wipe:  { icon: '🗑️', msg: 'Device Wiped',     detail: 'Factory reset has been initiated.' },
+            };
+            const s = statusMessages[cmdCurrentName] || { icon: '✅', msg: 'Command Executed', detail: data.data || '' };
+            document.getElementById('cmdResultBody').innerHTML = `
+                <div class="cmd-status-result">
+                    <div class="cmd-status-icon-big">${s.icon}</div>
+                    <div class="cmd-status-msg">${s.msg}</div>
+                    <div class="cmd-status-detail">${s.detail}</div>
+                </div>`;
+        }
+    }
+
+    function showCmdError(msg) {
+        document.getElementById('cmdResultSub').textContent = '⚠️ Error';
+        document.getElementById('cmdResultBody').innerHTML = `
+            <div class="cmd-status-result">
+                <div class="cmd-status-icon-big">⚠️</div>
+                <div class="cmd-status-msg">Error</div>
+                <div class="cmd-status-detail">${msg}</div>
+            </div>`;
+    }
+
+    function downloadCmdImage(src, name) {
+        const a = document.createElement('a');
+        a.href = src;
+        a.download = `${name}_${Date.now()}.jpg`;
+        a.click();
+    }
+
+    // ─── Mic streaming via HTTP polling ──────────────────────────────────
+    function startMicStream(commandId) {
+        stopMicStream();
+        cmdMicLastSeq = -1;
+        cmdMicLastTs = 0;
+        cmdMicElapsed = 0;
+
+        // Set up Web Audio context
+        cmdMicAudioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+
+        document.getElementById('cmdResultSub').textContent = '🎙️ Recording in progress…';
+        document.getElementById('cmdResultBody').innerHTML = `
+            <div class="cmd-mic-result">
+                <div class="mic-waveform" id="micWaveform">
+                    ${Array.from({length:8}, (_,i) => `<div class="mic-wave-bar" style="height:${8+Math.random()*30}px"></div>`).join('')}
+                </div>
+                <div class="mic-timer" id="micTimer">00:00</div>
+                <div class="mic-status-line" id="micStatusLine">🎙️ Receiving audio…</div>
+                <button class="btn-stop-mic" onclick="stopMicEarly()">⏹ Stop Recording</button>
+            </div>`;
+
+        // Animate waveform bars
+        activateMicWaveBars();
+
+        // Elapsed timer
+        cmdMicElapsedTimer = setInterval(() => {
+            cmdMicElapsed++;
+            const m = String(Math.floor(cmdMicElapsed/60)).padStart(2,'0');
+            const s = String(cmdMicElapsed%60).padStart(2,'0');
+            const el = document.getElementById('micTimer');
+            if (el) el.textContent = `${m}:${s}`;
+        }, 1000);
+
+        // Audio chunk polling
+        cmdMicPollTimer = setInterval(() => pollMicChunk(commandId), 500);
+    }
+
+    function activateMicWaveBars() {
+        document.querySelectorAll('.mic-wave-bar').forEach(b => b.classList.add('active'));
+    }
+
+    async function pollMicChunk(commandId) {
+        try {
+            const res = await fetchWithAuth(
+                `/api/parent/commands/${DEVICE_ID}/audio-poll/${commandId}?since=${cmdMicLastTs}`
+            );
+            if (!res.ok) return;
+            const data = await res.json();
+            if (data.has_chunk && data.seq !== cmdMicLastSeq) {
+                cmdMicLastSeq = data.seq;
+                cmdMicLastTs = data.updated_at;
+                playMicChunk(data.audio, data.sample_rate || 16000);
+                animateMicBarsFromAudio(data.audio);
+            }
+            if (data.done) {
+                stopMicStream();
+                document.getElementById('cmdResultSub').textContent = '✅ Recording complete';
+                const sl = document.getElementById('micStatusLine');
+                if (sl) sl.textContent = '✅ Recording finished';
+            }
+        } catch(e) { /* keep trying */ }
+    }
+
+    function playMicChunk(audio_b64, sampleRate) {
+        if (!cmdMicAudioCtx || !audio_b64) return;
+        try {
+            const raw = atob(audio_b64);
+            const buf = new ArrayBuffer(raw.length);
+            const view = new Uint8Array(buf);
+            for (let i = 0; i < raw.length; i++) view[i] = raw.charCodeAt(i);
+            const int16 = new Int16Array(buf);
+            const float32 = new Float32Array(int16.length);
+            for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768.0;
+            const audioBuf = cmdMicAudioCtx.createBuffer(1, float32.length, sampleRate);
+            audioBuf.getChannelData(0).set(float32);
+            const src = cmdMicAudioCtx.createBufferSource();
+            src.buffer = audioBuf;
+            src.connect(cmdMicAudioCtx.destination);
+            src.start();
+        } catch(e) {}
+    }
+
+    function animateMicBarsFromAudio(audio_b64) {
+        try {
+            const raw = atob(audio_b64);
+            const bars = document.querySelectorAll('.mic-wave-bar');
+            if (!bars.length) return;
+            const step = Math.floor(raw.length / bars.length);
+            bars.forEach((bar, i) => {
+                const sample = Math.abs(raw.charCodeAt(i * step) - 128) / 128;
+                bar.style.height = `${8 + sample * 50}px`;
+            });
+        } catch(e) {}
+    }
+
+    function stopMicEarly() {
+        // Send stop command to device
+        fetchWithAuth(`/api/parent/commands/${DEVICE_ID}`, {
+            method: 'POST',
+            body: JSON.stringify({ command: 'stop_audio', params: { command_id: cmdCurrentId } })
+        }).catch(() => {});
+        stopMicStream();
+        document.getElementById('cmdResultSub').textContent = '⏹ Recording stopped';
+    }
+
+    function stopMicStream() {
+        if (cmdMicPollTimer) { clearInterval(cmdMicPollTimer); cmdMicPollTimer = null; }
+        if (cmdMicElapsedTimer) { clearInterval(cmdMicElapsedTimer); cmdMicElapsedTimer = null; }
+        if (cmdMicAudioCtx) {
+            try { cmdMicAudioCtx.close(); } catch(e) {}
+            cmdMicAudioCtx = null;
+        }
+    }
+
+    // Close on Escape
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') closeCmdModal();
+    });
     </script>
 </body>
 </html>

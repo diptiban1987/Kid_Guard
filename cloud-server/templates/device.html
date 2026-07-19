@@ -7,9 +7,8 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="/static/css/cloud-style.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    {% if has_socketio %}
-    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
-    {% endif %}
+    <!-- Socket.IO removed: PythonAnywhere WSGI does not support WebSockets.
+         Call-state updates are handled by HTTP polling (checkCallState). -->
     <style>
         /* ─── Device Page Layout ─── */
         .device-page {
@@ -1055,30 +1054,8 @@
             // Audio context will be garbage collected
         }
 
-        // Listen for audio chunks via WebSocket (only when server confirms SocketIO support)
-        {% if has_socketio %}
-        if (typeof io !== 'undefined') {
-            try {
-                // reconnection:false ensures we never spam the server with retries
-                const socket = io({ reconnection: false, timeout: 5000 });
-                socket.on('connect_error', function(err) {
-                    console.warn('[SocketIO] Connection failed, real-time disabled:', err.message);
-                    socket.disconnect();
-                });
-                socket.on('realtime_update', function(msg) {
-                    if (msg.device_id !== DEVICE_ID) return;
-                    if (msg.event_type === 'audio_chunk' && isListening && audioContext) {
-                        playAudioChunk(msg.data);
-                    }
-                    if (msg.event_type === 'call_state') {
-                        checkCallState();
-                    }
-                });
-            } catch(e) {
-                console.warn('[SocketIO] Init failed:', e);
-            }
-        }
-        {% endif %}
+        // Note: Real-time WebSocket events removed (not supported on PythonAnywhere WSGI).
+        // Call state is monitored via HTTP polling (startCallStatePolling every 3s).
 
         function playAudioChunk(data) {
             if (!audioContext || !data.audio) return;

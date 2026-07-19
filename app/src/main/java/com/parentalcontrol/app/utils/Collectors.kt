@@ -15,6 +15,7 @@ import android.provider.Browser
 import android.provider.CallLog
 import android.provider.Telephony
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -134,8 +135,9 @@ class Collectors {
         val batteryPct = if (level >= 0 && scale > 0) (level * 100) / scale else -1
 
         val status = batteryStatus?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+        val plugged = batteryStatus?.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) ?: 0
         val isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
-                status == BatteryManager.BATTERY_STATUS_FULL
+                (status == BatteryManager.BATTERY_STATUS_FULL && plugged != 0)
 
         val temperature = (batteryStatus?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1) ?: -1) / 10.0f
 
@@ -244,28 +246,58 @@ class Collectors {
         return try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 val usageStatsManager = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+
+                // Use the device's local calendar day (midnight -> now) so the
+                // dashboard shows "today" accurately instead of a rolling 24h window.
                 val endTime = System.currentTimeMillis()
-                val startTime = endTime - 24 * 60 * 60 * 1000
+                val startTime = Calendar.getInstance().apply {
+                    set(Calendar.HOUR_OF_DAY, 0)
+                    set(Calendar.MINUTE, 0)
+                    set(Calendar.SECOND, 0)
+                    set(Calendar.MILLISECOND, 0)
+                }.timeInMillis
+
                 val stats = usageStatsManager.queryUsageStats(
                     UsageStatsManager.INTERVAL_DAILY, startTime, endTime
                 )
                 var totalMinutes = 0
                 val appUsage = mutableMapOf<String, Long>()
-                val packageManager = context.packageManager
 
                 stats?.forEach { usageStats ->
+                    if (usageStats.packageName == context.packageName) return@forEach
                     val timeInForeground = usageStats.totalTimeInForeground / 60000
-                    if (usageStats.packageName != context.packageName && timeInForeground > 0) {
+                    if (timeInForeground > 0) {
                         totalMinutes += timeInForeground.toInt()
                         appUsage[usageStats.packageName] = timeInForeground
                     }
                 }
 
+                // Count real unlocks from usage events rather than the number
+                // of apps returned by queryUsageStats.
+                var unlocks = 0
+                try {
+                    val events = usageStatsManager.queryEvents(startTime, endTime)
+                    val event = android.app.usage.UsageEvents.Event()
+                    var lastInteractive = false
+                    while (events.hasNextEvent()) {
+                        events.getNextEvent(event)
+                        when (event.eventType) {
+                            android.app.usage.UsageEvents.Event.SCREEN_INTERACTIVE -> {
+                                if (!lastInteractive) unlocks++
+                                lastInteractive = true
+                            }
+                            android.app.usage.UsageEvents.Event.SCREEN_NON_INTERACTIVE -> {
+                                lastInteractive = false
+                            }
+                        }
+                    }
+                } catch (_: Exception) { }
+
                 val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
 
                 ScreenTimeData(
                     totalMinutes = totalMinutes,
-                    unlocks = stats?.size ?: 0,
+                    unlocks = unlocks,
                     date = today,
                     appUsage = appUsage
                 )

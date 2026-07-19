@@ -985,6 +985,30 @@ body {
     vertical-align: middle;
     background: linear-gradient(135deg, #667eea, #764ba2);
 }
+.chart-tooltip {
+    position: absolute;
+    background: rgba(20, 20, 30, 0.95);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    padding: 8px 12px;
+    pointer-events: none;
+    font-size: 12px;
+    color: rgba(255,255,255,0.9);
+    white-space: nowrap;
+    opacity: 0;
+    transition: opacity 0.15s, transform 0.1s;
+    z-index: 10;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+}
+.chart-tooltip .tooltip-date {
+    font-size: 11px;
+    color: rgba(255,255,255,0.5);
+    margin-bottom: 4px;
+}
+.chart-tooltip .tooltip-minutes {
+    font-weight: 700;
+    color: #667eea;
+}
 
 /* ─── Empty State ─── */
 .empty-state {

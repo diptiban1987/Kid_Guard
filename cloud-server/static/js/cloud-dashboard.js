@@ -967,6 +967,7 @@ async function sendRemoteCommand(command) {
 
 function drawScreenTimeChart(data) {
     const canvas = document.getElementById('screenTimeChart');
+    const tooltip = document.getElementById('chartTooltip');
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     
@@ -981,7 +982,11 @@ function drawScreenTimeChart(data) {
     
     ctx.clearRect(0, 0, width, height);
     
-    if (data.length === 0) return;
+    if (data.length === 0) {
+        canvas._chartBars = [];
+        if (tooltip) tooltip.classList.add('hidden');
+        return;
+    }
     
     const reversed = [...data].reverse();
     const max = Math.max(...reversed.map(d => d.total_minutes), 60);
@@ -1014,6 +1019,7 @@ function drawScreenTimeChart(data) {
     }
     
     // Draw bars
+    const bars = [];
     reversed.forEach((d, i) => {
         const x = startX + i * (barWidth + 6);
         const barHeight = (d.total_minutes / max) * chartHeight;
@@ -1035,7 +1041,10 @@ function drawScreenTimeChart(data) {
             ctx.textAlign = 'center';
             ctx.fillText(d.total_minutes, x + barWidth / 2, y - 4);
         }
+
+        bars.push({ x, y, width: barWidth, height: barHeight, data: d });
     });
+    canvas._chartBars = bars;
 
     // Day labels below chart
     const labelsContainer = document.getElementById('chartLabels');
@@ -1048,6 +1057,53 @@ function drawScreenTimeChart(data) {
             return '';
         });
         labelsContainer.innerHTML = dayLabels.map(l => `<span>${l}</span>`).join('');
+    }
+
+    // Attach hover listeners once
+    if (!canvas._chartEventsAdded && tooltip) {
+        canvas._chartEventsAdded = true;
+
+        canvas.addEventListener('mousemove', (e) => {
+            const r = canvas.getBoundingClientRect();
+            const mx = e.clientX - r.left;
+            const my = e.clientY - r.top;
+            const hit = (canvas._chartBars || []).find(b =>
+                mx >= b.x && mx <= b.x + b.width &&
+                my >= b.y && my <= b.y + b.height
+            );
+            if (!hit) {
+                tooltip.classList.add('hidden');
+                return;
+            }
+            const d = hit.data;
+            const topApp = d.app_usage && Object.keys(d.app_usage).length > 0
+                ? Object.entries(d.app_usage)
+                    .sort((a, b) => b[1] - a[1])[0]
+                : null;
+            const topAppText = topApp
+                ? `<div>${escapeHtml(topApp[0])}: ${topApp[1]}m</div>`
+                : '';
+            const dateStr = d.date
+                ? new Date(d.date).toLocaleDateString('en', { month: 'short', day: 'numeric' })
+                : '';
+            tooltip.innerHTML = `
+                <div class="tooltip-date">${escapeHtml(dateStr)}</div>
+                <div class="tooltip-minutes">${d.total_minutes || 0} minutes</div>
+                <div>${d.unlocks || 0} unlocks</div>
+                ${topAppText}
+            `;
+            tooltip.classList.remove('hidden');
+            const tipRect = tooltip.getBoundingClientRect();
+            let left = e.pageX - tipRect.width / 2;
+            let top = e.pageY - tipRect.height - 12;
+            if (left < 8) left = 8;
+            tooltip.style.left = left + 'px';
+            tooltip.style.top = top + 'px';
+        });
+
+        canvas.addEventListener('mouseleave', () => {
+            tooltip.classList.add('hidden');
+        });
     }
 }
 

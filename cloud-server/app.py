@@ -495,12 +495,16 @@ def get_children():
         devices = Device.query.filter_by(user_id=rel.child_id, is_active=True).all()
         child_devices = [d.to_dict() for d in devices]
         
-        children_data.append({
-            'relation_id': rel.id,
-            'child': child.to_dict() if child else None,
-            'devices': child_devices,
-            'paired_at': rel.paired_at
-        })
+        # Only show child if they have at least one active device OR were paired very recently (last 10 mins)
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        is_recently_paired = rel.paired_at and (now_ms - rel.paired_at) < 600000
+        if len(child_devices) > 0 or is_recently_paired:
+            children_data.append({
+                'relation_id': rel.id,
+                'child': child.to_dict() if child else None,
+                'devices': child_devices,
+                'paired_at': rel.paired_at
+            })
     
     return jsonify(children_data)
 
@@ -1372,10 +1376,14 @@ def get_parent_stats():
     for rel in relations:
         child = User.query.get(rel.child_id)
         child_devices = Device.query.filter_by(user_id=rel.child_id, is_active=True).all()
-        children_data.append({
-            'child': child.to_dict() if child else None,
-            'devices': [d.to_dict() for d in child_devices]
-        })
+        # Only show child if they have at least one active device OR were paired very recently (last 10 mins)
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        is_recently_paired = rel.paired_at and (now_ms - rel.paired_at) < 600000
+        if len(child_devices) > 0 or is_recently_paired:
+            children_data.append({
+                'child': child.to_dict() if child else None,
+                'devices': [d.to_dict() for d in child_devices]
+            })
     
     return jsonify({
         'total_devices': len(devices),

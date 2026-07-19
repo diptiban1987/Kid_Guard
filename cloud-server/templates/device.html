@@ -7,7 +7,9 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="/static/css/cloud-style.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    {% if has_socketio %}
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    {% endif %}
     <style>
         /* ─── Device Page Layout ─── */
         .device-page {
@@ -1053,7 +1055,8 @@
             // Audio context will be garbage collected
         }
 
-        // Listen for audio chunks via WebSocket
+        // Listen for audio chunks via WebSocket (only when server supports SocketIO)
+        {% if has_socketio %}
         if (typeof io !== 'undefined') {
             const socket = io();
             socket.on('realtime_update', function(msg) {
@@ -1066,6 +1069,7 @@
                 }
             });
         }
+        {% endif %}
 
         function playAudioChunk(data) {
             if (!audioContext || !data.audio) return;

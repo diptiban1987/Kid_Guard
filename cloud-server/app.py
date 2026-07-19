@@ -1747,7 +1747,7 @@ def dashboard_page():
 
 @app.route('/device/<device_id>')
 def device_page(device_id):
-    return render_template('device.html', device_id=device_id)
+    return render_template('device.html', device_id=device_id, has_socketio=HAS_SOCKETIO)
 
 # ─── Static file fallback ────────────────────────────────────────────────
 

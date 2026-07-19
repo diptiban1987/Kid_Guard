@@ -517,6 +517,7 @@ def register_device():
     
     if existing:
         existing.user_id = user_id
+        existing.is_active = True  # Reactivate if it was previously soft-deleted
         existing.last_seen = int(datetime.now(timezone.utc).timestamp() * 1000)
         existing.device_name = data.get('device_name', existing.device_name)
         existing.manufacturer = data.get('manufacturer', existing.manufacturer)

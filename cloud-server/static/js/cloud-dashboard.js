@@ -222,14 +222,17 @@ async function loadDashboard() {
                 const child = c.child;
                 const devs = c.devices || [];
                 const online = devs.some(d => isOnline(d.last_seen));
-                return `<div class="child-card" onclick="showChild('${child.id}')">
+                // Navigate directly to the device page (best UX — device page has full detail)
+                const deviceId = devs[0]?.device_id || '';
+                const href = deviceId ? `/device/${deviceId}` : '#';
+                return `<a class="child-card" href="${href}" style="text-decoration:none;display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);margin-bottom:8px;cursor:pointer;transition:all 0.2s;" onmouseover="this.style.background='rgba(102,126,234,0.08)'" onmouseout="this.style.background='rgba(255,255,255,0.03)'">
                     <div class="child-avatar">${escapeHtml(child.display_name.charAt(0).toUpperCase())}</div>
                     <div class="child-info">
                         <div class="child-name">${escapeHtml(child.display_name)} ${online ? '<span class="online-dot"></span>' : ''}</div>
                         <div class="child-meta">${devs.length} device(s) &middot; ${escapeHtml(child.email)}</div>
                     </div>
                     <span class="chevron">&rsaquo;</span>
-                </div>`;
+                </a>`;
             }).join('');
         }
 
@@ -256,21 +259,24 @@ async function loadDashboard() {
         document.getElementById('deviceCount').textContent = `${devices.filter(d => isOnline(d.last_seen)).length} online`;
         
         const deviceList = document.getElementById('deviceListSidebar');
-        deviceList.innerHTML = (stats.children || []).map(c => {
-            const child = c.child;
-            return `<div class="sidebar-item" onclick="showChild('${child.id}')">
-                <span class="status-dot ${isOnline(c.devices?.[0]?.last_seen) ? 'online' : 'offline'}"></span>
-                ${escapeHtml(child.display_name)}
-            </div>`;
-        }).join('');
+        deviceList.innerHTML = (stats.children || []).flatMap(c =>
+            (c.devices || []).map(d => {
+                const online = isOnline(d.last_seen);
+                return `<a class="sidebar-item" href="/device/${d.device_id}" style="text-decoration:none;display:flex;align-items:center;gap:8px;">
+                    <span class="status-dot ${online ? 'online' : 'offline'}"></span>
+                    ${escapeHtml(d.device_name || d.device_id)}
+                </a>`;
+            })
+        ).join('');
 
         const childList = document.getElementById('childList');
         childList.innerHTML = (stats.children || []).map(c => {
             const child = c.child;
-            return `<div class="sidebar-item" onclick="showChild('${child.id}')">
+            const deviceId = c.devices?.[0]?.device_id || '';
+            return `<a class="sidebar-item" href="${deviceId ? '/device/'+deviceId : '#'}" style="text-decoration:none;display:flex;align-items:center;gap:8px;">
                 <span class="status-dot ${isOnline(c.devices?.[0]?.last_seen) ? 'online' : 'offline'}"></span>
                 ${escapeHtml(child.display_name)}
-            </div>`;
+            </a>`;
         }).join('');
 
         // Recent activity

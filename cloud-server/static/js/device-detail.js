@@ -209,7 +209,6 @@ async function loadAllData() {
         cachedSchedule = schedule;
         cachedSocial = social;
 
-        // Render everything
         renderStats();
         renderMap(locations, geofences);
         renderActivityPanel();
@@ -222,6 +221,8 @@ async function loadAllData() {
         renderGeofences();
         renderRestrictions();
         renderSchedule();
+        renderScreenTimeCard(screentime);
+        renderBatteryCard(deviceInfo);
 
     } catch (err) {
         console.error('Load error:', err);
@@ -262,6 +263,101 @@ function renderStats() {
 
     document.getElementById('locationCount').textContent = `${cachedLocations.length} points`;
 }
+
+// ─── Screen Time Card ─────────────────────────────────────────────────────
+
+function renderScreenTimeCard(screentime) {
+    const today = screentime.length > 0 ? screentime[0].total_minutes || 0 : 0;
+    document.getElementById('screenTimeValue').textContent = today.toLocaleString();
+    document.getElementById('screenTimeBadge').textContent = `${today} min`;
+
+    const canvas = document.getElementById('screenTimeChart');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const w = canvas.offsetWidth || 300;
+    canvas.width = w;
+    canvas.height = 90;
+
+    const days = 7;
+    const data = [];
+    const labels = [];
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+    for (let i = days - 1; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const dateStr = d.toISOString().slice(0, 10);
+        const entry = screentime.find(s => s.date === dateStr);
+        data.push(entry ? (entry.total_minutes || 0) : 0);
+        labels.push(dayNames[d.getDay()]);
+    }
+
+    const maxVal = Math.max(...data, 1);
+    const barW = Math.floor(w / days) - 6;
+    const padB = 4;
+    const chartH = canvas.height - padB;
+
+    ctx.clearRect(0, 0, w, canvas.height);
+
+    data.forEach((val, i) => {
+        const barH = Math.max(4, Math.round((val / maxVal) * chartH));
+        const x = i * (barW + 6) + 3;
+        const y = chartH - barH;
+
+        // Bar gradient
+        const grad = ctx.createLinearGradient(0, y, 0, chartH);
+        grad.addColorStop(0, i === days - 1 ? '#a78bfa' : '#667eea');
+        grad.addColorStop(1, i === days - 1 ? '#7c3aed44' : '#764ba244');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.roundRect(x, y, barW, barH, 3);
+        ctx.fill();
+    });
+
+    // Labels
+    const labelsEl = document.getElementById('screenTimeLabels');
+    if (labelsEl) labelsEl.innerHTML = labels.map(l => `<span>${l}</span>`).join('');
+}
+
+// ─── Battery & Status Card ────────────────────────────────────────────────
+
+function renderBatteryCard(dev) {
+    const level = dev.battery_level != null ? dev.battery_level : null;
+    const charging = dev.is_charging;
+
+    // Badge
+    const badge = document.getElementById('batteryBadge');
+    if (badge) badge.textContent = level != null ? `${level}%` : '—';
+
+    // Progress bar
+    const bar = document.getElementById('batteryBar');
+    if (bar && level != null) {
+        bar.style.width = `${level}%`;
+        if (level < 20) {
+            bar.style.background = 'linear-gradient(90deg, #ef4444, #f97316)';
+        } else if (level < 50) {
+            bar.style.background = 'linear-gradient(90deg, #f59e0b, #fbbf24)';
+        } else {
+            bar.style.background = 'linear-gradient(90deg, #22c55e, #4ade80)';
+        }
+    }
+
+    const pct = document.getElementById('batteryPct');
+    if (pct) pct.textContent = level != null ? `${level}%` : '—';
+
+    const statusEl = document.getElementById('batteryStatus');
+    if (statusEl) statusEl.textContent = level != null ? (charging ? '⚡ Charging' : '🔋 On Battery') : '—';
+
+    const lastSeenEl = document.getElementById('batteryLastSeen');
+    if (lastSeenEl) lastSeenEl.textContent = dev.last_seen ? formatTime(dev.last_seen) : '—';
+
+    const modelEl = document.getElementById('batteryModel');
+    if (modelEl) modelEl.textContent = [dev.manufacturer, dev.model].filter(Boolean).join(' ') || '—';
+
+    const androidEl = document.getElementById('batteryAndroid');
+    if (androidEl) androidEl.textContent = dev.android_version ? `Android ${dev.android_version}` : '—';
+}
+
 
 // ─── Tab Switching ────────────────────────────────────────────────────────
 

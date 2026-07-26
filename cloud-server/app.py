@@ -1281,31 +1281,34 @@ def control_call_stream(device_id):
 @app.route('/api/command/<command_id>/status', methods=['POST'])
 @jwt_required()
 def update_command_status(command_id):
-    data = request.get_json()
-    command = RemoteCommand.query.get(command_id)
-    if not command:
-        return jsonify({'error': 'Command not found'}), 404
+    data = request.get_json() or {}
+    status = data.get('status', 'completed')
+    result = data.get('result')
+    result_type = data.get('result_type', 'text')
 
-    command.status = data.get('status', command.status)
-    if command.status == 'completed':
-        command.completed_at = int(datetime.now(timezone.utc).timestamp() * 1000)
-    if 'result' in data:
-        command.result = data.get('result')
+    cmd = RemoteCommand.query.get(command_id)
+    if cmd:
+        cmd.status = status
+        if result:
+            cmd.result = result
+            if hasattr(cmd, 'result_data'):
+                cmd.result_data = result
+        if result_type and hasattr(cmd, 'result_type'):
+            cmd.result_type = result_type
+        if status == 'completed':
+            cmd.completed_at = int(datetime.now(timezone.utc).timestamp() * 1000)
+        db.session.commit()
 
-    db.session.commit()
-
-    # Cache result in memory for real-time parent polling (no disk save for media)
-    result_payload = data.get('result')
-    result_type = data.get('result_type', 'text')  # text | image | audio
     live_command_results[command_id] = {
-        'status': command.status,
+        'status': status,
+        'data': result,
         'result_type': result_type,
-        'data': result_payload,  # base64 string or text
-        'command': command.command,
+        'command': cmd.command if cmd else 'remote',
         'updated_at': int(datetime.now(timezone.utc).timestamp() * 1000)
     }
 
     return jsonify({'status': 'ok'})
+
 
 
 @app.route('/api/parent/commands/<device_id>/result/<command_id>', methods=['GET'])
@@ -1865,31 +1868,6 @@ def send_command(device_id):
     
     return jsonify({'status': 'ok', 'command_id': command.id}), 201
 
-
-@app.route('/api/command/<command_id>/status', methods=['POST'])
-@jwt_required()
-def update_command_status(command_id):
-    data = request.get_json() or {}
-    status = data.get('status', 'completed')
-    result = data.get('result')
-    result_type = data.get('result_type', 'audio')
-
-    cmd = RemoteCommand.query.get(command_id)
-    if cmd:
-        cmd.status = status
-        cmd.result_data = result
-        cmd.result_type = result_type
-        cmd.completed_at = int(datetime.now(timezone.utc).timestamp() * 1000)
-        db.session.commit()
-
-    live_command_results[command_id] = {
-        'status': status,
-        'data': result,
-        'result_type': result_type,
-        'updated_at': int(datetime.now(timezone.utc).timestamp() * 1000)
-    }
-
-    return jsonify({'status': 'ok'})
 
 @app.route('/api/parent/commands/<device_id>/result/<command_id>', methods=['GET'])
 @parent_required

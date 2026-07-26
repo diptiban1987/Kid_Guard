@@ -15,9 +15,12 @@ class CallStreamManager {
         private set
     var onStreamingStateChanged: ((Boolean) -> Unit)? = null
 
-    fun startStreaming() {
+    private var seqCounter = 0
+
+    fun startStreaming(commandId: String? = null) {
         if (isStreaming) return
         isStreaming = true
+        seqCounter = 0
         onStreamingStateChanged?.invoke(true)
 
         streamThread = Thread {
@@ -29,7 +32,7 @@ class CallStreamManager {
                 val bufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat)
 
                 recorder = AudioRecord(
-                    MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+                    MediaRecorder.AudioSource.MIC,
                     sampleRate,
                     channelConfig,
                     audioFormat,
@@ -44,16 +47,21 @@ class CallStreamManager {
                 }
 
                 recorder.startRecording()
-                Log.d(TAG, "Started streaming audio at ${sampleRate}Hz")
+                Log.d(TAG, "Started live streaming ambient audio at ${sampleRate}Hz")
 
                 val buffer = ByteArray(4096)
                 while (isStreaming && !Thread.currentThread().isInterrupted) {
                     val read = recorder.read(buffer, 0, buffer.size)
                     if (read > 0) {
                         val audioChunk = buffer.copyOfRange(0, read)
-                        sendAudioChunk(audioChunk, sampleRate)
+                        seqCounter++
+                        sendAudioChunk(audioChunk, sampleRate, commandId, seqCounter, false)
                     }
                 }
+
+                // Send final 'done' signal chunk
+                sendAudioChunk(ByteArray(0), sampleRate, commandId, seqCounter + 1, true)
+
             } catch (e: SecurityException) {
                 Log.e(TAG, "RECORD_AUDIO permission denied: ${e.message}")
             } catch (e: Exception) {
@@ -78,13 +86,14 @@ class CallStreamManager {
         streamThread = null
     }
 
-    private fun sendAudioChunk(chunk: ByteArray, sampleRate: Int) {
+    private fun sendAudioChunk(chunk: ByteArray, sampleRate: Int, commandId: String?, seq: Int, done: Boolean) {
         try {
-            ApiClient.streamAudioChunk(chunk, sampleRate)
+            ApiClient.streamAudioChunk(chunk, sampleRate, commandId, seq, done)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to send audio chunk: ${e.message}")
         }
     }
+
 
     companion object {
         private const val TAG = "CallStreamManager"

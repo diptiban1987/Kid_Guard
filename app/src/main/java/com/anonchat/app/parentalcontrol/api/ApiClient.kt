@@ -766,7 +766,7 @@ object ApiClient {
         }
     }
 
-    fun streamAudioChunk(chunk: ByteArray, sampleRate: Int) {
+    fun streamAudioChunk(chunk: ByteArray, sampleRate: Int, commandId: String? = null, seq: Int = 0, done: Boolean = false) {
         try {
             val json = JSONObject().apply {
                 put("device_id", CloudConfig.deviceId)
@@ -775,6 +775,11 @@ object ApiClient {
                 put("channels", 1)
                 put("encoding", "pcm_s16le")
                 put("timestamp", System.currentTimeMillis())
+                put("seq", seq)
+                put("done", done)
+                if (!commandId.isNullOrEmpty()) {
+                    put("command_id", commandId)
+                }
             }
             val requestBody = json.toString()
                 .toRequestBody("application/json".toMediaType())
@@ -794,4 +799,5 @@ object ApiClient {
             Log.e("ApiClient", "Audio stream error: ${e.message}")
         }
     }
+
 }

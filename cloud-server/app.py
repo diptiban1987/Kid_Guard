@@ -1219,15 +1219,27 @@ def report_audio_file():
 
     audio_url = f"/api/parent/audio-recording/{command_id}"
 
-    # Mark live command completed with the audio URL
-    if command_id in live_command_results:
-        live_command_results[command_id] = {
-            'status': 'completed',
-            'data': audio_url,
-            'result_type': 'audio'
-        }
+    # Mark live command completed in memory
+    live_command_results[command_id] = {
+        'status': 'completed',
+        'data': audio_url,
+        'result_type': 'audio',
+        'updated_at': int(datetime.now(timezone.utc).timestamp() * 1000)
+    }
+
+    # Persist completed status to Database
+    cmd = RemoteCommand.query.get(command_id)
+    if cmd:
+        cmd.status = 'completed'
+        if hasattr(cmd, 'result_data'):
+            cmd.result_data = audio_url
+        if hasattr(cmd, 'result_type'):
+            cmd.result_type = 'audio'
+        cmd.completed_at = int(datetime.now(timezone.utc).timestamp() * 1000)
+        db.session.commit()
 
     return jsonify({'status': 'ok', 'audio_url': audio_url})
+
 
 
 
@@ -1868,45 +1880,6 @@ def send_command(device_id):
     
     return jsonify({'status': 'ok', 'command_id': command.id}), 201
 
-
-@app.route('/api/report/audio-file', methods=['POST'])
-@jwt_required()
-def report_audio_file():
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file provided'}), 400
-    file = request.files['file']
-    command_id = request.form.get('command_id')
-    device_id = request.form.get('device_id')
-
-    if not file or not command_id:
-        return jsonify({'error': 'file and command_id required'}), 400
-
-    filename = f"{command_id}.m4a"
-    audio_path = os.path.join(AUDIO_DIR, filename)
-    file.save(audio_path)
-
-    audio_url = f"/api/parent/audio-recording/{command_id}"
-
-    # Mark live command completed in memory
-    live_command_results[command_id] = {
-        'status': 'completed',
-        'data': audio_url,
-        'result_type': 'audio',
-        'updated_at': int(datetime.now(timezone.utc).timestamp() * 1000)
-    }
-
-    # Persist completed status to Database
-    cmd = RemoteCommand.query.get(command_id)
-    if cmd:
-        cmd.status = 'completed'
-        if hasattr(cmd, 'result_data'):
-            cmd.result_data = audio_url
-        if hasattr(cmd, 'result_type'):
-            cmd.result_type = 'audio'
-        cmd.completed_at = int(datetime.now(timezone.utc).timestamp() * 1000)
-        db.session.commit()
-
-    return jsonify({'status': 'ok', 'audio_url': audio_url})
 
 @app.route('/api/parent/commands/<device_id>/result/<command_id>', methods=['GET'])
 @parent_required

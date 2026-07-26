@@ -186,18 +186,6 @@ class TrackerService : Service() {
                     }
                 }
 
-                // Fallback 2: PowerManager goToSleep
-                if (!locked) {
-                    try {
-                        val pm = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
-                        pm.goToSleep(System.currentTimeMillis())
-                        locked = true
-                        Log.d(TAG, "Screen off via PowerManager.goToSleep")
-                    } catch (e: Exception) {
-                        Log.e(TAG, "PowerManager sleep failed: ${e.message}")
-                    }
-                }
-
                 ApiClient.updateCommandStatus(commandId, if (locked) "completed" else "failed")
             }
             "screenshot" -> {

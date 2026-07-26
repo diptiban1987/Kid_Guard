@@ -828,37 +828,30 @@
         }
         .mic-waveform {
             display: flex;
-            gap: 5px;
+            gap: 4px;
             align-items: center;
-            height: 60px;
+            justify-content: center;
+            height: 64px;
+            min-width: 220px;
+            padding: 0 16px;
+            background: rgba(255,255,255,0.02);
+            border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.04);
         }
         .mic-wave-bar {
-            width: 5px;
+            width: 4px;
+            height: 3px;
+            opacity: 0.25;
             background: linear-gradient(to top, #667eea, #a78bfa);
-            border-radius: 3px;
-            min-height: 6px;
-            transition: height 0.1s ease;
-        }
-        .mic-wave-bar.active {
-            animation: micWave 0.6s ease-in-out infinite;
-        }
-        .mic-wave-bar:nth-child(1) { animation-delay: 0s; }
-        .mic-wave-bar:nth-child(2) { animation-delay: 0.08s; }
-        .mic-wave-bar:nth-child(3) { animation-delay: 0.16s; }
-        .mic-wave-bar:nth-child(4) { animation-delay: 0.24s; }
-        .mic-wave-bar:nth-child(5) { animation-delay: 0.08s; }
-        .mic-wave-bar:nth-child(6) { animation-delay: 0.16s; }
-        .mic-wave-bar:nth-child(7) { animation-delay: 0.24s; }
-        .mic-wave-bar:nth-child(8) { animation-delay: 0.08s; }
-        @keyframes micWave {
-            0%, 100% { transform: scaleY(0.4); }
-            50% { transform: scaleY(1.8); }
+            border-radius: 2px;
+            transition: height 0.08s ease, opacity 0.1s ease;
         }
         .mic-status-line {
             font-size: 14px;
             font-weight: 600;
             color: #a78bfa;
         }
+
         .mic-timer {
             font-size: 28px;
             font-weight: 700;
@@ -1628,15 +1621,12 @@
         document.getElementById('cmdResultBody').innerHTML = `
             <div class="cmd-mic-result">
                 <div class="mic-waveform" id="micWaveform">
-                    ${Array.from({length:8}, (_,i) => `<div class="mic-wave-bar" style="height:${8+Math.random()*30}px"></div>`).join('')}
+                    ${Array.from({length:12}, () => `<div class="mic-wave-bar" style="height:3px; opacity:0.25;"></div>`).join('')}
                 </div>
                 <div class="mic-timer" id="micTimer">00:00</div>
                 <div class="mic-status-line" id="micStatusLine">🎙️ Receiving audio…</div>
                 <button class="btn-stop-mic" onclick="stopMicEarly()">⏹ Stop Recording</button>
             </div>`;
-
-        // Animate waveform bars
-        activateMicWaveBars();
 
         // Elapsed timer
         cmdMicElapsedTimer = setInterval(() => {
@@ -1649,10 +1639,6 @@
 
         // Audio chunk polling every 300ms
         cmdMicPollTimer = setInterval(() => pollMicChunk(commandId), 300);
-    }
-
-    function activateMicWaveBars() {
-        document.querySelectorAll('.mic-wave-bar').forEach(b => b.classList.add('active'));
     }
 
     async function pollMicChunk(commandId) {
@@ -1727,18 +1713,71 @@
         } catch(e) {}
     }
 
+    let micDecayTimer = null;
+
     function animateMicBarsFromAudio(audio_b64) {
         try {
             const raw = atob(audio_b64);
+            if (raw.length < 2) return;
+            const buf = new ArrayBuffer(raw.length);
+            const view = new Uint8Array(buf);
+            for (let i = 0; i < raw.length; i++) view[i] = raw.charCodeAt(i);
+            const int16 = new Int16Array(buf);
+            
             const bars = document.querySelectorAll('.mic-wave-bar');
             if (!bars.length) return;
-            const step = Math.floor(raw.length / bars.length);
+
+            const numBars = bars.length;
+            const samplesPerBar = Math.floor(int16.length / numBars);
+
+            let maxIntensityOverall = 0;
+
             bars.forEach((bar, i) => {
-                const sample = Math.abs(raw.charCodeAt(i * step) - 128) / 128;
-                bar.style.height = `${8 + sample * 50}px`;
+                let sumSquare = 0;
+                let peak = 0;
+                const start = i * samplesPerBar;
+                const end = Math.min(start + samplesPerBar, int16.length);
+                let count = 0;
+
+                for (let s = start; s < end; s++) {
+                    const val = Math.abs(int16[s] / 32768.0);
+                    sumSquare += val * val;
+                    if (val > peak) peak = val;
+                    count++;
+                }
+
+                const rms = count > 0 ? Math.sqrt(sumSquare / count) : 0;
+                const combinedScore = (rms * 0.7) + (peak * 0.3);
+
+                if (combinedScore > maxIntensityOverall) {
+                    maxIntensityOverall = combinedScore;
+                }
+
+                // Noise floor check (< 0.015 is silence)
+                if (combinedScore < 0.015) {
+                    bar.style.height = '3px';
+                    bar.style.opacity = '0.2';
+                } else {
+                    // Scale intensity up to 56px height
+                    const norm = Math.min(1.0, (combinedScore - 0.015) / 0.35);
+                    const h = Math.round(5 + norm * 51);
+                    bar.style.height = `${h}px`;
+                    bar.style.opacity = '1.0';
+                }
             });
+
+            // Auto decay back to silence after 350ms if audio pauses
+            if (micDecayTimer) clearTimeout(micDecayTimer);
+            micDecayTimer = setTimeout(() => {
+                bars.forEach(bar => {
+                    bar.style.height = '3px';
+                    bar.style.opacity = '0.2';
+                });
+            }, 350);
+
         } catch(e) {}
     }
+
 
     function stopMicEarly() {
         // Send stop command to device

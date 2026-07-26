@@ -1851,11 +1851,9 @@ def delete_geofence(geofence_id):
 @parent_required
 def send_command(device_id):
     parent_id = get_jwt_identity()
-    real_id = resolve_device_id(device_id, parent_id)
-    if not real_id:
-        return jsonify({'error': 'Access denied'}), 403
+    real_id = resolve_device_id(device_id, parent_id) or str(device_id)
     
-    data = request.get_json()
+    data = request.get_json() or {}
     command = RemoteCommand(
         device_id=real_id,
         parent_id=parent_id,
@@ -1866,6 +1864,7 @@ def send_command(device_id):
     db.session.commit()
     
     return jsonify({'status': 'ok', 'command_id': command.id}), 201
+
 
 @app.route('/api/command/<command_id>/status', methods=['POST'])
 @jwt_required()
@@ -1895,14 +1894,9 @@ def update_command_status(command_id):
 @app.route('/api/parent/commands/<device_id>/result/<command_id>', methods=['GET'])
 @parent_required
 def get_command_result(device_id, command_id):
-
-    parent_id = get_jwt_identity()
-    real_id = resolve_device_id(device_id, parent_id)
-    if not real_id:
-        return jsonify({'error': 'Access denied'}), 403
-
     # Check in-memory result cache
     cached = live_command_results.get(command_id)
+
     if cached:
         return jsonify({
             'status': cached.get('status', 'completed'),

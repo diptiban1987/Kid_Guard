@@ -1404,10 +1404,21 @@ def get_parent_stats():
     
     relations = ChildRelation.query.filter_by(parent_id=parent_id, is_active=True).all()
     children_data = []
+
+    # Include parent's directly registered devices as a profile
+    parent_devices = Device.query.filter_by(user_id=parent_id, is_active=True).all()
+    if parent_devices:
+        parent_user = User.query.get(parent_id)
+        children_data.append({
+            'child': parent_user.to_dict() if parent_user else {'display_name': 'My Device', 'email': ''},
+            'devices': [d.to_dict() for d in parent_devices]
+        })
+
     for rel in relations:
+        if rel.child_id == parent_id:
+            continue
         child = User.query.get(rel.child_id)
         child_devices = Device.query.filter_by(user_id=rel.child_id, is_active=True).all()
-        # Only show child if they have at least one active device OR were paired very recently (last 10 mins)
         now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
         is_recently_paired = rel.paired_at and (now_ms - rel.paired_at) < 600000
         if len(child_devices) > 0 or is_recently_paired:

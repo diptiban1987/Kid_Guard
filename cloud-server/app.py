@@ -889,7 +889,21 @@ def report_bulk():
         return jsonify({'error': 'device_id required'}), 400
     
     device = Device.query.filter_by(device_id=device_id).first()
-    if device:
+    user_id = get_jwt_identity()
+    if not device:
+        device = Device(
+            device_id=device_id,
+            user_id=user_id,
+            device_name=data.get('device_name', 'Android Device'),
+            manufacturer=data.get('manufacturer', ''),
+            model=data.get('model', ''),
+            android_version=data.get('android_version', ''),
+            is_active=True,
+            last_seen=int(datetime.now(timezone.utc).timestamp() * 1000)
+        )
+        db.session.add(device)
+    else:
+        device.is_active = True
         device.last_seen = int(datetime.now(timezone.utc).timestamp() * 1000)
     
     # Process each report type

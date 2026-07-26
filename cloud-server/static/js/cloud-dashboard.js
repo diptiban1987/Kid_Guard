@@ -345,6 +345,17 @@ async function loadRecentActivity(tab) {
             }
         }
 
+        if (tab === 'all' || tab === 'social' || tab === 'chats') {
+            for (const dev of devices.slice(0, 3)) {
+                const res = await fetchWithAuth(`/api/parent/social/${dev.device_id}?limit=10`);
+                const social = await res.json();
+                social.forEach(s => allActivities.push({
+                    type: 'social', device: dev, data: s, time: s.timestamp,
+                    html: `<strong>💬 Chat (${escapeHtml(s.app_name || 'Social')})</strong> ${escapeHtml(s.sender || '')}: ${escapeHtml((s.content || '').substring(0, 80))}`
+                }));
+            }
+        }
+
         if (tab === 'sms') {
             for (const dev of devices.slice(0, 3)) {
                 const res = await fetchWithAuth(`/api/parent/sms/${dev.device_id}?limit=10`);

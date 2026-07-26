@@ -54,15 +54,18 @@ class ChatRepository(
         }
     }
 
-    fun getConversations(currentUserId: String, onResult: (List<Chat>) -> Unit) {
-        firestore.collection(Constants.CHATS_COLLECTION)
+    fun getConversations(currentUserId: String, onResult: (List<Chat>) -> Unit): ListenerRegistration {
+        return firestore.collection(Constants.CHATS_COLLECTION)
             .whereArrayContains("participants", currentUserId)
-            .orderBy("lastMessageTimestamp", Query.Direction.DESCENDING)
-            .addSnapshotListener { snapshot, _ ->
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    android.util.Log.e("ChatRepository", "getConversations error: ${error.message}", error)
+                }
                 val chats = snapshot?.documents?.mapNotNull { it.toObject(Chat::class.java) } ?: emptyList()
                 onResult(chats)
             }
     }
+
 
     fun getMessages(chatId: String, onResult: (List<Message>) -> Unit): com.google.firebase.firestore.ListenerRegistration {
         return firestore.collection(Constants.CHATS_COLLECTION)

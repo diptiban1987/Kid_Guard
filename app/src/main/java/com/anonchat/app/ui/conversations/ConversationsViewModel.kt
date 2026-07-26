@@ -22,8 +22,8 @@ class ConversationsViewModel(
     }
 
     private fun loadConversations() {
-        listenerRegistration = null
-        chatRepository.getConversations(currentUserId) { chats ->
+        listenerRegistration?.remove()
+        listenerRegistration = chatRepository.getConversations(currentUserId) { chats ->
             _conversations.value = chats.sortedByDescending { it.lastMessageTimestamp }
         }
     }
@@ -32,6 +32,7 @@ class ConversationsViewModel(
         super.onCleared()
         listenerRegistration?.remove()
     }
+
 }
 
 class ConversationsViewModelFactory(

@@ -99,8 +99,10 @@ class SearchFragment : Fragment() {
                         putExtra("otherUsername", state.otherUsername)
                         putExtra("otherAvatarColor", state.avatarColor)
                     }
+                    viewModel.resetChatState()
                     startActivity(intent)
                 }
+
                 is SearchViewModel.ChatState.Error -> {
                     binding.progressBar.visibility = View.GONE
                     Toast.makeText(requireContext(), state.message, Toast.LENGTH_SHORT).show()

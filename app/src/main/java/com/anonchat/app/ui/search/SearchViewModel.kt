@@ -58,31 +58,55 @@ class SearchViewModel(
     }
 
     fun startChat(otherUser: User) {
-        val currentUser = currentUserData ?: return
+        if (_chatState.value is ChatState.Loading) return
         _chatState.value = ChatState.Loading
 
         viewModelScope.launch {
-            val result = chatRepository.getOrCreateChat(
-                currentUserId = currentUserId,
-                otherUserId = otherUser.userId,
-                otherUser = otherUser,
-                currentUser = currentUser
-            )
-            when (result) {
-                is Resource.Success -> {
-                    _chatState.value = ChatState.Success(
-                        chatId = result.data ?: "",
-                        otherUserId = otherUser.userId,
-                        otherUsername = otherUser.username,
-                        avatarColor = otherUser.avatarColor
-                    )
+            try {
+                val currentUser = currentUserData
+                    ?: userRepository.getUserById(currentUserId).let { res ->
+                        if (res is Resource.Success && res.data != null) {
+                            currentUserData = res.data
+                            res.data
+                        } else {
+                            val authUser = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+                            val name = authUser?.displayName?.ifBlank { null }
+                                ?: authUser?.email?.substringBefore("@")
+                                ?: "User"
+                            User(userId = currentUserId, username = name, avatarColor = "#6C63FF")
+                        }
+                    }
+
+                val result = chatRepository.getOrCreateChat(
+                    currentUserId = currentUserId,
+                    otherUserId = otherUser.userId,
+                    otherUser = otherUser,
+                    currentUser = currentUser
+                )
+                when (result) {
+                    is Resource.Success -> {
+                        _chatState.value = ChatState.Success(
+                            chatId = result.data ?: "",
+                            otherUserId = otherUser.userId,
+                            otherUsername = otherUser.username,
+                            avatarColor = otherUser.avatarColor
+                        )
+                    }
+                    is Resource.Error -> {
+                        _chatState.value = ChatState.Error(result.message ?: "Failed to start chat")
+                    }
+                    else -> {
+                        _chatState.value = ChatState.Error("Failed to start chat")
+                    }
                 }
-                is Resource.Error -> {
-                    _chatState.value = ChatState.Error(result.message ?: "Failed to start chat")
-                }
-                else -> {}
+            } catch (e: Exception) {
+                _chatState.value = ChatState.Error(e.message ?: "Error starting chat")
             }
         }
+    }
+
+    fun resetChatState() {
+        _chatState.value = null
     }
 
     sealed class ChatState {
@@ -96,6 +120,7 @@ class SearchViewModel(
         data class Error(val message: String) : ChatState()
     }
 }
+
 
 class SearchViewModelFactory(
     private val userRepository: UserRepository,

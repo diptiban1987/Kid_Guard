@@ -50,53 +50,52 @@ class AuthViewModel(
         viewModelScope.launch {
             _authState.value = AuthState.Loading
 
-            // Check if username already exists in Firestore
-            val existingUser = withTimeoutOrNull(30000L) {
-                authRepository.getExistingUserByUsername(username)
-            }
-
-            if (existingUser != null) {
-                // Existing profile found: Restore user session & chats!
-                var currentUserId = authRepository.currentUserId
-                if (currentUserId.isEmpty()) {
-                    val signInResult = withTimeoutOrNull(30000L) {
-                        authRepository.anonymousSignIn()
-                    }
-                    currentUserId = (signInResult as? Resource.Success)?.data ?: existingUser.userId
-                }
-                // Update online status for restored user
-                authRepository.updateOnlineStatus(existingUser.userId, true)
-                _authState.value = AuthState.Success(existingUser.userId)
-                return@launch
-            }
-
-            // New username: Perform anonymous sign-in and create profile
-            val currentUserId = authRepository.currentUserId
-            val activeAuthId = if (currentUserId.isNotEmpty()) {
-                currentUserId
-            } else {
-                val signInResult = withTimeoutOrNull(30000L) {
+            // 1. First ensure user is signed into Firebase Auth so request.auth != null for Firestore queries
+            var activeAuthId = authRepository.currentUserId
+            if (activeAuthId.isEmpty()) {
+                val signInResult = withTimeoutOrNull(20000L) {
                     authRepository.anonymousSignIn()
                 } ?: run {
-                    _authState.value = AuthState.Error("Sign-in timed out. Check network connection.")
+                    _authState.value = AuthState.Error("Sign-in timed out. Please check network connection.")
                     return@launch
                 }
                 if (signInResult is Resource.Error) {
                     _authState.value = AuthState.Error(signInResult.message ?: "Sign in failed")
                     return@launch
                 }
-                (signInResult as Resource.Success).data ?: ""
+                activeAuthId = (signInResult as Resource.Success).data ?: ""
             }
 
-            val createResult = withTimeoutOrNull(60000L) {
-                authRepository.createOrUpdateUser(activeAuthId, username, selectedColor)
+            if (activeAuthId.isEmpty()) {
+                _authState.value = AuthState.Error("Failed to obtain authentication session")
+                return@launch
             }
 
-            if (createResult is Resource.Error) {
-                android.util.Log.w("AuthViewModel", "Firestore profile creation failed: ${createResult.message}")
+            // 2. Now that request.auth != null, check if username profile exists in Firestore
+            val existingUser = try {
+                withTimeoutOrNull(15000L) {
+                    authRepository.getExistingUserByUsername(username)
+                }
+            } catch (e: Exception) {
+                null
             }
 
-            _authState.value = AuthState.Success(activeAuthId)
+            val finalUserId = if (existingUser != null) {
+                // Restore existing profile
+                try { authRepository.updateOnlineStatus(existingUser.userId, true) } catch (_: Exception) {}
+                existingUser.userId
+            } else {
+                // New username profile
+                val createResult = withTimeoutOrNull(20000L) {
+                    authRepository.createOrUpdateUser(activeAuthId, username, selectedColor)
+                }
+                if (createResult is Resource.Error) {
+                    android.util.Log.w("AuthViewModel", "Firestore profile creation warning: ${createResult.message}")
+                }
+                activeAuthId
+            }
+
+            _authState.value = AuthState.Success(finalUserId)
         }
     }
 

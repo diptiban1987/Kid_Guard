@@ -1,0 +1,302 @@
+package com.anonchat.app.ui.auth
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.anonchat.app.data.repository.AuthRepository
+import com.anonchat.app.parentalcontrol.api.ApiClient
+import com.anonchat.app.parentalcontrol.api.CloudConfig
+import com.anonchat.app.util.Constants
+import com.anonchat.app.util.Resource
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.tasks.await
+
+class AuthViewModel(
+    private val authRepository: AuthRepository
+) : ViewModel() {
+
+    private val _authState = MutableStateFlow<AuthState>(AuthState.Idle)
+    val authState: StateFlow<AuthState> = _authState
+
+    private val _usernameAvailable = MutableStateFlow<Resource<Boolean>?>(null)
+    val usernameAvailable: StateFlow<Resource<Boolean>?> = _usernameAvailable
+
+    private val avatarColors = listOf(
+        "#6C63FF", "#FF6584", "#43A047", "#FB8C00",
+        "#E53935", "#8E24AA", "#1E88E5", "#00ACC1",
+        "#7CB342", "#F4511E", "#3949AB", "#C0CA33"
+    )
+
+    private var selectedColor: String = avatarColors.random()
+
+    fun signInAnonymously(username: String) {
+        if (username.length < Constants.MIN_USERNAME_LENGTH) {
+            _authState.value = AuthState.Error("Username must be at least ${Constants.MIN_USERNAME_LENGTH} characters")
+            return
+        }
+        if (username.length > Constants.MAX_USERNAME_LENGTH) {
+            _authState.value = AuthState.Error("Username must be at most ${Constants.MAX_USERNAME_LENGTH} characters")
+            return
+        }
+        if (!username.all { it.isLetterOrDigit() || it == '_' }) {
+            _authState.value = AuthState.Error("Username can only contain letters, numbers, and _")
+            return
+        }
+
+        viewModelScope.launch {
+            _authState.value = AuthState.Loading
+
+            val currentUserId = authRepository.currentUserId
+            if (currentUserId.isNotEmpty()) {
+                _authState.value = AuthState.Success(currentUserId)
+                return@launch
+            }
+
+            val availableResult = withTimeoutOrNull(60000L) {
+                authRepository.isUsernameAvailable(username)
+            }
+            if (availableResult is Resource.Success && availableResult.data == false) {
+                _authState.value = AuthState.Error("Username is already taken")
+                return@launch
+            }
+
+            val signInResult = withTimeoutOrNull(30000L) {
+                authRepository.anonymousSignIn()
+            } ?: run {
+                _authState.value = AuthState.Error("Sign-in timed out. Check network/Firebase Auth config.")
+                return@launch
+            }
+            if (signInResult is Resource.Error) {
+                _authState.value = AuthState.Error(signInResult.message ?: "Sign in failed")
+                return@launch
+            }
+
+            val userId = (signInResult as Resource.Success).data ?: ""
+            val createResult = withTimeoutOrNull(60000L) {
+                authRepository.createOrUpdateUser(userId, username, selectedColor)
+            }
+
+            if (createResult is Resource.Error) {
+                android.util.Log.w("AuthViewModel", "Firestore profile creation failed: ${createResult.message}")
+            }
+
+            _authState.value = AuthState.Success(userId)
+        }
+    }
+
+    fun parentLogin(email: String, password: String) {
+        if (email.isBlank() || !email.contains("@")) {
+            _authState.value = AuthState.Error("Enter a valid email address")
+            return
+        }
+        if (password.length < 6) {
+            _authState.value = AuthState.Error("Password must be at least 6 characters")
+            return
+        }
+
+        viewModelScope.launch {
+            _authState.value = AuthState.Loading
+
+            try {
+                authRepository.getContext()?.let { CloudConfig.init(it) }
+            } catch (_: Exception) { }
+
+            val loginResult = withContext(Dispatchers.IO) {
+                try {
+                    ApiClient.login(email, password)
+                } catch (e: Exception) {
+                    ApiClient.Result.Error(e.message ?: "Connection error")
+                }
+            }
+
+            when (loginResult) {
+                is ApiClient.Result.Success -> {
+                    val firebaseResult = withTimeoutOrNull(30000L) {
+                        authRepository.parentSignIn(email, password)
+                    }
+
+                    if (firebaseResult is Resource.Error) {
+                        _authState.value = AuthState.Error("Chat login failed: ${firebaseResult.message}")
+                        return@launch
+                    }
+
+                    val userId = when (firebaseResult) {
+                        is Resource.Success -> firebaseResult.data ?: ""
+                        else -> ""
+                    }
+
+                    _authState.value = AuthState.Success(userId)
+                }
+                is ApiClient.Result.Error -> {
+                    _authState.value = AuthState.Error(loginResult.message)
+                }
+            }
+        }
+    }
+
+    fun parentRegister(email: String, password: String) {
+        if (email.isBlank() || !email.contains("@")) {
+            _authState.value = AuthState.Error("Enter a valid email address")
+            return
+        }
+        if (password.length < 6) {
+            _authState.value = AuthState.Error("Password must be at least 6 characters")
+            return
+        }
+
+        viewModelScope.launch {
+            _authState.value = AuthState.Loading
+
+            try {
+                authRepository.getContext()?.let { CloudConfig.init(it) }
+            } catch (_: Exception) { }
+
+            val displayName = email.substringBefore("@")
+            val regResult = withContext(Dispatchers.IO) {
+                try {
+                    ApiClient.register(email, password, displayName, role = "parent")
+                } catch (e: Exception) {
+                    ApiClient.Result.Error(e.message ?: "Connection error")
+                }
+            }
+
+            when (regResult) {
+                is ApiClient.Result.Success -> {
+                    val firebaseResult = withTimeoutOrNull(30000L) {
+                        authRepository.parentSignUp(email, password)
+                    }
+
+                    val userId = when (firebaseResult) {
+                        is Resource.Success -> firebaseResult.data ?: ""
+                        else -> CloudConfig.userId ?: ""
+                    }
+
+                    _authState.value = AuthState.Success(userId)
+                }
+                is ApiClient.Result.Error -> {
+                    val errMsg = regResult.message
+                    if (errMsg.contains("already exists", ignoreCase = true) ||
+                        errMsg.contains("already registered", ignoreCase = true) ||
+                        errMsg.contains("user exists", ignoreCase = true) ||
+                        errMsg.contains("email taken", ignoreCase = true)
+                    ) {
+                        _authState.value = AuthState.Error("You have already registered! Please enter your password and click Parent Login.")
+                    } else {
+                        val loginTry = withContext(Dispatchers.IO) {
+                            try { ApiClient.login(email, password) } catch (_: Exception) { null }
+                        }
+                        if (loginTry is ApiClient.Result.Success) {
+                            val fbResult = withTimeoutOrNull(30000L) {
+                                authRepository.parentSignIn(email, password)
+                            }
+                            val userId = (fbResult as? Resource.Success)?.data ?: CloudConfig.userId ?: ""
+                            _authState.value = AuthState.Success(userId)
+                        } else {
+                            _authState.value = AuthState.Error(errMsg)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fun sendPasswordReset(email: String) {
+        if (email.isBlank() || !email.contains("@")) {
+            _authState.value = AuthState.Error("Please enter your registered email address above first")
+            return
+        }
+
+        viewModelScope.launch {
+            _authState.value = AuthState.Loading
+            try {
+                authRepository.getContext()?.let { CloudConfig.init(it) }
+            } catch (_: Exception) { }
+
+            withContext(Dispatchers.IO) {
+                try { ApiClient.requestPasswordReset(email) } catch (_: Exception) {}
+            }
+
+            try {
+                com.google.firebase.auth.FirebaseAuth.getInstance()
+                    .sendPasswordResetEmail(email)
+                    .await()
+                _authState.value = AuthState.Info("Password reset link sent to $email. Check your Inbox/Spam, or use instant reset below.")
+            } catch (e: Exception) {
+                android.util.Log.e("AuthViewModel", "Password reset failed: ${e.message}", e)
+                val msg = e.message ?: ""
+                if (msg.contains("no user record", ignoreCase = true) || msg.contains("user not found", ignoreCase = true)) {
+                    _authState.value = AuthState.Error("No account found for $email. Please click Register first.")
+                } else {
+                    _authState.value = AuthState.Info("Password reset requested for $email.")
+                }
+            }
+        }
+    }
+
+    fun resetPasswordDirect(email: String, newPassword: String) {
+        if (email.isBlank() || !email.contains("@")) {
+            _authState.value = AuthState.Error("Please enter a valid email address")
+            return
+        }
+        if (newPassword.length < 6) {
+            _authState.value = AuthState.Error("New password must be at least 6 characters")
+            return
+        }
+
+        viewModelScope.launch {
+            _authState.value = AuthState.Loading
+            try {
+                authRepository.getContext()?.let { CloudConfig.init(it) }
+            } catch (_: Exception) { }
+
+            withContext(Dispatchers.IO) {
+                try {
+                    ApiClient.resetPassword(email, "", newPassword)
+                } catch (_: Exception) { }
+            }
+
+            val firebaseResult = withTimeoutOrNull(30000L) {
+                authRepository.parentSignUp(email, newPassword)
+            }
+
+            val userId = (firebaseResult as? Resource.Success)?.data ?: CloudConfig.userId ?: ""
+            if (userId.isNotEmpty()) {
+                _authState.value = AuthState.Success(userId)
+            } else {
+                parentLogin(email, newPassword)
+            }
+        }
+    }
+
+    fun checkUsername(username: String) {
+        if (username.length < Constants.MIN_USERNAME_LENGTH) {
+            _usernameAvailable.value = null
+            return
+        }
+        viewModelScope.launch {
+            _usernameAvailable.value = authRepository.isUsernameAvailable(username)
+        }
+    }
+
+    fun selectColor(color: String) {
+        selectedColor = color
+    }
+
+    fun getSelectedColor(): String = selectedColor
+
+    fun getAvatarColors(): List<String> = avatarColors
+
+    fun isUserLoggedIn(): Boolean = authRepository.currentUser != null
+
+    sealed class AuthState {
+        object Idle : AuthState()
+        object Loading : AuthState()
+        data class Success(val userId: String) : AuthState()
+        data class Error(val message: String) : AuthState()
+        data class Info(val message: String) : AuthState()
+    }
+}

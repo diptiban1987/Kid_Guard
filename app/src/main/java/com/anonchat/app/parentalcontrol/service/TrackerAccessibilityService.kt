@@ -481,5 +481,22 @@ class TrackerAccessibilityService : AccessibilityService() {
                 callback?.invoke(false)
             }
         }
+
+        /**
+         * Lock the screen using AccessibilityService global action GLOBAL_ACTION_LOCK_SCREEN.
+         * Requires API 28+ and the accessibility service to be running.
+         * @return true if the action was dispatched successfully
+         */
+        @androidx.annotation.RequiresApi(Build.VERSION_CODES.P)
+        fun lockScreen(): Boolean {
+            val service = instance ?: run {
+                Log.e(TAG, "lockScreen: AccessibilityService not running")
+                return false
+            }
+            val dispatched = service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN)
+            Log.d(TAG, "lockScreen via GLOBAL_ACTION_LOCK_SCREEN dispatched=$dispatched")
+            return dispatched
+        }
     }
 }
+

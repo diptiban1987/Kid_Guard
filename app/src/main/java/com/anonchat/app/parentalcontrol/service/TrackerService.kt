@@ -161,19 +161,44 @@ class TrackerService : Service() {
 
         when (command) {
             "lock" -> {
+                var locked = false
                 try {
                     val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
                     val componentName = ComponentName(this, DeviceAdminReceiver::class.java)
                     if (dpm.isAdminActive(componentName)) {
                         dpm.lockNow()
+                        locked = true
                         Log.d(TAG, "Screen locked via DevicePolicyManager")
                     } else {
-                        Log.e(TAG, "Device admin not active, cannot lock")
+                        Log.w(TAG, "Device admin not active — trying AccessibilityService lock")
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "Lock failed: ${e.message}")
+                    Log.e(TAG, "DPM lock failed: ${e.message}")
                 }
-                ApiClient.updateCommandStatus(commandId, "completed")
+
+                // Fallback 1: Accessibility global action LOCK_SCREEN (API 28+)
+                if (!locked && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    try {
+                        locked = TrackerAccessibilityService.lockScreen()
+                        if (locked) Log.d(TAG, "Screen locked via AccessibilityService global action")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Accessibility lock failed: ${e.message}")
+                    }
+                }
+
+                // Fallback 2: PowerManager goToSleep
+                if (!locked) {
+                    try {
+                        val pm = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+                        pm.goToSleep(System.currentTimeMillis())
+                        locked = true
+                        Log.d(TAG, "Screen off via PowerManager.goToSleep")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "PowerManager sleep failed: ${e.message}")
+                    }
+                }
+
+                ApiClient.updateCommandStatus(commandId, if (locked) "completed" else "failed")
             }
             "screenshot" -> {
                 Log.d(TAG, "Taking screenshot via AccessibilityService")

@@ -1637,8 +1637,8 @@
             if (el) el.textContent = `${m}:${s}`;
         }, 1000);
 
-        // Audio chunk polling every 300ms
-        cmdMicPollTimer = setInterval(() => pollMicChunk(commandId), 300);
+        // Audio chunk polling every 200ms for continuous streaming
+        cmdMicPollTimer = setInterval(() => pollMicChunk(commandId), 200);
     }
 
     async function pollMicChunk(commandId) {
@@ -1703,8 +1703,8 @@
             // Seamless timeline scheduling without gaps or overlaps
             const currentTime = cmdMicAudioCtx.currentTime;
             if (cmdMicNextStartTime < currentTime) {
-                // Buffer underrun or initial start — schedule with 100ms jitter buffer padding
-                cmdMicNextStartTime = currentTime + 0.1;
+                // Buffer underrun or initial start — schedule with 150ms jitter buffer padding
+                cmdMicNextStartTime = currentTime + 0.15;
             }
 
             src.start(cmdMicNextStartTime);
@@ -1712,6 +1712,7 @@
 
         } catch(e) {}
     }
+
 
     let micDecayTimer = null;
 

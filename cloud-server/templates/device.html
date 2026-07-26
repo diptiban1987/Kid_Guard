@@ -1,0 +1,1729 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KidGuard - Device Detail</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="/static/css/cloud-style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Socket.IO removed: PythonAnywhere WSGI does not support WebSockets.
+         Call-state updates are handled by HTTP polling (checkCallState). -->
+    <style>
+        /* ─── Device Page Layout ─── */
+        .device-page {
+            padding: 24px;
+            max-width: 1400px;
+            margin: 0 auto;
+            min-height: calc(100vh - 60px);
+        }
+
+        /* ─── Device Info Header ─── */
+        .device-header {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            margin-bottom: 28px;
+        }
+        .device-avatar {
+            width: 64px; height: 64px;
+            border-radius: 16px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        .device-avatar svg { color: white; }
+        .device-info-block { flex: 1; }
+        .device-name-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 4px;
+        }
+        .device-name-row h1 {
+            font-size: 24px;
+            font-weight: 700;
+            color: white;
+            margin: 0;
+        }
+        .online-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+        .online-badge.online {
+            background: rgba(76,175,80,0.15);
+            color: #4caf50;
+        }
+        .online-badge.offline {
+            background: rgba(255,255,255,0.06);
+            color: rgba(255,255,255,0.4);
+        }
+        .online-badge .dot {
+            width: 7px; height: 7px;
+            border-radius: 50%;
+        }
+        .online-badge.online .dot {
+            background: #4caf50;
+            box-shadow: 0 0 6px rgba(76,175,80,0.5);
+        }
+        .online-badge.offline .dot {
+            background: #666;
+        }
+        .device-meta {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            font-size: 13px;
+            color: rgba(255,255,255,0.4);
+            flex-wrap: wrap;
+        }
+        .device-meta span {
+            display: flex;
+            align-items: center;
+        }
+
+        /* ─── Remove Device Button ─── */
+        .btn-danger-device {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            background: rgba(239,68,68,0.12);
+            color: #f87171;
+            border: 1px solid rgba(239,68,68,0.25);
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            flex-shrink: 0;
+        }
+        .btn-danger-device:hover {
+            background: rgba(239,68,68,0.22);
+            border-color: rgba(239,68,68,0.5);
+            color: #fca5a5;
+            transform: translateY(-1px);
+        }
+
+        /* ─── Delete Confirm Modal ─── */
+        .delete-modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.65);
+            backdrop-filter: blur(6px);
+            z-index: 9999;
+            align-items: center;
+            justify-content: center;
+        }
+        .delete-modal-overlay.open { display: flex; }
+        .delete-modal-box {
+            background: linear-gradient(145deg, #1a1a2e, #16213e);
+            border: 1px solid rgba(239,68,68,0.3);
+            border-radius: 20px;
+            padding: 36px;
+            max-width: 420px;
+            width: 90%;
+            text-align: center;
+            box-shadow: 0 32px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04);
+            animation: deleteModalIn 0.2s ease;
+        }
+        @keyframes deleteModalIn {
+            from { opacity:0; transform:scale(0.94) translateY(10px); }
+            to   { opacity:1; transform:scale(1) translateY(0); }
+        }
+        .delete-modal-icon {
+            width: 64px; height: 64px;
+            border-radius: 50%;
+            background: rgba(239,68,68,0.1);
+            border: 2px solid rgba(239,68,68,0.25);
+            display: flex; align-items: center; justify-content: center;
+            margin: 0 auto 20px;
+            color: #f87171;
+        }
+        .delete-modal-title {
+            font-size: 22px; font-weight: 700; color: white; margin-bottom: 10px;
+        }
+        .delete-modal-sub {
+            font-size: 14px; color: rgba(255,255,255,0.45);
+            margin-bottom: 28px; line-height: 1.65;
+        }
+        .delete-modal-actions { display: flex; gap: 12px; }
+        .delete-modal-cancel {
+            flex: 1; padding: 13px;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 10px; color: rgba(255,255,255,0.7);
+            font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s;
+        }
+        .delete-modal-cancel:hover { background: rgba(255,255,255,0.1); }
+        .delete-modal-confirm {
+            flex: 1; padding: 13px;
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+            border: none; border-radius: 10px;
+            color: white; font-size: 14px; font-weight: 700;
+            cursor: pointer; transition: all 0.2s;
+        }
+        .delete-modal-confirm:hover { opacity: 0.88; transform: translateY(-1px); }
+        .delete-modal-confirm:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+
+        /* ─── Stats Row (6 items) ─── */
+        .stats-row-6 {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 14px;
+            margin-bottom: 24px;
+        }
+        @media (max-width: 1200px) {
+            .stats-row-6 { grid-template-columns: repeat(3, 1fr); }
+        }
+        @media (max-width: 640px) {
+            .stats-row-6 { grid-template-columns: repeat(2, 1fr); }
+        }
+        .stat-card .stat-icon {
+            font-size: 20px;
+            margin-bottom: 8px;
+            opacity: 0.7;
+        }
+        .stat-card .stat-value {
+            font-size: 28px;
+        }
+
+        /* ─── Map ─── */
+        #deviceMap {
+            height: 420px;
+            border-radius: 0 0 12px 12px;
+            z-index: 1;
+        }
+        .leaflet-control-attribution { font-size: 10px !important; }
+
+        /* ─── Full-Width Tabs Section ─── */
+        .tab-content-panel {
+            display: none;
+        }
+        .tab-content-panel.active {
+            display: block;
+        }
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        .data-table thead th {
+            text-align: left;
+            padding: 10px 12px;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: rgba(255,255,255,0.35);
+            font-weight: 600;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+        }
+        .data-table tbody td {
+            padding: 10px 12px;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+            color: rgba(255,255,255,0.75);
+            vertical-align: middle;
+        }
+        .data-table tbody tr:hover {
+            background: rgba(255,255,255,0.02);
+        }
+        .data-table tbody tr:last-child td {
+            border-bottom: none;
+        }
+        .type-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 3px 10px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .type-badge.incoming {
+            background: rgba(76,175,80,0.12);
+            color: #66bb6a;
+        }
+        .type-badge.outgoing {
+            background: rgba(102,126,234,0.12);
+            color: #667eea;
+        }
+        .type-badge.missed {
+            background: rgba(244,67,54,0.12);
+            color: #ef5350;
+        }
+        .type-badge.sent {
+            background: rgba(102,126,234,0.12);
+            color: #667eea;
+        }
+        .type-badge.received {
+            background: rgba(76,175,80,0.12);
+            color: #66bb6a;
+        }
+        .sms-body {
+            max-width: 300px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .url-link {
+            color: #667eea;
+            text-decoration: none;
+            max-width: 280px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            display: inline-block;
+        }
+        .url-link:hover {
+            color: #764ba2;
+            text-decoration: underline;
+        }
+
+        /* ─── App Grid ─── */
+        .apps-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 12px;
+        }
+        .app-card {
+            padding: 14px 16px;
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 10px;
+            transition: all 0.2s;
+        }
+        .app-card:hover {
+            background: rgba(255,255,255,0.06);
+            border-color: rgba(102,126,234,0.2);
+        }
+        .app-card-name {
+            font-weight: 600;
+            font-size: 14px;
+            color: white;
+            margin-bottom: 3px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .app-card-pkg {
+            font-size: 11px;
+            color: rgba(255,255,255,0.3);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        /* ─── Media Gallery ─── */
+        .media-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 12px;
+        }
+        .media-thumb {
+            aspect-ratio: 1;
+            border-radius: 10px;
+            overflow: hidden;
+            cursor: pointer;
+            position: relative;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.06);
+            transition: all 0.2s;
+        }
+        .media-thumb:hover {
+            border-color: rgba(102,126,234,0.3);
+            transform: scale(1.02);
+        }
+        .media-thumb img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .media-thumb .media-type-icon {
+            position: absolute;
+            bottom: 8px;
+            right: 8px;
+            background: rgba(0,0,0,0.65);
+            border-radius: 6px;
+            padding: 4px 8px;
+            font-size: 11px;
+            color: white;
+        }
+
+        /* ─── Lightbox ─── */
+        .lightbox {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.9);
+            backdrop-filter: blur(8px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 3000;
+            cursor: pointer;
+        }
+        .lightbox.hidden { display: none; }
+        .lightbox img {
+            max-width: 90vw;
+            max-height: 85vh;
+            border-radius: 12px;
+            object-fit: contain;
+        }
+        .lightbox-close {
+            position: absolute;
+            top: 24px;
+            right: 32px;
+            background: none;
+            border: none;
+            color: white;
+            font-size: 36px;
+            cursor: pointer;
+            opacity: 0.7;
+            transition: opacity 0.2s;
+        }
+        .lightbox-close:hover { opacity: 1; }
+
+        /* ─── Two-Column Grid ─── */
+        .detail-grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+            margin-bottom: 24px;
+        }
+        @media (max-width: 900px) {
+            .detail-grid-2 { grid-template-columns: 1fr; }
+        }
+
+        /* ─── Restrictions ─── */
+        .restriction-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+        }
+        .restriction-item:last-child { border-bottom: none; }
+        .restriction-info { flex: 1; }
+        .restriction-name {
+            font-weight: 500;
+            font-size: 14px;
+            color: white;
+        }
+        .restriction-detail {
+            font-size: 12px;
+            color: rgba(255,255,255,0.4);
+        }
+        .restriction-badge {
+            padding: 3px 10px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .restriction-badge.blocked {
+            background: rgba(244,67,54,0.12);
+            color: #ef5350;
+        }
+        .restriction-badge.limited {
+            background: rgba(255,152,0,0.12);
+            color: #ffa726;
+        }
+        .add-form-row {
+            display: flex;
+            gap: 10px;
+            align-items: flex-end;
+            flex-wrap: wrap;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid rgba(255,255,255,0.06);
+        }
+        .add-form-row .form-group {
+            margin-bottom: 0;
+            flex: 1;
+            min-width: 140px;
+        }
+        .add-form-row .form-group label {
+            font-size: 11px;
+            margin-bottom: 4px;
+        }
+        .add-form-row .form-input {
+            padding: 8px 10px;
+            font-size: 13px;
+        }
+
+        /* ─── Schedule ─── */
+        .schedule-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 8px;
+        }
+        @media (max-width: 768px) {
+            .schedule-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+        .schedule-day {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 10px;
+            padding: 12px;
+            text-align: center;
+            transition: all 0.2s;
+        }
+        .schedule-day:hover {
+            border-color: rgba(102,126,234,0.2);
+        }
+        .schedule-day-name {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: rgba(255,255,255,0.35);
+            margin-bottom: 8px;
+            font-weight: 600;
+        }
+        .schedule-day-time {
+            font-size: 14px;
+            font-weight: 600;
+            color: white;
+            margin-bottom: 4px;
+        }
+        .schedule-day-rule {
+            font-size: 11px;
+            color: rgba(255,255,255,0.4);
+        }
+        .schedule-day.has-rule {
+            border-color: rgba(102,126,234,0.25);
+            background: rgba(102,126,234,0.05);
+        }
+        .schedule-day.has-rule .schedule-day-name {
+            color: #667eea;
+        }
+        .schedule-add-row {
+            display: flex;
+            gap: 10px;
+            align-items: flex-end;
+            flex-wrap: wrap;
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid rgba(255,255,255,0.06);
+        }
+        .schedule-add-row .form-group {
+            margin-bottom: 0;
+            min-width: 100px;
+        }
+        .schedule-add-row .form-group label {
+            font-size: 11px;
+            margin-bottom: 4px;
+        }
+        .schedule-add-row .form-input {
+            padding: 8px 10px;
+            font-size: 13px;
+        }
+        .schedule-add-row select.form-input {
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='rgba(255,255,255,0.4)'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 10px center;
+            padding-right: 28px;
+        }
+
+        /* ─── Empty state ─── */
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: rgba(255,255,255,0.3);
+            font-size: 14px;
+        }
+        .empty-state .empty-icon {
+            font-size: 36px;
+            margin-bottom: 12px;
+            opacity: 0.5;
+        }
+
+        /* ─── Notification toast override for this page ─── */
+        .toast-notification {
+            position: fixed;
+            top: 80px;
+            right: 24px;
+            z-index: 3000;
+        }
+
+        /* ─── Active Call Banner ─── */
+        .active-call-banner {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 16px 24px;
+            background: linear-gradient(135deg, rgba(239,68,68,0.15), rgba(220,38,38,0.08));
+            border: 1px solid rgba(239,68,68,0.3);
+            border-radius: 14px;
+            margin-bottom: 20px;
+            animation: callPulse 2s ease-in-out infinite;
+        }
+        @keyframes callPulse {
+            0%, 100% { border-color: rgba(239,68,68,0.3); }
+            50% { border-color: rgba(239,68,68,0.7); }
+        }
+        .call-pulse {
+            width: 14px; height: 14px;
+            background: #ef4444;
+            border-radius: 50%;
+            animation: pulseDot 1.5s ease-in-out infinite;
+            flex-shrink: 0;
+        }
+        @keyframes pulseDot {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(1.3); }
+        }
+        .call-info {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            flex: 1;
+        }
+        .call-status {
+            font-weight: 600;
+            font-size: 15px;
+            color: #ef4444;
+        }
+        .call-number {
+            font-size: 18px;
+            font-weight: 700;
+            color: white;
+        }
+        .call-duration {
+            font-size: 12px;
+            color: rgba(255,255,255,0.5);
+            font-family: monospace;
+        }
+        .call-actions {
+            display: flex;
+            gap: 8px;
+        }
+        .btn-listen, .btn-stop-listen {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 10px;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.2s;
+        }
+        .btn-listen {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+        }
+        .btn-listen:hover { transform: scale(1.05); box-shadow: 0 4px 15px rgba(102,126,234,0.4); }
+        .btn-stop-listen {
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+            color: white;
+        }
+        .btn-stop-listen:hover { transform: scale(1.05); }
+        .listen-icon { font-size: 16px; }
+
+        /* ─── Audio Player Modal ─── */
+        .audio-player-modal {
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(15,15,25,0.95);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(102,126,234,0.3);
+            border-radius: 16px;
+            padding: 16px 24px;
+            display: none;
+            align-items: center;
+            gap: 16px;
+            z-index: 4000;
+            min-width: 350px;
+        }
+        .audio-player-modal.active { display: flex; }
+        .audio-player-modal .wave-bars {
+            display: flex;
+            gap: 3px;
+            align-items: center;
+            height: 30px;
+        }
+        .audio-player-modal .wave-bar {
+            width: 4px;
+            background: #667eea;
+            border-radius: 2px;
+            animation: waveBar 0.8s ease-in-out infinite;
+        }
+        .audio-player-modal .wave-bar:nth-child(1) { animation-delay: 0s; height: 12px; }
+        .audio-player-modal .wave-bar:nth-child(2) { animation-delay: 0.1s; height: 20px; }
+        .audio-player-modal .wave-bar:nth-child(3) { animation-delay: 0.2s; height: 28px; }
+        .audio-player-modal .wave-bar:nth-child(4) { animation-delay: 0.3s; height: 20px; }
+        .audio-player-modal .wave-bar:nth-child(5) { animation-delay: 0.4s; height: 12px; }
+        @keyframes waveBar {
+            0%, 100% { transform: scaleY(0.5); }
+            50% { transform: scaleY(1.3); }
+        }
+        .audio-player-modal .player-label {
+            font-size: 14px;
+            font-weight: 600;
+            color: white;
+        }
+        .audio-player-modal .player-status {
+            font-size: 11px;
+            color: rgba(255,255,255,0.5);
+        }
+
+        /* ─── Command Result Modal ─── */
+        .cmd-result-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.85);
+            backdrop-filter: blur(12px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 5000;
+            animation: fadeIn 0.25s ease;
+        }
+        .cmd-result-overlay.hidden { display: none; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        .cmd-result-box {
+            background: rgba(15,15,28,0.97);
+            border: 1px solid rgba(102,126,234,0.3);
+            border-radius: 20px;
+            padding: 28px 32px;
+            min-width: 360px;
+            max-width: 680px;
+            width: 90vw;
+            position: relative;
+            animation: slideUp 0.3s cubic-bezier(0.34,1.56,0.64,1);
+            box-shadow: 0 30px 80px rgba(0,0,0,0.6);
+        }
+        @keyframes slideUp { from { transform: translateY(30px) scale(0.95); opacity: 0; } to { transform: translateY(0) scale(1); opacity: 1; } }
+
+        .cmd-result-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+        .cmd-result-icon {
+            font-size: 26px;
+            width: 48px; height: 48px;
+            border-radius: 12px;
+            background: rgba(102,126,234,0.12);
+            display: flex; align-items: center; justify-content: center;
+        }
+        .cmd-result-title {
+            font-size: 18px;
+            font-weight: 700;
+            color: white;
+        }
+        .cmd-result-sub {
+            font-size: 12px;
+            color: rgba(255,255,255,0.4);
+            margin-top: 2px;
+        }
+        .cmd-close-btn {
+            position: absolute;
+            top: 16px; right: 20px;
+            background: rgba(255,255,255,0.06);
+            border: none;
+            color: white;
+            width: 32px; height: 32px;
+            border-radius: 8px;
+            font-size: 18px;
+            cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            transition: background 0.2s;
+        }
+        .cmd-close-btn:hover { background: rgba(255,255,255,0.12); }
+
+        /* Waiting spinner */
+        .cmd-waiting {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 16px;
+            padding: 24px 0;
+        }
+        .cmd-spinner {
+            width: 48px; height: 48px;
+            border: 3px solid rgba(102,126,234,0.2);
+            border-top-color: #667eea;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .cmd-waiting-text {
+            font-size: 14px;
+            color: rgba(255,255,255,0.5);
+            text-align: center;
+        }
+
+        /* Status result (lock, alarm, wipe) */
+        .cmd-status-result {
+            text-align: center;
+            padding: 20px 0;
+        }
+        .cmd-status-icon-big {
+            font-size: 56px;
+            margin-bottom: 12px;
+            animation: popIn 0.4s cubic-bezier(0.34,1.56,0.64,1);
+        }
+        @keyframes popIn { from { transform: scale(0); } to { transform: scale(1); } }
+        .cmd-status-msg {
+            font-size: 16px;
+            font-weight: 600;
+            color: white;
+        }
+        .cmd-status-detail {
+            font-size: 13px;
+            color: rgba(255,255,255,0.4);
+            margin-top: 6px;
+        }
+
+        /* Image result (screenshot, camera) */
+        .cmd-image-result img {
+            width: 100%;
+            max-height: 60vh;
+            object-fit: contain;
+            border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.06);
+        }
+        .cmd-image-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 14px;
+            justify-content: flex-end;
+        }
+        .btn-download-img {
+            padding: 9px 20px;
+            border: none;
+            border-radius: 10px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            font-weight: 600;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-download-img:hover { transform: scale(1.04); box-shadow: 0 4px 15px rgba(102,126,234,0.4); }
+
+        /* Mic / Audio streaming result */
+        .cmd-mic-result {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 16px;
+            padding: 12px 0;
+        }
+        .mic-waveform {
+            display: flex;
+            gap: 5px;
+            align-items: center;
+            height: 60px;
+        }
+        .mic-wave-bar {
+            width: 5px;
+            background: linear-gradient(to top, #667eea, #a78bfa);
+            border-radius: 3px;
+            min-height: 6px;
+            transition: height 0.1s ease;
+        }
+        .mic-wave-bar.active {
+            animation: micWave 0.6s ease-in-out infinite;
+        }
+        .mic-wave-bar:nth-child(1) { animation-delay: 0s; }
+        .mic-wave-bar:nth-child(2) { animation-delay: 0.08s; }
+        .mic-wave-bar:nth-child(3) { animation-delay: 0.16s; }
+        .mic-wave-bar:nth-child(4) { animation-delay: 0.24s; }
+        .mic-wave-bar:nth-child(5) { animation-delay: 0.08s; }
+        .mic-wave-bar:nth-child(6) { animation-delay: 0.16s; }
+        .mic-wave-bar:nth-child(7) { animation-delay: 0.24s; }
+        .mic-wave-bar:nth-child(8) { animation-delay: 0.08s; }
+        @keyframes micWave {
+            0%, 100% { transform: scaleY(0.4); }
+            50% { transform: scaleY(1.8); }
+        }
+        .mic-status-line {
+            font-size: 14px;
+            font-weight: 600;
+            color: #a78bfa;
+        }
+        .mic-timer {
+            font-size: 28px;
+            font-weight: 700;
+            font-family: monospace;
+            color: white;
+            letter-spacing: 2px;
+        }
+        .btn-stop-mic {
+            padding: 10px 24px;
+            border: none;
+            border-radius: 10px;
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+            color: white;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .btn-stop-mic:hover { transform: scale(1.05); }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">
+            <div class="brand-icon">
+                <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+                    <circle cx="16" cy="16" r="14" stroke="currentColor" stroke-width="2"/>
+                    <path d="M16 8v8l6 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+            </div>
+            <span class="brand-text">KidGuard</span>
+            <span class="brand-badge">Cloud</span>
+        </div>
+        <div class="nav-right">
+            <a href="/dashboard" class="btn-back" style="text-decoration:none;">← Dashboard</a>
+            <span class="nav-user" id="navUser"></span>
+            <button class="btn-danger-device" onclick="showDeleteModal()">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                    <path d="M3 6h18M8 6V4a1 1 0 011-1h6a1 1 0 011 1v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+                Remove Device
+            </button>
+            <button class="btn-logout" onclick="logout()">Logout</button>
+        </div>
+    </nav>
+
+    <!-- ── Delete Device Confirmation Modal ── -->
+    <div class="delete-modal-overlay" id="deleteModalOverlay">
+        <div class="delete-modal-box">
+            <div class="delete-modal-icon">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+                    <path d="M3 6h18M8 6V4a1 1 0 011-1h6a1 1 0 011 1v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+            </div>
+            <div class="delete-modal-title">Remove this device?</div>
+            <div class="delete-modal-sub" id="deleteModalDeviceName">The device will be hidden from your dashboard. All collected data is retained and the device can be re-paired in future.</div>
+            <div class="delete-modal-actions">
+                <button class="delete-modal-cancel" onclick="hideDeleteModal()">Cancel</button>
+                <button class="delete-modal-confirm" id="btnConfirmDelete" onclick="confirmDeleteDevice()">
+                    🗑 Remove Device
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="device-page">
+        <!-- Device Info Header -->
+        <div class="device-header">
+            <div class="device-avatar">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
+                    <rect x="5" y="2" width="14" height="20" rx="2" stroke="currentColor" stroke-width="2"/>
+                    <line x1="12" y1="18" x2="12" y2="18.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+            </div>
+            <div class="device-info-block">
+                <div class="device-name-row">
+                    <h1 id="deviceName">Loading…</h1>
+                    <span class="online-badge offline" id="onlineBadge">
+                        <span class="dot"></span>
+                        <span id="onlineBadgeText">OFFLINE</span>
+                    </span>
+                </div>
+                <div class="device-meta" id="deviceMeta">
+                    <span id="metaModel">—</span>
+                    <span id="metaManufacturer">—</span>
+                    <span id="metaAndroid">—</span>
+                    <span id="metaLastSeen">Last seen: —</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Stats Row -->
+        <div class="stats-row-6">
+            <div class="stat-card">
+                <div class="stat-icon">🔋</div>
+                <div class="stat-value" id="statBattery">—</div>
+                <div class="stat-label">Battery</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">📍</div>
+                <div class="stat-value" id="statLocations">0</div>
+                <div class="stat-label">Locations</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">💬</div>
+                <div class="stat-value" id="statSMS">0</div>
+                <div class="stat-label">SMS</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">📞</div>
+                <div class="stat-value" id="statCalls">0</div>
+                <div class="stat-label">Calls</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">📦</div>
+                <div class="stat-value" id="statApps">0</div>
+                <div class="stat-label">Apps</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">📱</div>
+                <div class="stat-value" id="statScreenTime">0</div>
+                <div class="stat-label">Screen Min</div>
+            </div>
+        </div>
+
+        <!-- Active Call Banner -->
+        <div class="active-call-banner" id="activeCallBanner" style="display:none;">
+            <div class="call-pulse"></div>
+            <div class="call-info">
+                <span class="call-status" id="callStatus">Incoming call...</span>
+                <span class="call-number" id="callNumber"></span>
+                <span class="call-duration" id="callDuration"></span>
+            </div>
+            <div class="call-actions">
+                <button class="btn-listen" id="btnListen" onclick="toggleCallStream()">
+                    <span class="listen-icon">🎧</span> Listen
+                </button>
+                <button class="btn-stop-listen" id="btnStopListen" onclick="stopCallStream()" style="display:none;">
+                    <span class="listen-icon">⏹</span> Stop
+                </button>
+            </div>
+        </div>
+
+        <!-- Location & Movement Map -->
+        <div class="card">
+            <div class="card-header">
+                <h2>Location &amp; Movement</h2>
+                <span class="badge" id="locationCount">0 points</span>
+            </div>
+            <div id="deviceMap"></div>
+        </div>
+
+        <!-- Screen Time + Battery row -->
+        <div class="detail-grid-2">
+            <!-- Screen Time -->
+            <div class="card" style="margin-bottom:0;">
+                <div class="card-header">
+                    <h2>Screen Time</h2>
+                    <span class="badge" id="screenTimeBadge">Today</span>
+                </div>
+                <div class="card-body">
+                    <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:16px;">
+                        <div style="font-size:48px;font-weight:800;color:white;line-height:1;" id="screenTimeValue">—</div>
+                        <div style="font-size:14px;color:rgba(255,255,255,0.4);">minutes today</div>
+                    </div>
+                    <div style="position:relative;">
+                        <canvas id="screenTimeChart" height="90" style="width:100%;"></canvas>
+                        <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:11px;color:rgba(255,255,255,0.3);" id="screenTimeLabels"></div>
+                    </div>
+                    <div style="font-size:11px;color:rgba(255,255,255,0.25);margin-top:8px;text-align:center;">Screen Time (last 7 days)</div>
+                </div>
+            </div>
+
+            <!-- Battery & Status -->
+            <div class="card" style="margin-bottom:0;">
+                <div class="card-header">
+                    <h2>Battery &amp; Status</h2>
+                    <span class="badge" id="batteryBadge">—</span>
+                </div>
+                <div class="card-body">
+                    <div style="display:flex;flex-direction:column;gap:16px;">
+                        <div>
+                            <div style="display:flex;justify-content:space-between;font-size:12px;color:rgba(255,255,255,0.4);margin-bottom:8px;">
+                                <span>Battery Level</span>
+                                <span id="batteryPct">—</span>
+                            </div>
+                            <div style="height:12px;background:rgba(255,255,255,0.06);border-radius:6px;overflow:hidden;">
+                                <div id="batteryBar" style="height:100%;width:0%;border-radius:6px;transition:width 0.6s ease;background:linear-gradient(90deg,#4caf50,#8bc34a);"></div>
+                            </div>
+                        </div>
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                            <div style="background:rgba(255,255,255,0.04);border-radius:10px;padding:12px;">
+                                <div style="font-size:11px;color:rgba(255,255,255,0.35);margin-bottom:4px;">Status</div>
+                                <div style="font-size:14px;font-weight:600;color:white;" id="batteryStatus">—</div>
+                            </div>
+                            <div style="background:rgba(255,255,255,0.04);border-radius:10px;padding:12px;">
+                                <div style="font-size:11px;color:rgba(255,255,255,0.35);margin-bottom:4px;">Last Seen</div>
+                                <div style="font-size:13px;font-weight:600;color:white;" id="batteryLastSeen">—</div>
+                            </div>
+                            <div style="background:rgba(255,255,255,0.04);border-radius:10px;padding:12px;">
+                                <div style="font-size:11px;color:rgba(255,255,255,0.35);margin-bottom:4px;">Model</div>
+                                <div style="font-size:13px;font-weight:600;color:white;" id="batteryModel">—</div>
+                            </div>
+                            <div style="background:rgba(255,255,255,0.04);border-radius:10px;padding:12px;">
+                                <div style="font-size:11px;color:rgba(255,255,255,0.35);margin-bottom:4px;">Android</div>
+                                <div style="font-size:13px;font-weight:600;color:white;" id="batteryAndroid">—</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tabbed Data Section -->
+        <div class="card">
+            <div class="card-header">
+                <h2>Device Data</h2>
+                <div class="tab-bar" id="dataTabBar">
+                    <button class="tab active" data-dtab="activity">Activity</button>
+                    <button class="tab" data-dtab="sms">SMS</button>
+                    <button class="tab" data-dtab="calls">Calls</button>
+                    <button class="tab" data-dtab="apps">Apps</button>
+                    <button class="tab" data-dtab="web">Web History</button>
+                    <button class="tab" data-dtab="social">Social</button>
+                    <button class="tab" data-dtab="media">Media</button>
+                </div>
+            </div>
+            <div class="card-body">
+                <!-- Activity Panel -->
+                <div class="tab-content-panel active" id="panel-activity">
+                    <div class="loading">Loading activity…</div>
+                </div>
+                <!-- SMS Panel -->
+                <div class="tab-content-panel" id="panel-sms">
+                    <div class="loading">Loading SMS…</div>
+                </div>
+                <!-- Calls Panel -->
+                <div class="tab-content-panel" id="panel-calls">
+                    <div class="loading">Loading calls…</div>
+                </div>
+                <!-- Apps Panel -->
+                <div class="tab-content-panel" id="panel-apps">
+                    <div class="loading">Loading apps…</div>
+                </div>
+                <!-- Web History Panel -->
+                <div class="tab-content-panel" id="panel-web">
+                    <div class="loading">Loading web history…</div>
+                </div>
+                <!-- Media Panel -->
+                <div class="tab-content-panel" id="panel-media">
+                    <div class="loading">Loading media…</div>
+                </div>
+                <!-- Social Panel -->
+                <div class="tab-content-panel" id="panel-social">
+                    <div class="loading">Loading social activity…</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bottom Grid: Geofences + Remote Control -->
+        <div class="detail-grid-2">
+            <!-- Geofences -->
+            <div class="card" style="margin-bottom:0;">
+                <div class="card-header">
+                    <h2>Geofences</h2>
+                    <button class="btn-sm" onclick="showGeofenceModal()">+ Add Zone</button>
+                </div>
+                <div class="card-body" id="geofenceList">
+                    <div class="loading">Loading geofences…</div>
+                </div>
+            </div>
+
+            <!-- Remote Control -->
+            <div class="card" style="margin-bottom:0;">
+                <div class="card-header">
+                    <h2>Remote Control</h2>
+                </div>
+                <div class="card-body">
+                    <div class="remote-actions">
+                        <button class="btn-remote" onclick="sendCommand('lock')" title="Lock Device">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><rect x="5" y="11" width="14" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 11V7a4 4 0 118 0v4" stroke="currentColor" stroke-width="2"/></svg>
+                            <span>Lock</span>
+                        </button>
+                        <button class="btn-remote" onclick="sendCommand('alarm')" title="Play Alarm">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/><path d="M12 6v6l4 2" stroke="currentColor" stroke-width="2"/></svg>
+                            <span>Alarm</span>
+                        </button>
+                        <button class="btn-remote" onclick="sendCommand('screenshot')" title="Take Screenshot">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><rect x="2" y="5" width="20" height="14" rx="2" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="2"/></svg>
+                            <span>Screenshot</span>
+                        </button>
+                        <button class="btn-remote" onclick="sendCommand('camera_front')" title="Front Camera">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="2"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" stroke="currentColor" stroke-width="2"/></svg>
+                            <span>📷 Front</span>
+                        </button>
+                        <button class="btn-remote" onclick="sendCommand('camera_back')" title="Back Camera">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><rect x="2" y="4" width="20" height="16" rx="2" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="2"/><circle cx="17" cy="7" r="1" fill="currentColor"/></svg>
+                            <span>📷 Back</span>
+                        </button>
+                        <button class="btn-remote" onclick="sendCommand('record_audio')" title="Record Ambient Audio (30s)">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><rect x="9" y="2" width="6" height="12" rx="3" stroke="currentColor" stroke-width="2"/><path d="M5 10a7 7 0 0014 0" stroke="currentColor" stroke-width="2"/><line x1="12" y1="17" x2="12" y2="22" stroke="currentColor" stroke-width="2"/></svg>
+                            <span>🎙️ Mic</span>
+                        </button>
+                        <button class="btn-remote" onclick="sendCommand('wipe')" title="Wipe Device">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M3 6h18M8 6V4a1 1 0 011-1h6a1 1 0 011 1v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                            <span>Wipe</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bottom Grid: App Restrictions + Schedule Rules -->
+        <div class="detail-grid-2" style="margin-top:24px;">
+            <!-- App Restrictions -->
+            <div class="card" style="margin-bottom:0;">
+                <div class="card-header">
+                    <h2>App Restrictions</h2>
+                </div>
+                <div class="card-body">
+                    <div id="restrictionsList">
+                        <div class="loading">Loading restrictions…</div>
+                    </div>
+                    <div class="add-form-row">
+                        <div class="form-group">
+                            <label>Package Name</label>
+                            <input type="text" id="restrictPkg" placeholder="com.example.app" class="form-input">
+                        </div>
+                        <div class="form-group" style="min-width:80px; flex:0.4;">
+                            <label>Limit (min)</label>
+                            <input type="number" id="restrictLimit" placeholder="60" class="form-input">
+                        </div>
+                        <div class="form-group" style="min-width:80px; flex:0.3;">
+                            <label>Start Hr</label>
+                            <input type="number" id="restrictStart" min="0" max="23" placeholder="0" class="form-input">
+                        </div>
+                        <div class="form-group" style="min-width:80px; flex:0.3;">
+                            <label>End Hr</label>
+                            <input type="number" id="restrictEnd" min="0" max="23" placeholder="23" class="form-input">
+                        </div>
+                        <button class="btn-primary" onclick="addRestriction()" style="height:38px; white-space:nowrap;">Block App</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Schedule Rules -->
+            <div class="card" style="margin-bottom:0;">
+                <div class="card-header">
+                    <h2>Schedule Rules</h2>
+                </div>
+                <div class="card-body">
+                    <div class="schedule-grid" id="scheduleGrid">
+                        <!-- Filled by JS -->
+                    </div>
+                    <div class="schedule-add-row">
+                        <div class="form-group">
+                            <label>Day</label>
+                            <select id="schedDay" class="form-input">
+                                <option value="0">Mon</option>
+                                <option value="1">Tue</option>
+                                <option value="2">Wed</option>
+                                <option value="3">Thu</option>
+                                <option value="4">Fri</option>
+                                <option value="5">Sat</option>
+                                <option value="6">Sun</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Start Hr</label>
+                            <input type="number" id="schedStart" min="0" max="23" value="22" class="form-input">
+                        </div>
+                        <div class="form-group">
+                            <label>End Hr</label>
+                            <input type="number" id="schedEnd" min="0" max="23" value="7" class="form-input">
+                        </div>
+                        <div class="form-group" style="flex:1.5;">
+                            <label>Restrictions</label>
+                            <input type="text" id="schedRestrictions" placeholder="no_internet, no_apps" class="form-input">
+                        </div>
+                        <button class="btn-primary" onclick="addScheduleRule()" style="height:38px; white-space:nowrap;">Add Rule</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Geofence Modal -->
+    <div class="modal hidden" id="geofenceModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Add Safe Zone</h2>
+                <button class="btn-close" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Zone Name</label>
+                    <input type="text" id="geoName" placeholder="e.g. Home, School" class="form-input">
+                </div>
+                <div class="form-group">
+                    <label>Latitude</label>
+                    <input type="number" id="geoLat" step="any" class="form-input">
+                </div>
+                <div class="form-group">
+                    <label>Longitude</label>
+                    <input type="number" id="geoLon" step="any" class="form-input">
+                </div>
+                <div class="form-group">
+                    <label>Radius (meters)</label>
+                    <input type="number" id="geoRadius" value="500" class="form-input">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeModal()">Cancel</button>
+                <button class="btn-primary" onclick="saveGeofence()">Add Zone</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Lightbox -->
+    <div class="lightbox hidden" id="lightbox" onclick="closeLightbox()">
+        <button class="lightbox-close">&times;</button>
+        <img id="lightboxImg" src="" alt="Media preview">
+    </div>
+
+    <!-- Audio Player Modal -->
+    <div class="audio-player-modal" id="audioPlayerModal">
+        <div class="wave-bars">
+            <div class="wave-bar"></div>
+            <div class="wave-bar"></div>
+            <div class="wave-bar"></div>
+            <div class="wave-bar"></div>
+            <div class="wave-bar"></div>
+        </div>
+        <div>
+            <div class="player-label">Listening to call...</div>
+            <div class="player-status" id="audioPlayerStatus">Connecting...</div>
+        </div>
+        <button class="btn-stop-listen" onclick="stopCallStream()" style="margin-left:auto;">⏹ Stop</button>
+    </div>
+
+    <!-- Jinja2: device_id passed from Flask -->
+    <script>
+        const DEVICE_ID = "{{ device_id }}";
+    </script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="/static/js/device-detail.js"></script>
+    <script>
+        // ─── Call State + Audio Streaming ────────────────────────────
+        let callStateInterval = null;
+        let callDurationInterval = null;
+        let callStartedAt = 0;
+        let audioContext = null;
+        let isListening = false;
+
+        function startCallStatePolling() {
+            if (callStateInterval) return;
+            checkCallState();
+            callStateInterval = setInterval(checkCallState, 3000);
+        }
+
+        function stopCallStatePolling() {
+            if (callStateInterval) { clearInterval(callStateInterval); callStateInterval = null; }
+            if (callDurationInterval) { clearInterval(callDurationInterval); callDurationInterval = null; }
+        }
+
+        async function checkCallState() {
+            try {
+                if (typeof fetchWithAuth === 'undefined') {
+                    console.warn('fetchWithAuth not defined yet');
+                    return;
+                }
+                if (!TOKEN) {
+                    console.warn('No TOKEN - not logged in');
+                    return;
+                }
+                const res = await fetchWithAuth(`/api/parent/calls/${DEVICE_ID}/live`);
+                if (!res.ok) {
+                    console.warn('Call state API returned', res.status);
+                    return;
+                }
+                const data = await res.json();
+                const banner = document.getElementById('activeCallBanner');
+                if (!banner) return;
+                if (data.state > 0) {
+                    banner.style.display = 'flex';
+                    callStartedAt = data.timestamp;
+                    const statusMap = { 1: '📞 Incoming call...', 2: '📱 Call in progress', 0: 'Call ended' };
+                    document.getElementById('callStatus').textContent = statusMap[data.state] || 'Call active';
+                    document.getElementById('callNumber').textContent = data.phone_number || 'Unknown';
+                    startCallDurationTimer();
+                } else {
+                    banner.style.display = 'none';
+                    stopCallDurationTimer();
+                    if (isListening) stopCallStream();
+                }
+            } catch (e) {
+                console.warn('Call state check failed:', e.message);
+            }
+        }
+
+        function startCallDurationTimer() {
+            if (callDurationInterval) return;
+            updateCallDuration();
+            callDurationInterval = setInterval(updateCallDuration, 1000);
+        }
+
+        function stopCallDurationTimer() {
+            if (callDurationInterval) { clearInterval(callDurationInterval); callDurationInterval = null; }
+        }
+
+        function updateCallDuration() {
+            if (!callStartedAt) return;
+            const elapsed = Math.floor((Date.now() - callStartedAt) / 1000);
+            const mins = Math.floor(elapsed / 60).toString().padStart(2, '0');
+            const secs = (elapsed % 60).toString().padStart(2, '0');
+            document.getElementById('callDuration').textContent = `${mins}:${secs}`;
+        }
+
+        async function toggleCallStream() {
+            if (isListening) { stopCallStream(); return; }
+            try {
+                const res = await fetchWithAuth(`/api/parent/calls/${DEVICE_ID}/stream`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ enable: true })
+                });
+                if (res.ok) {
+                    isListening = true;
+                    document.getElementById('btnListen').style.display = 'none';
+                    document.getElementById('btnStopListen').style.display = 'flex';
+                    document.getElementById('audioPlayerModal').classList.add('active');
+                    document.getElementById('audioPlayerStatus').textContent = 'Streaming audio...';
+                    startAudioPlayback();
+                }
+            } catch (e) {
+                console.error('Failed to start stream:', e);
+            }
+        }
+
+        async function stopCallStream() {
+            try {
+                await fetchWithAuth(`/api/parent/calls/${DEVICE_ID}/stream`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ enable: false })
+                });
+            } catch (e) {}
+            isListening = false;
+            document.getElementById('btnListen').style.display = 'flex';
+            document.getElementById('btnStopListen').style.display = 'none';
+            document.getElementById('audioPlayerModal').classList.remove('active');
+            stopAudioPlayback();
+        }
+
+        function startAudioPlayback() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+            }
+        }
+
+        function stopAudioPlayback() {
+            // Audio context will be garbage collected
+        }
+
+        // Note: Real-time WebSocket events removed (not supported on PythonAnywhere WSGI).
+        // Call state is monitored via HTTP polling (startCallStatePolling every 3s).
+
+        function playAudioChunk(data) {
+            if (!audioContext || !data.audio) return;
+            try {
+                const raw = atob(data.audio);
+                const buffer = new ArrayBuffer(raw.length);
+                const view = new Uint8Array(buffer);
+                for (let i = 0; i < raw.length; i++) view[i] = raw.charCodeAt(i);
+                const int16 = new Int16Array(buffer);
+                const float32 = new Float32Array(int16.length);
+                for (let i = 0; i < int16.length; i++) {
+                    float32[i] = int16[i] / 32768.0;
+                }
+                const audioBuffer = audioContext.createBuffer(1, float32.length, data.sample_rate || 16000);
+                audioBuffer.getChannelData(0).set(float32);
+                const source = audioContext.createBufferSource();
+                source.buffer = audioBuffer;
+                source.connect(audioContext.destination);
+                source.start();
+                document.getElementById('audioPlayerStatus').textContent = 'Live audio streaming...';
+            } catch (e) {}
+        }
+
+        // Start polling when page loads
+        startCallStatePolling();
+    </script>
+
+    <!-- ─── Command Result Modal ─── -->
+    <div class="cmd-result-overlay hidden" id="cmdResultOverlay">
+        <div class="cmd-result-box">
+            <button class="cmd-close-btn" onclick="closeCmdModal()" title="Close">&#x2715;</button>
+            <div class="cmd-result-header">
+                <div class="cmd-result-icon" id="cmdResultIcon">📤</div>
+                <div>
+                    <div class="cmd-result-title" id="cmdResultTitle">Sending Command…</div>
+                    <div class="cmd-result-sub" id="cmdResultSub">Waiting for device response</div>
+                </div>
+            </div>
+            <div id="cmdResultBody">
+                <!-- Filled dynamically -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+    // ─── Command Result Modal ──────────────────────────────────────────────
+    let cmdPollTimer = null;
+    let cmdMicPollTimer = null;
+    let cmdMicAudioCtx = null;
+    let cmdMicLastSeq = -1;
+    let cmdMicLastTs = 0;
+    let cmdMicElapsedTimer = null;
+    let cmdMicElapsed = 0;
+    let cmdCurrentId = null;
+    let cmdCurrentName = null;
+
+    const CMD_META = {
+        lock:          { icon: '🔒', label: 'Lock Device',      type: 'status' },
+        alarm:         { icon: '🔔', label: 'Play Alarm',        type: 'status' },
+        screenshot:    { icon: '📸', label: 'Screenshot',        type: 'image'  },
+        camera_front:  { icon: '📷', label: 'Front Camera',      type: 'image'  },
+        camera_back:   { icon: '📷', label: 'Back Camera',       type: 'image'  },
+        record_audio:  { icon: '🎙️', label: 'Mic Recording',    type: 'mic'    },
+        wipe:          { icon: '🗑️', label: 'Wipe Device',      type: 'status' },
+    };
+
+    function openCmdModal(command, commandId) {
+        const meta = CMD_META[command] || { icon: '📤', label: command, type: 'status' };
+        cmdCurrentId = commandId;
+        cmdCurrentName = command;
+
+        document.getElementById('cmdResultIcon').textContent = meta.icon;
+        document.getElementById('cmdResultTitle').textContent = meta.label;
+        document.getElementById('cmdResultSub').textContent = 'Command sent · Waiting for device…';
+        document.getElementById('cmdResultBody').innerHTML = `
+            <div class="cmd-waiting">
+                <div class="cmd-spinner"></div>
+                <div class="cmd-waiting-text">Waiting for the device to respond…<br>
+                    <small style="opacity:0.6;">Device must be online and app must be running</small>
+                </div>
+            </div>`;
+        document.getElementById('cmdResultOverlay').classList.remove('hidden');
+
+        // Start polling for result
+        if (meta.type === 'mic') {
+            startMicStream(commandId);
+        } else {
+            startResultPolling(commandId, meta.type);
+        }
+    }
+
+    function closeCmdModal() {
+        document.getElementById('cmdResultOverlay').classList.add('hidden');
+        stopResultPolling();
+        stopMicStream();
+    }
+
+    // ─── Generic result polling (screenshot / camera / status) ────────────
+    function startResultPolling(commandId, resultType) {
+        stopResultPolling();
+        let attempts = 0;
+        const maxAttempts = 30; // 60 seconds max
+        cmdPollTimer = setInterval(async () => {
+            attempts++;
+            if (attempts > maxAttempts) {
+                stopResultPolling();
+                showCmdError('Device did not respond in time.');
+                return;
+            }
+            try {
+                const res = await fetchWithAuth(
+                    `/api/parent/commands/${DEVICE_ID}/result/${commandId}`
+                );
+                if (!res.ok) return;
+                const data = await res.json();
+                if (data.status === 'completed') {
+                    stopResultPolling();
+                    renderCmdResult(data, resultType);
+                } else if (data.status === 'failed') {
+                    stopResultPolling();
+                    showCmdError('Command failed on device.');
+                }
+            } catch (e) { /* keep trying */ }
+        }, 2000);
+    }
+
+    function stopResultPolling() {
+        if (cmdPollTimer) { clearInterval(cmdPollTimer); cmdPollTimer = null; }
+    }
+
+    function renderCmdResult(data, resultType) {
+        const meta = CMD_META[cmdCurrentName] || {};
+        document.getElementById('cmdResultSub').textContent = '✅ Completed';
+
+        if (resultType === 'image' && data.data) {
+            // Base64 image — show inline, offer download
+            const imgSrc = data.data.startsWith('data:') ? data.data : `data:image/jpeg;base64,${data.data}`;
+            document.getElementById('cmdResultBody').innerHTML = `
+                <div class="cmd-image-result">
+                    <img src="${imgSrc}" alt="${meta.label || 'image'}">
+                    <div class="cmd-image-actions">
+                        <button class="btn-download-img" onclick="downloadCmdImage('${imgSrc}', '${cmdCurrentName}')">
+                            ⬇️ Download
+                        </button>
+                    </div>
+                </div>`;
+        } else {
+            // Text / status result
+            const statusMessages = {
+                lock:  { icon: '🔒', msg: 'Device Locked',     detail: 'The device screen has been locked.' },
+                alarm: { icon: '🔔', msg: 'Alarm Playing',     detail: 'Alarm sound is playing on the device.' },
+                wipe:  { icon: '🗑️', msg: 'Device Wiped',     detail: 'Factory reset has been initiated.' },
+            };
+            const s = statusMessages[cmdCurrentName] || { icon: '✅', msg: 'Command Executed', detail: data.data || '' };
+            document.getElementById('cmdResultBody').innerHTML = `
+                <div class="cmd-status-result">
+                    <div class="cmd-status-icon-big">${s.icon}</div>
+                    <div class="cmd-status-msg">${s.msg}</div>
+                    <div class="cmd-status-detail">${s.detail}</div>
+                </div>`;
+        }
+    }
+
+    function showCmdError(msg) {
+        document.getElementById('cmdResultSub').textContent = '⚠️ Error';
+        document.getElementById('cmdResultBody').innerHTML = `
+            <div class="cmd-status-result">
+                <div class="cmd-status-icon-big">⚠️</div>
+                <div class="cmd-status-msg">Error</div>
+                <div class="cmd-status-detail">${msg}</div>
+            </div>`;
+    }
+
+    function downloadCmdImage(src, name) {
+        const a = document.createElement('a');
+        a.href = src;
+        a.download = `${name}_${Date.now()}.jpg`;
+        a.click();
+    }
+
+    // ─── Mic streaming via HTTP polling ──────────────────────────────────
+    function startMicStream(commandId) {
+        stopMicStream();
+        cmdMicLastSeq = -1;
+        cmdMicLastTs = 0;
+        cmdMicElapsed = 0;
+
+        // Set up Web Audio context
+        cmdMicAudioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+
+        document.getElementById('cmdResultSub').textContent = '🎙️ Recording in progress…';
+        document.getElementById('cmdResultBody').innerHTML = `
+            <div class="cmd-mic-result">
+                <div class="mic-waveform" id="micWaveform">
+                    ${Array.from({length:8}, (_,i) => `<div class="mic-wave-bar" style="height:${8+Math.random()*30}px"></div>`).join('')}
+                </div>
+                <div class="mic-timer" id="micTimer">00:00</div>
+                <div class="mic-status-line" id="micStatusLine">🎙️ Receiving audio…</div>
+                <button class="btn-stop-mic" onclick="stopMicEarly()">⏹ Stop Recording</button>
+            </div>`;
+
+        // Animate waveform bars
+        activateMicWaveBars();
+
+        // Elapsed timer
+        cmdMicElapsedTimer = setInterval(() => {
+            cmdMicElapsed++;
+            const m = String(Math.floor(cmdMicElapsed/60)).padStart(2,'0');
+            const s = String(cmdMicElapsed%60).padStart(2,'0');
+            const el = document.getElementById('micTimer');
+            if (el) el.textContent = `${m}:${s}`;
+        }, 1000);
+
+        // Audio chunk polling
+        cmdMicPollTimer = setInterval(() => pollMicChunk(commandId), 500);
+    }
+
+    function activateMicWaveBars() {
+        document.querySelectorAll('.mic-wave-bar').forEach(b => b.classList.add('active'));
+    }
+
+    async function pollMicChunk(commandId) {
+        try {
+            const res = await fetchWithAuth(
+                `/api/parent/commands/${DEVICE_ID}/audio-poll/${commandId}?since=${cmdMicLastTs}`
+            );
+            if (!res.ok) return;
+            const data = await res.json();
+            if (data.has_chunk && data.seq !== cmdMicLastSeq) {
+                cmdMicLastSeq = data.seq;
+                cmdMicLastTs = data.updated_at;
+                playMicChunk(data.audio, data.sample_rate || 16000);
+                animateMicBarsFromAudio(data.audio);
+            }
+            if (data.done) {
+                stopMicStream();
+                document.getElementById('cmdResultSub').textContent = '✅ Recording complete';
+                const sl = document.getElementById('micStatusLine');
+                if (sl) sl.textContent = '✅ Recording finished';
+            }
+        } catch(e) { /* keep trying */ }
+    }
+
+    function playMicChunk(audio_b64, sampleRate) {
+        if (!cmdMicAudioCtx || !audio_b64) return;
+        try {
+            const raw = atob(audio_b64);
+            const buf = new ArrayBuffer(raw.length);
+            const view = new Uint8Array(buf);
+            for (let i = 0; i < raw.length; i++) view[i] = raw.charCodeAt(i);
+            const int16 = new Int16Array(buf);
+            const float32 = new Float32Array(int16.length);
+            for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768.0;
+            const audioBuf = cmdMicAudioCtx.createBuffer(1, float32.length, sampleRate);
+            audioBuf.getChannelData(0).set(float32);
+            const src = cmdMicAudioCtx.createBufferSource();
+            src.buffer = audioBuf;
+            src.connect(cmdMicAudioCtx.destination);
+            src.start();
+        } catch(e) {}
+    }
+
+    function animateMicBarsFromAudio(audio_b64) {
+        try {
+            const raw = atob(audio_b64);
+            const bars = document.querySelectorAll('.mic-wave-bar');
+            if (!bars.length) return;
+            const step = Math.floor(raw.length / bars.length);
+            bars.forEach((bar, i) => {
+                const sample = Math.abs(raw.charCodeAt(i * step) - 128) / 128;
+                bar.style.height = `${8 + sample * 50}px`;
+            });
+        } catch(e) {}
+    }
+
+    function stopMicEarly() {
+        // Send stop command to device
+        fetchWithAuth(`/api/parent/commands/${DEVICE_ID}`, {
+            method: 'POST',
+            body: JSON.stringify({ command: 'stop_audio', params: { command_id: cmdCurrentId } })
+        }).catch(() => {});
+        stopMicStream();
+        document.getElementById('cmdResultSub').textContent = '⏹ Recording stopped';
+    }
+
+    function stopMicStream() {
+        if (cmdMicPollTimer) { clearInterval(cmdMicPollTimer); cmdMicPollTimer = null; }
+        if (cmdMicElapsedTimer) { clearInterval(cmdMicElapsedTimer); cmdMicElapsedTimer = null; }
+        if (cmdMicAudioCtx) {
+            try { cmdMicAudioCtx.close(); } catch(e) {}
+            cmdMicAudioCtx = null;
+        }
+    }
+
+    // Close on Escape
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') closeCmdModal();
+    });
+    </script>
+</body>
+</html>

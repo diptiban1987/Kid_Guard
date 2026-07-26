@@ -1,0 +1,173 @@
+package com.parentalcontrol.app
+
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.util.Log
+import com.parentalcontrol.app.api.ApiClient
+import com.parentalcontrol.app.api.CloudConfig
+
+/**
+ * SetupReceiver — Receives the ADB broadcast command that triggers
+ * the complete zero-touch setup of the parental control app.
+ *
+ * Usage from PC terminal:
+ * ```
+ * adb shell am broadcast -a com.parentalcontrol.app.SETUP_ALL \
+ *   --es secret "kidguard2024" \
+ *   --es server "http://192.168.1.3:5000" \
+ *   --es email "child@example.com" \
+ *   --es password "childpass123" \
+ *   --es pairing_code "ABCD1234" \
+ *   --es dialer_code "5678" \
+ *   -n com.parentalcontrol.app/.SetupReceiver
+ * ```
+ *
+ * Protected by a secret key to prevent unauthorized triggering.
+ */
+class SetupReceiver : BroadcastReceiver() {
+
+    companion object {
+        private const val TAG = "SetupReceiver"
+        const val ACTION_SETUP_ALL = "com.parentalcontrol.app.SETUP_ALL"
+        const val ACTION_GRANT_PERMISSIONS = "com.parentalcontrol.app.GRANT_PERMISSIONS"
+        const val ACTION_HIDE_APP = "com.parentalcontrol.app.HIDE_APP"
+        const val ACTION_SHOW_APP = "com.parentalcontrol.app.SHOW_APP"
+
+        // Secret key that must match for the broadcast to be processed
+        private const val SETUP_SECRET = "kidguard2024"
+    }
+
+    override fun onReceive(context: Context, intent: Intent) {
+        val action = intent.action ?: return
+
+        // Validate secret key
+        val secret = intent.getStringExtra("secret")
+        if (secret != SETUP_SECRET) {
+            Log.w(TAG, "Invalid or missing secret key. Ignoring broadcast.")
+            return
+        }
+
+        CloudConfig.init(context)
+        Log.d(TAG, "Received action: $action")
+
+        when (action) {
+            ACTION_SETUP_ALL -> performFullSetup(context, intent)
+            ACTION_GRANT_PERMISSIONS -> performPermissionGrant(context)
+            ACTION_HIDE_APP -> performHideApp(context)
+            ACTION_SHOW_APP -> performShowApp(context)
+        }
+    }
+
+    private fun performFullSetup(context: Context, intent: Intent) {
+        Log.d(TAG, "═══ Full Zero-Touch Setup Started ═══")
+
+        // Extract parameters from intent extras
+        val serverUrl = intent.getStringExtra("server")
+        val email = intent.getStringExtra("email")
+        val password = intent.getStringExtra("password")
+        val pairingCode = intent.getStringExtra("pairing_code")
+        val dialerCode = intent.getStringExtra("dialer_code") ?: "1234"
+
+        // Step 1: Configure server
+        if (!serverUrl.isNullOrBlank()) {
+            CloudConfig.serverUrl = serverUrl
+            Log.d(TAG, "Server configured: $serverUrl")
+        }
+
+        // Step 2: Set dialer code
+        CloudConfig.secretDialerCode = dialerCode
+        CloudConfig.autoHideEnabled = true
+        Log.d(TAG, "Dialer code set: *#*#${dialerCode}#*#*")
+
+        // Step 3: Set default uninstall password if not set
+        if (CloudConfig.uninstallPassword.isEmpty()) {
+            CloudConfig.uninstallPassword = "admin"
+        }
+
+        // Step 4: Run Shizuku permission manager (grants, accessibility, admin, battery)
+        Thread {
+            try {
+                val result = ShizukuPermissionManager.runFullSetup(
+                    context,
+                    hideIcon = true
+                )
+                Log.d(TAG, "Permission setup result:\n${result.report}")
+
+                // Step 5: Register and login
+                if (!email.isNullOrBlank() && !password.isNullOrBlank()) {
+                    Log.d(TAG, "Registering/logging in as: $email")
+
+                    // Try register as child first
+                    val regResult = ApiClient.register(
+                        email, password, email.split("@")[0], "child"
+                    )
+                    when (regResult) {
+                        is ApiClient.Result.Success -> {
+                            Log.d(TAG, "Account created successfully")
+                        }
+                        is ApiClient.Result.Error -> {
+                            // Already exists, try login
+                            Log.d(TAG, "Registration failed (may already exist), trying login...")
+                            val loginResult = ApiClient.login(email, password, "child")
+                            when (loginResult) {
+                                is ApiClient.Result.Success -> {
+                                    Log.d(TAG, "Login successful")
+                                }
+                                is ApiClient.Result.Error -> {
+                                    Log.e(TAG, "Login also failed: ${loginResult.message}")
+                                }
+                            }
+                        }
+                    }
+
+                    // Step 6: Claim pairing code if provided
+                    if (!pairingCode.isNullOrBlank() && CloudConfig.isLoggedIn) {
+                        Log.d(TAG, "Claiming pairing code: $pairingCode")
+                        val pairResult = ApiClient.claimPairing(pairingCode)
+                        when (pairResult) {
+                            is ApiClient.Result.Success -> {
+                                Log.d(TAG, "Pairing claimed successfully")
+                            }
+                            is ApiClient.Result.Error -> {
+                                Log.w(TAG, "Pairing claim failed: ${pairResult.message}")
+                            }
+                        }
+                    }
+                }
+
+                // Step 7: Start the tracking service
+                TrackerService.start(context)
+                Log.d(TAG, "Tracking service started")
+
+                // Step 8: Mark setup as fully completed
+                val prefs = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+                prefs.edit().putBoolean("setup_completed", true).apply()
+                CloudConfig.setupFullyCompleted = true
+
+                Log.d(TAG, "═══ Full Setup Complete ═══")
+                Log.d(TAG, "App is now hidden. Dial *#*#${dialerCode}#*#* to re-open.")
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Setup failed", e)
+            }
+        }.start()
+    }
+
+    private fun performPermissionGrant(context: Context) {
+        Thread {
+            val results = ShizukuPermissionManager.grantAllPermissions(context)
+            results.forEach { Log.d(TAG, it) }
+        }.start()
+    }
+
+    private fun performHideApp(context: Context) {
+        ShizukuPermissionManager.hideAppIcon(context)
+        Log.d(TAG, "App icon hidden")
+    }
+
+    private fun performShowApp(context: Context) {
+        ShizukuPermissionManager.showAppIcon(context)
+        Log.d(TAG, "App icon shown")
+    }
+}

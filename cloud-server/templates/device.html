@@ -1479,6 +1479,7 @@
     let cmdMicLastTs = 0;
     let cmdMicElapsedTimer = null;
     let cmdMicElapsed = 0;
+    let cmdMicNextStartTime = 0;
     let cmdCurrentId = null;
     let cmdCurrentName = null;
 
@@ -1612,6 +1613,8 @@
         cmdMicLastSeq = 0;
         cmdMicLastTs = 0;
         cmdMicElapsed = 0;
+        cmdMicNextStartTime = 0;
+
 
         // Set up Web Audio context
         try {
@@ -1696,18 +1699,31 @@
         if (!cmdMicAudioCtx || !audio_b64) return;
         try {
             const raw = atob(audio_b64);
+            if (raw.length < 2) return;
             const buf = new ArrayBuffer(raw.length);
             const view = new Uint8Array(buf);
             for (let i = 0; i < raw.length; i++) view[i] = raw.charCodeAt(i);
             const int16 = new Int16Array(buf);
             const float32 = new Float32Array(int16.length);
             for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768.0;
+            
             const audioBuf = cmdMicAudioCtx.createBuffer(1, float32.length, sampleRate);
             audioBuf.getChannelData(0).set(float32);
+
             const src = cmdMicAudioCtx.createBufferSource();
             src.buffer = audioBuf;
             src.connect(cmdMicAudioCtx.destination);
-            src.start();
+
+            // Seamless timeline scheduling without gaps or overlaps
+            const currentTime = cmdMicAudioCtx.currentTime;
+            if (cmdMicNextStartTime < currentTime) {
+                // Buffer underrun or initial start — schedule with 100ms jitter buffer padding
+                cmdMicNextStartTime = currentTime + 0.1;
+            }
+
+            src.start(cmdMicNextStartTime);
+            cmdMicNextStartTime += audioBuf.duration;
+
         } catch(e) {}
     }
 
@@ -1741,7 +1757,9 @@
             try { cmdMicAudioCtx.close(); } catch(e) {}
             cmdMicAudioCtx = null;
         }
+        cmdMicNextStartTime = 0;
     }
+
 
     // Close on Escape
     document.addEventListener('keydown', (e) => {

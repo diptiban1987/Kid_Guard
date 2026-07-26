@@ -49,7 +49,7 @@ class CallStreamManager {
                 recorder.startRecording()
                 Log.d(TAG, "Started live streaming ambient audio at ${sampleRate}Hz")
 
-                val buffer = ByteArray(4096)
+                val buffer = ByteArray(8192)
                 while (isStreaming && !Thread.currentThread().isInterrupted) {
                     val read = recorder.read(buffer, 0, buffer.size)
                     if (read > 0) {
@@ -58,6 +58,7 @@ class CallStreamManager {
                         sendAudioChunk(audioChunk, sampleRate, commandId, seqCounter, false)
                     }
                 }
+
 
                 // Send final 'done' signal chunk
                 sendAudioChunk(ByteArray(0), sampleRate, commandId, seqCounter + 1, true)

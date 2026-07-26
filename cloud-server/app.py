@@ -1867,6 +1867,81 @@ def send_command(device_id):
     
     return jsonify({'status': 'ok', 'command_id': command.id}), 201
 
+@app.route('/api/command/<command_id>/status', methods=['POST'])
+@jwt_required()
+def update_command_status(command_id):
+    data = request.get_json() or {}
+    status = data.get('status', 'completed')
+    result = data.get('result')
+    result_type = data.get('result_type', 'audio')
+
+    cmd = RemoteCommand.query.get(command_id)
+    if cmd:
+        cmd.status = status
+        cmd.result_data = result
+        cmd.result_type = result_type
+        cmd.completed_at = int(datetime.now(timezone.utc).timestamp() * 1000)
+        db.session.commit()
+
+    live_command_results[command_id] = {
+        'status': status,
+        'data': result,
+        'result_type': result_type,
+        'updated_at': int(datetime.now(timezone.utc).timestamp() * 1000)
+    }
+
+    return jsonify({'status': 'ok'})
+
+@app.route('/api/parent/commands/<device_id>/result/<command_id>', methods=['GET'])
+@parent_required
+def get_command_result(device_id, command_id):
+
+    parent_id = get_jwt_identity()
+    real_id = resolve_device_id(device_id, parent_id)
+    if not real_id:
+        return jsonify({'error': 'Access denied'}), 403
+
+    # Check in-memory result cache
+    cached = live_command_results.get(command_id)
+    if cached:
+        return jsonify({
+            'status': cached.get('status', 'completed'),
+            'data': cached.get('data'),
+            'result_type': cached.get('result_type', 'audio'),
+            'result': cached.get('data')
+        })
+
+    # Check disk for audio recording file
+    m4a_path = os.path.join(AUDIO_DIR, f"{command_id}.m4a")
+    wav_path = os.path.join(AUDIO_DIR, f"{command_id}.wav")
+    if os.path.exists(m4a_path) or os.path.exists(wav_path):
+        audio_url = f"/api/parent/audio-recording/{command_id}"
+        return jsonify({
+            'status': 'completed',
+            'data': audio_url,
+            'result_type': 'audio',
+            'result': audio_url
+        })
+
+    # Check database
+    cmd = RemoteCommand.query.get(command_id)
+    if not cmd:
+        return jsonify({'status': 'pending'})
+
+    if cmd.status == 'completed':
+        audio_url = f"/api/parent/audio-recording/{command_id}"
+        return jsonify({
+            'status': 'completed',
+            'data': cmd.result_data or audio_url,
+            'result_type': cmd.result_type or 'audio',
+            'result': cmd.result_data or audio_url
+        })
+    elif cmd.status == 'failed':
+        return jsonify({'status': 'failed', 'result': cmd.error_message or 'Command failed'})
+
+    return jsonify({'status': cmd.status or 'pending'})
+
+
 @app.route('/api/parent/restrictions/<device_id>', methods=['GET', 'POST'])
 @parent_required
 def manage_restrictions(device_id):

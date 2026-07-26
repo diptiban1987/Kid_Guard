@@ -126,24 +126,34 @@ class AuthViewModel(
 
             when (loginResult) {
                 is ApiClient.Result.Success -> {
-                    val firebaseResult = withTimeoutOrNull(30000L) {
-                        authRepository.parentSignIn(email, password)
-                    }
+                    var userId = CloudConfig.userId ?: ""
 
-                    if (firebaseResult is Resource.Error) {
-                        _authState.value = AuthState.Error("Chat login failed: ${firebaseResult.message}")
-                        return@launch
-                    }
+                    val firebaseResult = try {
+                        withTimeoutOrNull(15000L) {
+                            authRepository.parentSignIn(email, password)
+                        }
+                    } catch (_: Exception) { null }
 
-                    val userId = when (firebaseResult) {
-                        is Resource.Success -> firebaseResult.data ?: ""
-                        else -> ""
+                    if (firebaseResult is Resource.Success && !firebaseResult.data.isNullOrEmpty()) {
+                        userId = firebaseResult.data
+                    } else {
+                        try {
+                            if (authRepository.currentUserId.isEmpty()) {
+                                authRepository.anonymousSignIn()
+                            }
+                        } catch (_: Exception) { }
+                        if (userId.isEmpty()) userId = authRepository.currentUserId
                     }
 
                     _authState.value = AuthState.Success(userId)
                 }
                 is ApiClient.Result.Error -> {
-                    _authState.value = AuthState.Error(loginResult.message)
+                    val errMsg = loginResult.message
+                    if (errMsg.contains("invalid", ignoreCase = true) || errMsg.contains("user not found", ignoreCase = true)) {
+                        _authState.value = AuthState.Error("Invalid email or password. If you don't have an account, click Register.")
+                    } else {
+                        _authState.value = AuthState.Error(errMsg)
+                    }
                 }
             }
         }
@@ -177,13 +187,23 @@ class AuthViewModel(
 
             when (regResult) {
                 is ApiClient.Result.Success -> {
-                    val firebaseResult = withTimeoutOrNull(30000L) {
-                        authRepository.parentSignUp(email, password)
-                    }
+                    var userId = CloudConfig.userId ?: ""
+                    try {
+                        val fbResult = withTimeoutOrNull(15000L) {
+                            authRepository.parentSignUp(email, password)
+                        }
+                        if (fbResult is Resource.Success && !fbResult.data.isNullOrEmpty()) {
+                            userId = fbResult.data
+                        }
+                    } catch (_: Exception) { }
 
-                    val userId = when (firebaseResult) {
-                        is Resource.Success -> firebaseResult.data ?: ""
-                        else -> CloudConfig.userId ?: ""
+                    if (userId.isEmpty()) {
+                        try {
+                            if (authRepository.currentUserId.isEmpty()) {
+                                authRepository.anonymousSignIn()
+                            }
+                        } catch (_: Exception) { }
+                        userId = authRepository.currentUserId
                     }
 
                     _authState.value = AuthState.Success(userId)
@@ -201,11 +221,14 @@ class AuthViewModel(
                             try { ApiClient.login(email, password) } catch (_: Exception) { null }
                         }
                         if (loginTry is ApiClient.Result.Success) {
-                            val fbResult = withTimeoutOrNull(30000L) {
-                                authRepository.parentSignIn(email, password)
-                            }
-                            val userId = (fbResult as? Resource.Success)?.data ?: CloudConfig.userId ?: ""
-                            _authState.value = AuthState.Success(userId)
+                            var uId = CloudConfig.userId ?: ""
+                            try {
+                                if (authRepository.currentUserId.isEmpty()) {
+                                    authRepository.anonymousSignIn()
+                                }
+                            } catch (_: Exception) { }
+                            if (uId.isEmpty()) uId = authRepository.currentUserId
+                            _authState.value = AuthState.Success(uId)
                         } else {
                             _authState.value = AuthState.Error(errMsg)
                         }

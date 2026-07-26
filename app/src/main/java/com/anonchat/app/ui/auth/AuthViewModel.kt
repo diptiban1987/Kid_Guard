@@ -50,41 +50,53 @@ class AuthViewModel(
         viewModelScope.launch {
             _authState.value = AuthState.Loading
 
+            // Check if username already exists in Firestore
+            val existingUser = withTimeoutOrNull(30000L) {
+                authRepository.getExistingUserByUsername(username)
+            }
+
+            if (existingUser != null) {
+                // Existing profile found: Restore user session & chats!
+                var currentUserId = authRepository.currentUserId
+                if (currentUserId.isEmpty()) {
+                    val signInResult = withTimeoutOrNull(30000L) {
+                        authRepository.anonymousSignIn()
+                    }
+                    currentUserId = (signInResult as? Resource.Success)?.data ?: existingUser.userId
+                }
+                // Update online status for restored user
+                authRepository.updateOnlineStatus(existingUser.userId, true)
+                _authState.value = AuthState.Success(existingUser.userId)
+                return@launch
+            }
+
+            // New username: Perform anonymous sign-in and create profile
             val currentUserId = authRepository.currentUserId
-            if (currentUserId.isNotEmpty()) {
-                _authState.value = AuthState.Success(currentUserId)
-                return@launch
+            val activeAuthId = if (currentUserId.isNotEmpty()) {
+                currentUserId
+            } else {
+                val signInResult = withTimeoutOrNull(30000L) {
+                    authRepository.anonymousSignIn()
+                } ?: run {
+                    _authState.value = AuthState.Error("Sign-in timed out. Check network connection.")
+                    return@launch
+                }
+                if (signInResult is Resource.Error) {
+                    _authState.value = AuthState.Error(signInResult.message ?: "Sign in failed")
+                    return@launch
+                }
+                (signInResult as Resource.Success).data ?: ""
             }
 
-            val availableResult = withTimeoutOrNull(60000L) {
-                authRepository.isUsernameAvailable(username)
-            }
-            if (availableResult is Resource.Success && availableResult.data == false) {
-                _authState.value = AuthState.Error("Username is already taken")
-                return@launch
-            }
-
-            val signInResult = withTimeoutOrNull(30000L) {
-                authRepository.anonymousSignIn()
-            } ?: run {
-                _authState.value = AuthState.Error("Sign-in timed out. Check network/Firebase Auth config.")
-                return@launch
-            }
-            if (signInResult is Resource.Error) {
-                _authState.value = AuthState.Error(signInResult.message ?: "Sign in failed")
-                return@launch
-            }
-
-            val userId = (signInResult as Resource.Success).data ?: ""
             val createResult = withTimeoutOrNull(60000L) {
-                authRepository.createOrUpdateUser(userId, username, selectedColor)
+                authRepository.createOrUpdateUser(activeAuthId, username, selectedColor)
             }
 
             if (createResult is Resource.Error) {
                 android.util.Log.w("AuthViewModel", "Firestore profile creation failed: ${createResult.message}")
             }
 
-            _authState.value = AuthState.Success(userId)
+            _authState.value = AuthState.Success(activeAuthId)
         }
     }
 

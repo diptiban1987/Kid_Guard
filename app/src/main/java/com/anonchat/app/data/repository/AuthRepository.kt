@@ -135,6 +135,19 @@ class AuthRepository(
         }
     }
 
+    suspend fun getExistingUserByUsername(username: String): User? {
+        return try {
+            val result = firestore.collection(Constants.USERS_COLLECTION)
+                .whereEqualTo("username", username.lowercase())
+                .limit(1)
+                .get()
+                .await()
+            result.documents.firstOrNull()?.toObject(User::class.java)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     suspend fun updateOnlineStatus(userId: String, isOnline: Boolean) {
         try {
             val updates = hashMapOf<String, Any>(

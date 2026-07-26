@@ -255,14 +255,14 @@ class AuthActivity : AppCompatActivity() {
                     when (result) {
                         is com.anonchat.app.util.Resource.Success -> {
                             if (result.data == true) {
-                                binding.tvUsernameStatus.text = "Username available ✓"
+                                binding.tvUsernameStatus.text = "New username available ✓"
                                 binding.tvUsernameStatus.setTextColor(
                                     ContextCompat.getColor(this@AuthActivity, android.R.color.holo_green_dark)
                                 )
                             } else {
-                                binding.tvUsernameStatus.text = "Username taken ✗"
+                                binding.tvUsernameStatus.text = "Welcome back! Existing profile found ✓"
                                 binding.tvUsernameStatus.setTextColor(
-                                    ContextCompat.getColor(this@AuthActivity, android.R.color.holo_red_dark)
+                                    android.graphics.Color.parseColor("#4FC3F7")
                                 )
                             }
                             binding.tvUsernameStatus.visibility = View.VISIBLE

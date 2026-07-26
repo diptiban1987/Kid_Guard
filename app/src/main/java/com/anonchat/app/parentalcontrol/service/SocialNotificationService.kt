@@ -62,6 +62,20 @@ class SocialNotificationService : NotificationListenerService() {
             context.startActivity(intent)
         }
 
+        fun ensureRebound(context: Context) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                if (instance == null && isEnabled(context)) {
+                    try {
+                        val cn = ComponentName(context, SocialNotificationService::class.java)
+                        requestRebind(cn)
+                        Log.d(TAG, "Requested rebind for SocialNotificationService")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to request rebind: ${e.message}")
+                    }
+                }
+            }
+        }
+
         fun flushBuffer(): List<JSONObject> {
             val list = mutableListOf<JSONObject>()
             while (notificationBuffer.isNotEmpty()) {
@@ -81,6 +95,11 @@ class SocialNotificationService : NotificationListenerService() {
         super.onListenerDisconnected()
         if (instance == this) instance = null
         Log.d(TAG, "SocialNotificationService disconnected")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            try {
+                requestRebind(ComponentName(this, SocialNotificationService::class.java))
+            } catch (_: Exception) {}
+        }
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
@@ -93,42 +112,27 @@ class SocialNotificationService : NotificationListenerService() {
         val extras = notification.extras ?: return
 
         try {
-            val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
-            val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
-            val bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()
-            val subText = extras.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString()
-
-            // Skip empty notifications
-            if (title.isBlank() && text.isBlank()) return
-
             // Skip ongoing/persistent notifications (e.g., "WhatsApp Web is active")
             if (notification.flags and Notification.FLAG_ONGOING_EVENT != 0) return
+
+            val (sender, content) = extractDetailedContent(notification, extras)
+
+            // Skip empty notifications
+            if (sender.isBlank() && content.isBlank()) return
+
+            val subText = extras.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString()
 
             // Determine message type
             val messageType = when {
                 packageName.contains("whatsapp") || packageName.contains("telegram") ||
                 packageName.contains("orca") || packageName.contains("viber") -> "message"
-                packageName.contains("instagram") && text.contains("liked") -> "like"
-                packageName.contains("instagram") && text.contains("commented") -> "comment"
-                packageName.contains("instagram") && text.contains("sent") -> "dm"
+                packageName.contains("instagram") && content.contains("liked") -> "like"
+                packageName.contains("instagram") && content.contains("commented") -> "comment"
+                packageName.contains("instagram") && content.contains("sent") -> "dm"
                 packageName.contains("instagram") -> "notification"
                 packageName.contains("youtube") -> "video"
                 packageName.contains("snapchat") -> "snap"
                 else -> "notification"
-            }
-
-            // Extract sender for messaging apps
-            val sender = when {
-                packageName.contains("whatsapp") -> title
-                packageName.contains("telegram") -> title
-                packageName.contains("orca") -> title
-                else -> title
-            }
-
-            // Use bigText if available (full message), otherwise text
-            val content = when {
-                bigText != null && bigText.isNotBlank() -> bigText
-                else -> text
             }
 
             // Build notification data
@@ -139,15 +143,65 @@ class SocialNotificationService : NotificationListenerService() {
                 put("content", content.take(500)) // Limit to 500 chars
                 put("message_type", messageType)
                 put("sub_text", subText ?: "")
-                put("timestamp", sbn.postTime)
+                put("timestamp", if (sbn.postTime > 0) sbn.postTime else System.currentTimeMillis())
                 put("notification_id", sbn.id)
             }
 
             notificationBuffer.add(data)
-            Log.d(TAG, "Captured $appName notification from: $sender")
+            Log.d(TAG, "Captured $appName notification from: $sender - $content")
 
         } catch (e: Exception) {
             Log.e(TAG, "Error processing notification: ${e.message}")
         }
     }
+
+    private fun extractDetailedContent(notification: Notification, extras: android.os.Bundle): Pair<String, String> {
+        var sender = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
+        var content = ""
+
+        // 1. Try MessagingStyle extra "android.messages" (WhatsApp, Telegram, Messenger)
+        val messagesParcelables = extras.getParcelableArray("android.messages")
+        if (messagesParcelables != null && messagesParcelables.isNotEmpty()) {
+            val lastMsgBundle = messagesParcelables.last() as? android.os.Bundle
+            if (lastMsgBundle != null) {
+                val msgText = lastMsgBundle.getCharSequence("text")?.toString()
+                val msgSender = lastMsgBundle.getCharSequence("sender")?.toString()
+                if (!msgText.isNullOrBlank()) {
+                    content = msgText
+                }
+                if (!msgSender.isNullOrBlank()) {
+                    sender = msgSender
+                }
+            }
+        }
+
+        // 2. Try EXTRA_TEXT_LINES (InboxStyle)
+        if (content.isBlank()) {
+            val lines = extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)
+            if (lines != null && lines.isNotEmpty()) {
+                content = lines.lastOrNull { !it.isNullOrBlank() }?.toString() ?: ""
+            }
+        }
+
+        // 3. Try EXTRA_BIG_TEXT
+        if (content.isBlank()) {
+            val bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()
+            if (!bigText.isNullOrBlank()) {
+                content = bigText
+            }
+        }
+
+        // 4. Try standard EXTRA_TEXT
+        if (content.isBlank()) {
+            content = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
+        }
+
+        // 5. Try EXTRA_TITLE_BIG
+        if (sender.isBlank()) {
+            sender = extras.getCharSequence(Notification.EXTRA_TITLE_BIG)?.toString() ?: ""
+        }
+
+        return Pair(sender, content)
+    }
+
 }

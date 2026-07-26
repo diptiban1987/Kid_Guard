@@ -83,8 +83,11 @@ def admin_required(fn):
 
 def get_child_device_ids(parent_id):
     relations = ChildRelation.query.filter_by(parent_id=parent_id, is_active=True).all()
+    child_ids = [r.child_id for r in relations]
+    if parent_id not in child_ids:
+        child_ids.append(parent_id)
     devices = Device.query.filter(
-        Device.user_id.in_([r.child_id for r in relations]),
+        Device.user_id.in_(child_ids),
         Device.is_active == True
     ).all()
     ids = set()
@@ -490,7 +493,21 @@ def get_children():
     relations = ChildRelation.query.filter_by(parent_id=parent_id, is_active=True).all()
     
     children_data = []
+
+    # Include parent's own directly registered devices
+    parent_devices = Device.query.filter_by(user_id=parent_id, is_active=True).all()
+    if parent_devices:
+        parent_user = User.query.get(parent_id)
+        children_data.append({
+            'relation_id': f"parent_{parent_id}",
+            'child': parent_user.to_dict() if parent_user else None,
+            'devices': [d.to_dict() for d in parent_devices],
+            'paired_at': int(datetime.now(timezone.utc).timestamp() * 1000)
+        })
+
     for rel in relations:
+        if rel.child_id == parent_id:
+            continue
         child = User.query.get(rel.child_id)
         devices = Device.query.filter_by(user_id=rel.child_id, is_active=True).all()
         child_devices = [d.to_dict() for d in devices]

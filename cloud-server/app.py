@@ -1103,17 +1103,17 @@ def report_call_state():
 @app.route('/api/report/audio-stream', methods=['POST'])
 @jwt_required()
 def report_audio_stream():
-    data = request.get_json()
+    data = request.get_json() or {}
     device_id = data.get('device_id')
-    audio_b64 = data.get('audio')
+    audio_b64 = data.get('audio', '')
     sample_rate = data.get('sample_rate', 16000)
     command_id = data.get('command_id')   # optional: link chunk to a mic command
     seq = data.get('seq', 0)              # sequence number for ordering
     done = data.get('done', False)        # True when recording finished
     timestamp = data.get('timestamp', int(datetime.now(timezone.utc).timestamp() * 1000))
 
-    if not device_id or not audio_b64:
-        return jsonify({'error': 'device_id and audio required'}), 400
+    if not device_id:
+        return jsonify({'error': 'device_id required'}), 400
 
     # Track streaming state
     live_audio_streams[device_id] = {
@@ -1122,15 +1122,24 @@ def report_audio_stream():
         'sample_rate': sample_rate
     }
 
-    # Buffer in mic_chunks for HTTP polling (parent polls audio-poll endpoint)
+    # Buffer in mic_chunks list for HTTP polling (parent polls audio-poll endpoint)
     if command_id:
-        live_mic_chunks[command_id] = {
-            'audio_b64': audio_b64,
-            'sample_rate': sample_rate,
-            'seq': seq,
-            'done': done,
-            'updated_at': timestamp
-        }
+        if command_id not in live_mic_chunks or not isinstance(live_mic_chunks[command_id], list):
+            live_mic_chunks[command_id] = []
+
+        if audio_b64 or done:
+            live_mic_chunks[command_id].append({
+                'audio_b64': audio_b64,
+                'sample_rate': sample_rate,
+                'seq': seq,
+                'done': done,
+                'updated_at': timestamp
+            })
+
+        # Cap memory to last 300 chunks
+        if len(live_mic_chunks[command_id]) > 300:
+            live_mic_chunks[command_id] = live_mic_chunks[command_id][-200:]
+
         # Mark command completed when done
         if done and command_id in live_command_results:
             live_command_results[command_id]['status'] = 'completed'
@@ -1270,18 +1279,37 @@ def poll_mic_audio(device_id, command_id):
     if not real_id:
         return jsonify({'error': 'Access denied'}), 403
 
-    since = request.args.get('since', 0, type=int)
-    chunk = live_mic_chunks.get(command_id)
-    if chunk and chunk.get('updated_at', 0) > since:
+    since_seq = request.args.get('since_seq', 0, type=int)
+    since_ts = request.args.get('since', 0, type=int)
+
+    val = live_mic_chunks.get(command_id)
+    chunks = []
+    if isinstance(val, list):
+        chunks = val
+    elif isinstance(val, dict):
+        chunks = [val]
+
+    if since_seq > 0:
+        new_chunks = [c for c in chunks if c.get('seq', 0) > since_seq]
+    elif since_ts > 0:
+        new_chunks = [c for c in chunks if c.get('updated_at', 0) > since_ts]
+    else:
+        new_chunks = chunks
+
+    if new_chunks:
+        last = new_chunks[-1]
         return jsonify({
+            'has_chunks': True,
+            'chunks': new_chunks,
             'has_chunk': True,
-            'audio': chunk['audio_b64'],
-            'sample_rate': chunk.get('sample_rate', 16000),
-            'seq': chunk.get('seq', 0),
-            'updated_at': chunk['updated_at'],
-            'done': chunk.get('done', False)
+            'audio': last.get('audio_b64', ''),
+            'sample_rate': last.get('sample_rate', 16000),
+            'seq': last.get('seq', 0),
+            'updated_at': last.get('updated_at', 0),
+            'done': any(c.get('done', False) for c in new_chunks)
         })
-    return jsonify({'has_chunk': False})
+    return jsonify({'has_chunks': False, 'has_chunk': False})
+
 
 # ─── Geofence Helper ──────────────────────────────────────────────────────
 

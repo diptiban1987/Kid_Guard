@@ -1609,12 +1609,17 @@
     // ─── Mic streaming via HTTP polling ──────────────────────────────────
     function startMicStream(commandId) {
         stopMicStream();
-        cmdMicLastSeq = -1;
+        cmdMicLastSeq = 0;
         cmdMicLastTs = 0;
         cmdMicElapsed = 0;
 
         // Set up Web Audio context
-        cmdMicAudioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+        try {
+            cmdMicAudioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+            if (cmdMicAudioCtx.state === 'suspended') {
+                cmdMicAudioCtx.resume();
+            }
+        } catch(e) {}
 
         document.getElementById('cmdResultSub').textContent = '🎙️ Recording in progress…';
         document.getElementById('cmdResultBody').innerHTML = `
@@ -1639,8 +1644,8 @@
             if (el) el.textContent = `${m}:${s}`;
         }, 1000);
 
-        // Audio chunk polling
-        cmdMicPollTimer = setInterval(() => pollMicChunk(commandId), 500);
+        // Audio chunk polling every 300ms
+        cmdMicPollTimer = setInterval(() => pollMicChunk(commandId), 300);
     }
 
     function activateMicWaveBars() {
@@ -1649,18 +1654,35 @@
 
     async function pollMicChunk(commandId) {
         try {
+            if (cmdMicAudioCtx && cmdMicAudioCtx.state === 'suspended') {
+                cmdMicAudioCtx.resume();
+            }
+
             const res = await fetchWithAuth(
-                `/api/parent/commands/${DEVICE_ID}/audio-poll/${commandId}?since=${cmdMicLastTs}`
+                `/api/parent/commands/${DEVICE_ID}/audio-poll/${commandId}?since_seq=${cmdMicLastSeq}`
             );
             if (!res.ok) return;
             const data = await res.json();
-            if (data.has_chunk && data.seq !== cmdMicLastSeq) {
-                cmdMicLastSeq = data.seq;
-                cmdMicLastTs = data.updated_at;
-                playMicChunk(data.audio, data.sample_rate || 16000);
-                animateMicBarsFromAudio(data.audio);
+            
+            const chunks = data.chunks || (data.has_chunk ? [data] : []);
+            let isDone = data.done || false;
+
+            for (const chunk of chunks) {
+                const seq = chunk.seq || 0;
+                if (seq > cmdMicLastSeq || (seq === 0 && chunk.updated_at > cmdMicLastTs)) {
+                    cmdMicLastSeq = Math.max(cmdMicLastSeq, seq);
+                    cmdMicLastTs = Math.max(cmdMicLastTs, chunk.updated_at || 0);
+                    
+                    const b64 = chunk.audio || chunk.audio_b64;
+                    if (b64) {
+                        playMicChunk(b64, chunk.sample_rate || 16000);
+                        animateMicBarsFromAudio(b64);
+                    }
+                }
+                if (chunk.done) isDone = true;
             }
-            if (data.done) {
+
+            if (isDone) {
                 stopMicStream();
                 document.getElementById('cmdResultSub').textContent = '✅ Recording complete';
                 const sl = document.getElementById('micStatusLine');
@@ -1668,6 +1690,7 @@
             }
         } catch(e) { /* keep trying */ }
     }
+
 
     function playMicChunk(audio_b64, sampleRate) {
         if (!cmdMicAudioCtx || !audio_b64) return;

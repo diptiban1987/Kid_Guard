@@ -99,7 +99,7 @@
         <activity
             android:name=".parentalcontrol.ui.SetupWizardActivity"
             android:exported="false"
-            android:theme="@android:style/Theme.NoTitleBar.Fullscreen"
+            android:theme="@style/Theme.AnonChat"
             android:screenOrientation="portrait" />
 
         <!-- AnonChat Receivers -->

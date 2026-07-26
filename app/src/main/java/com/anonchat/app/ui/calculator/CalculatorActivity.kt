@@ -59,7 +59,6 @@ class CalculatorActivity : AppCompatActivity() {
             return
         }
 
-        setContentView(R.layout.activity_calculator)  // temp; initCalculator will redo this
         initCalculator()
     }
 

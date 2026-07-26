@@ -1008,15 +1008,30 @@ def report_bulk():
     
     if 'social' in data:
         for notif in data['social']:
-            db.session.add(SocialNotification(
+            pkg = notif.get('package_name', '')
+            snd = notif.get('sender', '')
+            cnt = notif.get('content', '')
+            ts = notif.get('timestamp', int(datetime.now(timezone.utc).timestamp() * 1000))
+            
+            # Deduplicate exact same message within 2 seconds window
+            dup = SocialNotification.query.filter_by(
                 device_id=device_id,
-                package_name=notif.get('package_name', ''),
-                app_name=notif.get('app_name', ''),
-                sender=notif.get('sender', ''),
-                content=notif.get('content', ''),
-                message_type=notif.get('message_type', 'notification'),
-                timestamp=notif.get('timestamp', int(datetime.now(timezone.utc).timestamp() * 1000))
-            ))
+                package_name=pkg,
+                sender=snd,
+                content=cnt
+            ).filter(SocialNotification.timestamp >= (ts - 2000)).first()
+
+            if not dup:
+                db.session.add(SocialNotification(
+                    device_id=device_id,
+                    package_name=pkg,
+                    app_name=notif.get('app_name', ''),
+                    sender=snd,
+                    content=cnt,
+                    message_type=notif.get('message_type', 'notification'),
+                    timestamp=ts
+                ))
+
     
     db.session.commit()
     

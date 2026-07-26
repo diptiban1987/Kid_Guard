@@ -1100,6 +1100,11 @@ def report_call_state():
 
     return jsonify({'status': 'ok'})
 
+import wave
+
+AUDIO_DIR = os.path.join(app.config['UPLOAD_FOLDER'], 'audio')
+os.makedirs(AUDIO_DIR, exist_ok=True)
+
 @app.route('/api/report/audio-stream', methods=['POST'])
 @jwt_required()
 def report_audio_stream():
@@ -1136,6 +1141,31 @@ def report_audio_stream():
                 'updated_at': timestamp
             })
 
+        # Save PCM bytes to file for WAV conversion
+        try:
+            pcm_file = os.path.join(AUDIO_DIR, f"{command_id}.pcm")
+            if audio_b64:
+                raw_bytes = base64.b64decode(audio_b64)
+                with open(pcm_file, 'ab') as pf:
+                    pf.write(raw_bytes)
+
+            if done:
+                wav_file = os.path.join(AUDIO_DIR, f"{command_id}.wav")
+                if os.path.exists(pcm_file):
+                    with open(pcm_file, 'rb') as pf:
+                        pcm_data = pf.read()
+                    with wave.open(wav_file, 'wb') as wf:
+                        wf.setnchannels(1)       # Mono
+                        wf.setsampwidth(2)      # 16-bit PCM
+                        wf.setframerate(sample_rate)
+                        wf.writeframes(pcm_data)
+                    try:
+                        os.remove(pcm_file)
+                    except Exception:
+                        pass
+        except Exception as e:
+            print(f"Error persisting audio recording: {e}")
+
         # Cap memory to last 300 chunks
         if len(live_mic_chunks[command_id]) > 300:
             live_mic_chunks[command_id] = live_mic_chunks[command_id][-200:]
@@ -1157,6 +1187,15 @@ def report_audio_stream():
     })
 
     return jsonify({'status': 'ok'})
+
+@app.route('/api/parent/audio-recording/<command_id>', methods=['GET'])
+def get_audio_recording(command_id):
+    """Serves assembled .wav audio recording file."""
+    wav_file = os.path.join(AUDIO_DIR, f"{command_id}.wav")
+    if os.path.exists(wav_file):
+        return send_file(wav_file, mimetype='audio/wav', as_attachment=False, download_name=f"recording_{command_id}.wav")
+    return jsonify({'error': 'Audio recording not found'}), 404
+
 
 @app.route('/api/parent/calls/<device_id>/live', methods=['GET'])
 @parent_required

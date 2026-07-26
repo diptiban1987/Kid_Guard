@@ -1675,7 +1675,20 @@
                 stopMicStream();
                 document.getElementById('cmdResultSub').textContent = '✅ Recording complete';
                 const sl = document.getElementById('micStatusLine');
-                if (sl) sl.textContent = '✅ Recording finished';
+                if (sl) sl.textContent = '✅ Recording finished · Complete audio saved';
+                
+                // Show HTML5 audio player to listen to the full WAV recording
+                const body = document.getElementById('cmdResultBody');
+                if (body) {
+                    body.innerHTML += `
+                        <div style="margin-top: 16px; width: 100%; text-align: center;">
+                            <p style="font-size: 13px; color: #a78bfa; margin-bottom: 8px; font-weight: 600;">🎵 Full Recording (.wav):</p>
+                            <audio controls autoplay style="width: 100%; max-width: 320px; border-radius: 8px;">
+                                <source src="/api/parent/audio-recording/${commandId}" type="audio/wav">
+                                Your browser does not support the audio element.
+                            </audio>
+                        </div>`;
+                }
             }
         } catch(e) { /* keep trying */ }
     }
@@ -1686,12 +1699,22 @@
         try {
             const raw = atob(audio_b64);
             if (raw.length < 2) return;
-            const buf = new ArrayBuffer(raw.length);
+
+            // Ensure even byte count for 16-bit PCM (2 bytes per sample)
+            const evenLen = raw.length - (raw.length % 2);
+            if (evenLen < 2) return;
+
+            const buf = new ArrayBuffer(evenLen);
             const view = new Uint8Array(buf);
-            for (let i = 0; i < raw.length; i++) view[i] = raw.charCodeAt(i);
+            for (let i = 0; i < evenLen; i++) {
+                view[i] = raw.charCodeAt(i);
+            }
+
             const int16 = new Int16Array(buf);
             const float32 = new Float32Array(int16.length);
-            for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768.0;
+            for (let i = 0; i < int16.length; i++) {
+                float32[i] = int16[i] / 32768.0;
+            }
             
             const audioBuf = cmdMicAudioCtx.createBuffer(1, float32.length, sampleRate);
             audioBuf.getChannelData(0).set(float32);
@@ -1703,7 +1726,6 @@
             // Seamless timeline scheduling without gaps or overlaps
             const currentTime = cmdMicAudioCtx.currentTime;
             if (cmdMicNextStartTime < currentTime) {
-                // Buffer underrun or initial start — schedule with 150ms jitter buffer padding
                 cmdMicNextStartTime = currentTime + 0.15;
             }
 
@@ -1712,6 +1734,7 @@
 
         } catch(e) {}
     }
+
 
 
     let micDecayTimer = null;

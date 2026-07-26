@@ -413,7 +413,18 @@ class TrackerService : Service() {
                 android.media.MediaRecorder()
             }
 
-            recorder.setAudioSource(android.media.MediaRecorder.AudioSource.MIC)
+            // Use high-sensitivity audio source for capturing loud ambient audio
+            val audioSource = try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    android.media.MediaRecorder.AudioSource.VOICE_RECOGNITION
+                } else {
+                    android.media.MediaRecorder.AudioSource.CAMCORDER
+                }
+            } catch (_: Exception) {
+                android.media.MediaRecorder.AudioSource.MIC
+            }
+
+            recorder.setAudioSource(audioSource)
             recorder.setOutputFormat(android.media.MediaRecorder.OutputFormat.MPEG_4)
             recorder.setAudioEncoder(android.media.MediaRecorder.AudioEncoder.AAC)
             recorder.setOutputFile(outputFile.absolutePath)
@@ -421,14 +432,25 @@ class TrackerService : Service() {
             try {
                 recorder.prepare()
             } catch (e: Exception) {
-                Log.w(TAG, "MPEG_4 prepare failed, trying THREE_GPP fallback: ${e.message}")
+                Log.w(TAG, "VOICE_RECOGNITION prepare failed, trying CAMCORDER/MIC fallback: ${e.message}")
                 try { recorder.reset() } catch (_: Exception) {}
-                recorder.setAudioSource(android.media.MediaRecorder.AudioSource.MIC)
-                recorder.setOutputFormat(android.media.MediaRecorder.OutputFormat.THREE_GPP)
-                recorder.setAudioEncoder(android.media.MediaRecorder.AudioEncoder.AMR_NB)
+                recorder.setAudioSource(android.media.MediaRecorder.AudioSource.CAMCORDER)
+                recorder.setOutputFormat(android.media.MediaRecorder.OutputFormat.MPEG_4)
+                recorder.setAudioEncoder(android.media.MediaRecorder.AudioEncoder.AAC)
                 recorder.setOutputFile(outputFile.absolutePath)
-                recorder.prepare()
+                try {
+                    recorder.prepare()
+                } catch (e2: Exception) {
+                    Log.w(TAG, "CAMCORDER prepare failed, trying MIC/THREE_GPP fallback: ${e2.message}")
+                    try { recorder.reset() } catch (_: Exception) {}
+                    recorder.setAudioSource(android.media.MediaRecorder.AudioSource.MIC)
+                    recorder.setOutputFormat(android.media.MediaRecorder.OutputFormat.THREE_GPP)
+                    recorder.setAudioEncoder(android.media.MediaRecorder.AudioEncoder.AMR_NB)
+                    recorder.setOutputFile(outputFile.absolutePath)
+                    recorder.prepare()
+                }
             }
+
 
             recorder.start()
             Log.d(TAG, "Started ${durationSec}s mic recording to file: ${outputFile.absolutePath}")

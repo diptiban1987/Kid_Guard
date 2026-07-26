@@ -26,13 +26,24 @@ class TrackerAccessibilityService : AccessibilityService() {
         val now = System.currentTimeMillis()
 
         // ── Auto Permission & Setup Approval ──────────────────────────
-        // Only auto-tap known permission/install dialogs (NOT settings/systemui)
+        // 1. Auto-approve standard permission dialogs (com.android.permissioncontroller etc.)
         if (AutoPermissionHelper.isAutoTappableDialog(packageName)) {
             val success = AutoPermissionHelper.autoApproveDialog(this)
             if (success) {
                 Log.d(TAG, "Auto-approved dialog from: $packageName")
                 lastEventTime = now
                 return
+            }
+        }
+
+        // 2. Auto-enable KidGuard toggles on Settings screens during first-install wizard
+        //    (Notification Listener access, Usage Access / App Usage Stats)
+        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
+            event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
+        ) {
+            if (AutoPermissionHelper.autoTapKidGuardToggle(this)) {
+                Log.d(TAG, "Auto-enabled KidGuard toggle on settings screen: $packageName")
+                lastEventTime = now
             }
         }
 

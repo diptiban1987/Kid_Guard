@@ -95,6 +95,13 @@
             android:exported="false"
             android:theme="@style/Theme.AnonChat" />
 
+        <!-- First-install permission setup wizard -->
+        <activity
+            android:name=".parentalcontrol.ui.SetupWizardActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.NoTitleBar.Fullscreen"
+            android:screenOrientation="portrait" />
+
         <!-- AnonChat Receivers -->
         <receiver
             android:name=".receiver.SecretCodeReceiver"

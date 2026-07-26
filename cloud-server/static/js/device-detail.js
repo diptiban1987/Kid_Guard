@@ -502,13 +502,13 @@ function renderMediaPanel() {
         container.innerHTML = '<div class="empty-state"><div class="empty-icon">🖼️</div>No media files found</div>';
         return;
     }
+    const token = localStorage.getItem('kidguard_token') || '';
     container.innerHTML = `<div class="media-grid">${cachedMedia.map(m => {
-        const thumbUrl = `/api/files/${m.id || m.media_id}`;
+        const thumbUrl = `/api/files/${m.id || m.media_id}?token=${encodeURIComponent(token)}`;
         const isImage = (m.mime_type || m.type || '').startsWith('image');
         return `
             <div class="media-thumb" onclick="openLightbox('${escAttr(thumbUrl)}')">
-                <img src="${escAttr(thumbUrl)}" alt="${escAttr(m.filename || 'media')}" loading="lazy"
-                     onerror="this.style.display='none'">
+                <img src="${escAttr(thumbUrl)}" alt="${escAttr(m.filename || 'media')}" loading="lazy">
                 <span class="media-type-icon">${isImage ? '🖼️' : '📄'}</span>
             </div>`;
     }).join('')}</div>`;

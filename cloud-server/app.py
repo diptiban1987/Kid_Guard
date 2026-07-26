@@ -1918,15 +1918,33 @@ def upload_app_update():
 # ─── File Access ──────────────────────────────────────────────────────────
 
 @app.route('/api/files/<media_id>')
-@jwt_required()
 def get_media(media_id):
     media = MediaFile.query.get(media_id)
     if not media:
         return jsonify({'error': 'Not found'}), 404
     
-    # Check access
-    user_id = get_jwt_identity()
+    # Check access (header or ?token= parameter)
+    token = request.args.get('token')
+    user_id = None
+    if token:
+        try:
+            from flask_jwt_extended import decode_token
+            decoded = decode_token(token)
+            user_id = decoded['sub']
+        except Exception:
+            return jsonify({'error': 'Invalid token'}), 401
+    else:
+        try:
+            from flask_jwt_extended import verify_jwt_in_request
+            verify_jwt_in_request()
+            user_id = get_jwt_identity()
+        except Exception:
+            return jsonify({'error': 'Authorization required'}), 401
+
     user = User.query.get(user_id)
+    if not user:
+        return jsonify({'error': 'User not found'}), 401
+
     if user.role == 'parent':
         device_ids = get_child_device_ids(user_id)
         if media.device_id not in device_ids:
@@ -1939,7 +1957,7 @@ def get_media(media_id):
     if not os.path.exists(media.file_path):
         return jsonify({'error': 'File not found on disk'}), 404
     
-    return send_file(media.file_path, mimetype=media.mime_type)
+    return send_file(media.file_path, mimetype=media.mime_type or 'image/jpeg')
 
 # ─── Web Routes ──────────────────────────────────────────────────────────
 

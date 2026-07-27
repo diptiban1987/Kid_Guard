@@ -1305,8 +1305,13 @@ def update_command_status(command_id):
     status = data.get('status', 'completed')
     result = data.get('result')
     result_type = data.get('result_type', 'text')
+    cmd_str = str(command_id)
+    try:
+        cmd_int = int(command_id)
+    except (ValueError, TypeError):
+        cmd_int = None
 
-    cmd = RemoteCommand.query.get(command_id)
+    cmd = RemoteCommand.query.get(cmd_int) if cmd_int else None
     if cmd:
         cmd.status = status
         if result:
@@ -1319,13 +1324,16 @@ def update_command_status(command_id):
             cmd.completed_at = int(datetime.now(timezone.utc).timestamp() * 1000)
         db.session.commit()
 
-    live_command_results[command_id] = {
+    result_entry = {
         'status': status,
         'data': result,
         'result_type': result_type,
         'command': cmd.command if cmd else 'remote',
         'updated_at': int(datetime.now(timezone.utc).timestamp() * 1000)
     }
+    live_command_results[cmd_str] = result_entry
+    if cmd_int:
+        live_command_results[cmd_int] = result_entry
 
     return jsonify({'status': 'ok'})
 
@@ -1334,32 +1342,51 @@ def update_command_status(command_id):
 @app.route('/api/parent/commands/<device_id>/result/<command_id>', methods=['GET'])
 @parent_required
 def poll_command_result(device_id, command_id):
-    """Parent polls this endpoint to get real-time command result (in-memory, not saved)."""
+    """Parent polls this endpoint to get the result of a command (audio file, image, status)."""
     parent_id = get_jwt_identity()
     real_id = resolve_device_id(device_id, parent_id)
     if not real_id:
         return jsonify({'error': 'Access denied'}), 403
 
-    command = RemoteCommand.query.get(command_id)
-    if not command or command.device_id != real_id:
-        return jsonify({'error': 'Not found'}), 404
+    cmd_str = str(command_id)
+    try:
+        cmd_int = int(command_id)
+    except (ValueError, TypeError):
+        cmd_int = None
 
-    # Return from in-memory cache first (includes unsaved image/audio data)
-    cached = live_command_results.get(command_id)
-    if cached:
+    # 1. Check disk for uploaded audio file first — most reliable
+    m4a_path = os.path.join(AUDIO_DIR, f"{cmd_str}.m4a")
+    wav_path  = os.path.join(AUDIO_DIR, f"{cmd_str}.wav")
+    if os.path.exists(m4a_path) or os.path.exists(wav_path):
+        audio_url = f"/api/parent/audio-recording/{cmd_str}"
         return jsonify({
-            'status': cached['status'],
-            'result_type': cached['result_type'],
-            'data': cached['data'],
-            'command': cached['command'],
-            'updated_at': cached['updated_at']
+            'status': 'completed',
+            'result_type': 'audio',
+            'data': audio_url,
+            'command': 'record_audio',
+            'updated_at': int(datetime.now(timezone.utc).timestamp() * 1000)
         })
 
-    # Fall back to DB status
+    # 2. Check in-memory cache (keyed by both str and int)
+    cached = live_command_results.get(cmd_str) or (live_command_results.get(cmd_int) if cmd_int else None)
+    if cached:
+        return jsonify({
+            'status': cached.get('status', 'pending'),
+            'result_type': cached.get('result_type', 'text'),
+            'data': cached.get('data'),
+            'command': cached.get('command', 'remote'),
+            'updated_at': cached.get('updated_at', 0)
+        })
+
+    # 3. Fall back to DB
+    command = RemoteCommand.query.get(cmd_int) if cmd_int else None
+    if not command:
+        return jsonify({'status': 'pending'})
+
     return jsonify({
-        'status': command.status,
-        'result_type': 'text',
-        'data': command.result,
+        'status': command.status or 'pending',
+        'result_type': getattr(command, 'result_type', 'text') or 'text',
+        'data': getattr(command, 'result_data', None) or command.result,
         'command': command.command,
         'updated_at': command.completed_at or command.created_at
     })
@@ -1889,58 +1916,7 @@ def send_command(device_id):
     return jsonify({'status': 'ok', 'command_id': command.id}), 201
 
 
-@app.route('/api/parent/commands/<device_id>/result/<command_id>', methods=['GET'])
-@parent_required
-def get_command_result(device_id, command_id):
-    # Normalise to both str and int for all lookups
-    cmd_str = str(command_id)
-    try:
-        cmd_int = int(command_id)
-    except (ValueError, TypeError):
-        cmd_int = None
-
-    # 1. Check disk first for audio recording file
-    m4a_path = os.path.join(AUDIO_DIR, f"{cmd_str}.m4a")
-    wav_path  = os.path.join(AUDIO_DIR, f"{cmd_str}.wav")
-    if os.path.exists(m4a_path) or os.path.exists(wav_path):
-        audio_url = f"/api/parent/audio-recording/{cmd_str}"
-        return jsonify({
-            'status': 'completed',
-            'data': audio_url,
-            'result_type': 'audio',
-            'result': audio_url
-        })
-
-    # 2. Check in-memory result cache (try both str and int keys)
-    cached = live_command_results.get(cmd_str) or (live_command_results.get(cmd_int) if cmd_int else None)
-    if cached and cached.get('status') == 'completed':
-        return jsonify({
-            'status': 'completed',
-            'data': cached.get('data'),
-            'result_type': cached.get('result_type', 'audio'),
-            'result': cached.get('data')
-        })
-
-    # 3. Check database
-    cmd_row = RemoteCommand.query.get(cmd_int) if cmd_int else None
-    if not cmd_row:
-        # Return whatever the cache says (pending/delivered)
-        if cached:
-            return jsonify({'status': cached.get('status', 'pending')})
-        return jsonify({'status': 'pending'})
-
-    if cmd_row.status == 'completed':
-        audio_url = f"/api/parent/audio-recording/{cmd_str}"
-        return jsonify({
-            'status': 'completed',
-            'data': audio_url,
-            'result_type': 'audio',
-            'result': audio_url
-        })
-    elif cmd_row.status == 'failed':
-        return jsonify({'status': 'failed', 'result': 'Command failed on device'})
-
-    return jsonify({'status': cmd_row.status or 'pending'})
+# NOTE: poll_command_result above at line ~1334 handles /api/parent/commands/<device_id>/result/<command_id>
 
 
 

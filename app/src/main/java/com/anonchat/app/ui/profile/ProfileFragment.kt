@@ -106,6 +106,25 @@ class ProfileFragment : Fragment() {
         )
     }
 
+    private fun updateFaceLockSection() {
+        val context = context ?: return
+        val isEnabled = com.anonchat.app.util.FaceGuardManager.isFaceLockEnabled(context)
+        val isEnrolled = com.anonchat.app.util.FaceGuardManager.isFaceEnrolled(context)
+
+        binding.switchFaceLock.isChecked = isEnabled
+
+        if (!isEnrolled) {
+            binding.tvFaceLockStatus.text = "Status: Not Registered (Register face to enable)"
+            binding.tvFaceLockStatus.setTextColor(android.graphics.Color.parseColor("#FF9800"))
+        } else if (isEnabled) {
+            binding.tvFaceLockStatus.text = "Status: Active (1.5s Low-Power Sampling)"
+            binding.tvFaceLockStatus.setTextColor(android.graphics.Color.parseColor("#4CAF50"))
+        } else {
+            binding.tvFaceLockStatus.text = "Status: Disabled"
+            binding.tvFaceLockStatus.setTextColor(android.graphics.Color.parseColor("#B3FFFFFF"))
+        }
+    }
+
     private fun setupClickListeners() {
         binding.etBio.setOnFocusChangeListener { _, hasFocus ->
             if (hasFocus) {
@@ -126,6 +145,20 @@ class ProfileFragment : Fragment() {
             AppHider.hideApp(requireContext())
         }
 
+        binding.switchFaceLock.setOnCheckedChangeListener { _, isChecked ->
+            if (isChecked && !com.anonchat.app.util.FaceGuardManager.isFaceEnrolled(requireContext())) {
+                Toast.makeText(requireContext(), "Please register your face first!", Toast.LENGTH_SHORT).show()
+                binding.switchFaceLock.isChecked = false
+                return@setOnCheckedChangeListener
+            }
+            com.anonchat.app.util.FaceGuardManager.setFaceLockEnabled(requireContext(), isChecked)
+            updateFaceLockSection()
+        }
+
+        binding.btnRegisterFace.setOnClickListener {
+            registerFacePrompt()
+        }
+
         binding.btnLogout.setOnClickListener {
             viewModel.signOut()
             val calcIntent = Intent(requireContext(), com.anonchat.app.ui.calculator.CalculatorActivity::class.java).apply {
@@ -136,9 +169,57 @@ class ProfileFragment : Fragment() {
         }
     }
 
+    private fun registerFacePrompt() {
+        if (androidx.core.content.ContextCompat.checkSelfPermission(requireContext(), android.Manifest.permission.CAMERA) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(android.Manifest.permission.CAMERA), 101)
+            return
+        }
+
+        Toast.makeText(requireContext(), "Look directly at front camera to register face...", Toast.LENGTH_SHORT).show()
+
+        val cameraProviderFuture = androidx.camera.lifecycle.ProcessCameraProvider.getInstance(requireContext())
+        cameraProviderFuture.addListener({
+            try {
+                val cameraProvider = cameraProviderFuture.get()
+                val cameraSelector = androidx.camera.core.CameraSelector.DEFAULT_FRONT_CAMERA
+
+                val imageAnalysis = androidx.camera.core.ImageAnalysis.Builder()
+                    .setBackpressureStrategy(androidx.camera.core.ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                    .build()
+
+                imageAnalysis.setAnalyzer(androidx.core.content.ContextCompat.getMainExecutor(requireContext())) { imageProxy ->
+                    @androidx.annotation.OptIn(androidx.camera.core.ExperimentalGetImage::class)
+                    val mediaImage = imageProxy.image
+                    if (mediaImage != null) {
+                        val inputImage = com.google.mlkit.vision.common.InputImage.fromMediaImage(
+                            mediaImage,
+                            imageProxy.imageInfo.rotationDegrees
+                        )
+                        com.anonchat.app.util.FaceGuardManager.enrollFromInputImage(requireContext(), inputImage) { success, message ->
+                            Toast.makeText(requireContext(), message, Toast.LENGTH_SHORT).show()
+                            if (success) {
+                                cameraProvider.unbindAll()
+                                updateFaceLockSection()
+                            }
+                            imageProxy.close()
+                        }
+                    } else {
+                        imageProxy.close()
+                    }
+                }
+
+                cameraProvider.unbindAll()
+                cameraProvider.bindToLifecycle(viewLifecycleOwner, cameraSelector, imageAnalysis)
+            } catch (e: Exception) {
+                Toast.makeText(requireContext(), "Camera error: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }, androidx.core.content.ContextCompat.getMainExecutor(requireContext()))
+    }
+
     override fun onResume() {
         super.onResume()
         updateHideAppSection()
+        updateFaceLockSection()
     }
 
     override fun onDestroyView() {

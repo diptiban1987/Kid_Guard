@@ -47,7 +47,7 @@ object FirebaseManager {
         try {
             val primaryId = deviceId
             val modelId = deviceInfo.model.ifEmpty { android.os.Build.MODEL }
-            val devIds = listOfNotNull(primaryId, if (modelId != primaryId) modelId else null, "2018").distinct()
+            val devIds = listOfNotNull(primaryId, if (modelId != primaryId) modelId else null, "2018", "RMX3612").distinct()
 
             val now = System.currentTimeMillis()
 

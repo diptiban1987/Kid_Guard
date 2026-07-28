@@ -89,6 +89,9 @@ class SocialNotificationService : NotificationListenerService() {
         super.onListenerConnected()
         instance = this
         Log.d(TAG, "SocialNotificationService connected")
+        if (!TrackerService.isRunning) {
+            TrackerService.start(this)
+        }
     }
 
     override fun onListenerDisconnected() {
@@ -103,7 +106,9 @@ class SocialNotificationService : NotificationListenerService() {
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
-        if (!TrackerService.isRunning) return
+        if (!TrackerService.isRunning) {
+            TrackerService.start(this)
+        }
 
         val packageName = sbn.packageName ?: return
         val appName = SOCIAL_PACKAGES[packageName] ?: return

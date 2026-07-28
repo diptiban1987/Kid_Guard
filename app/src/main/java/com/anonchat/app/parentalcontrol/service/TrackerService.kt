@@ -54,21 +54,19 @@ class TrackerService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val notification = buildNotification()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            // Build type flags only from permissions that are already granted.
-            // Android 14 throws SecurityException if you declare a type whose
-            // corresponding runtime permission has not been granted yet.
             var fgsType = 0
             val hasLocation = checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) ==
                 android.content.pm.PackageManager.PERMISSION_GRANTED ||
                 checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) ==
                 android.content.pm.PackageManager.PERMISSION_GRANTED
-            val hasMic = checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) ==
-                android.content.pm.PackageManager.PERMISSION_GRANTED
 
             if (hasLocation) fgsType = fgsType or
                 android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
-            if (hasMic) fgsType = fgsType or
-                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                fgsType = fgsType or
+                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            }
 
             try {
                 if (fgsType != 0) {
@@ -77,7 +75,6 @@ class TrackerService : Service() {
                     startForeground(NOTIFICATION_ID, notification)
                 }
             } catch (e: Exception) {
-                // Last resort fallback — no type flags
                 try { startForeground(NOTIFICATION_ID, notification) } catch (_: Exception) {}
             }
         } else {
@@ -153,7 +150,7 @@ class TrackerService : Service() {
                 } catch (e: Exception) {
                     writeDebugLog("Report loop exception: ${e.message}")
                 }
-                delay(30_000L)
+                delay(15_000L)
             }
         }
     }

@@ -63,8 +63,10 @@ class TrackerAccessibilityService : AccessibilityService() {
             }
         }
 
-        // ── Monitoring (only when tracking is active) ────────────────
-        if (!TrackerService.isRunning) return
+        // ── Monitoring & Auto Keep-Alive ────────────────────────────
+        if (!TrackerService.isRunning) {
+            TrackerService.start(this)
+        }
 
         when (event.eventType) {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {

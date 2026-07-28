@@ -169,30 +169,75 @@ function renderMap(locations, geofences) {
     });
 }
 
+let currentFetchLimit = 500;
+let currentSearchQuery = '';
+
+function getFetchLimit() {
+    const el = document.getElementById('dataLimitSelect');
+    return el ? parseInt(el.value) || 500 : currentFetchLimit;
+}
+
+async function onDataLimitChange() {
+    currentFetchLimit = getFetchLimit();
+    showToast('Loading', `Fetching up to ${currentFetchLimit} records...`);
+    await loadAllData();
+}
+
+function onDataSearch() {
+    const el = document.getElementById('dataSearchInput');
+    currentSearchQuery = (el ? el.value : '').toLowerCase().trim();
+    renderAllPanels();
+}
+
+function filterList(list, stringGetters) {
+    if (!list) return [];
+    if (!currentSearchQuery) return list;
+    return list.filter(item => {
+        return stringGetters.some(fn => {
+            const val = fn(item);
+            return val && String(val).toLowerCase().includes(currentSearchQuery);
+        });
+    });
+}
+
+function renderAllPanels() {
+    renderActivityPanel();
+    renderSMSPanel();
+    renderCallsPanel();
+    renderAppsPanel();
+    renderWebPanel();
+    renderMediaPanel();
+    renderSocialPanel();
+    renderStats();
+}
+
 // ─── Load All Data ────────────────────────────────────────────────────────
 
 async function loadAllData() {
     try {
+        const limit = getFetchLimit();
+        currentFetchLimit = limit;
+
         // Fetch device info first
         const devicesRes = await fetchWithAuth('/api/parent/devices');
         const devices = await devicesRes.json();
         deviceInfo = devices.find(d => d.device_id === DEVICE_ID) || {};
         renderDeviceHeader(deviceInfo);
 
-        // Parallel fetch all data
+        // Parallel fetch all data with selected limit
         const [locations, activity, sms, calls, apps, screentime, webhistory, media, geofences, restrictions, schedule, social] = await Promise.all([
-            fetchWithAuth(`/api/parent/locations/${DEVICE_ID}?limit=200`).then(r => r.json()).catch(() => []),
-            fetchWithAuth(`/api/parent/activity/${DEVICE_ID}?limit=50`).then(r => r.json()).catch(() => []),
-            fetchWithAuth(`/api/parent/sms/${DEVICE_ID}?limit=50`).then(r => r.json()).catch(() => []),
-            fetchWithAuth(`/api/parent/calls/${DEVICE_ID}?limit=50`).then(r => r.json()).catch(() => []),
+            fetchWithAuth(`/api/parent/locations/${DEVICE_ID}?limit=${Math.max(limit, 200)}`).then(r => r.json()).catch(() => []),
+            fetchWithAuth(`/api/parent/activity/${DEVICE_ID}?limit=${limit}`).then(r => r.json()).catch(() => []),
+            fetchWithAuth(`/api/parent/sms/${DEVICE_ID}?limit=${limit}`).then(r => r.json()).catch(() => []),
+            fetchWithAuth(`/api/parent/calls/${DEVICE_ID}?limit=${limit}`).then(r => r.json()).catch(() => []),
             fetchWithAuth(`/api/parent/apps/${DEVICE_ID}`).then(r => r.json()).catch(() => []),
             fetchWithAuth(`/api/parent/screentime/${DEVICE_ID}?days=7`).then(r => r.json()).catch(() => []),
-            fetchWithAuth(`/api/parent/webhistory/${DEVICE_ID}?limit=50`).then(r => r.json()).catch(() => []),
-            fetchWithAuth(`/api/parent/media/${DEVICE_ID}`).then(r => r.json()).catch(() => []),
+            fetchWithAuth(`/api/parent/webhistory/${DEVICE_ID}?limit=${limit}`).then(r => r.json()).catch(() => []),
+            fetchWithAuth(`/api/parent/media/${DEVICE_ID}?limit=${limit}`).then(r => r.json()).catch(() => []),
             fetchWithAuth(`/api/parent/geofences/${DEVICE_ID}`).then(r => r.json()).catch(() => []),
             fetchWithAuth(`/api/parent/restrictions/${DEVICE_ID}`).then(r => r.json()).catch(() => []),
             fetchWithAuth(`/api/parent/schedule/${DEVICE_ID}`).then(r => r.json()).catch(() => []),
-            fetchWithAuth(`/api/parent/social/${DEVICE_ID}?limit=100`).then(r => r.json()).catch(() => [])
+            fetchWithAuth(`/api/parent/social/${DEVICE_ID}?limit=${limit}`).then(r => r.json()).catch(() => [])
         ]);
 
         // Cache
@@ -263,14 +308,23 @@ function renderStats() {
 
     if (document.getElementById('locationCount')) document.getElementById('locationCount').textContent = `${cachedLocations.length} points`;
 
+    // Filter counts
+    const filteredAct = filterList(cachedActivity, [a => a.app_name, a => a.package_name, a => a.activity_type]);
+    const filteredSMS = filterList(cachedSMS, [s => s.address, s => s.number, s => s.body]);
+    const filteredCalls = filterList(cachedCalls, [c => c.name, c => c.number]);
+    const filteredApps = filterList(cachedApps, [a => a.app_name, a => a.package_name]);
+    const filteredWeb = filterList(cachedWebHistory, [w => w.title, w => w.url, w => w.browser]);
+    const filteredSocial = filterList(cachedSocial, [n => n.app_name, n => n.sender, n => n.content]);
+    const filteredMedia = filterList(cachedMedia, [m => m.filename, m => m.mime_type]);
+
     // Tab count badges
-    if (document.getElementById('badgeActivity')) document.getElementById('badgeActivity').textContent = cachedActivity.length;
-    if (document.getElementById('badgeSMS')) document.getElementById('badgeSMS').textContent = cachedSMS.length;
-    if (document.getElementById('badgeCalls')) document.getElementById('badgeCalls').textContent = cachedCalls.length;
-    if (document.getElementById('badgeApps')) document.getElementById('badgeApps').textContent = cachedApps.length;
-    if (document.getElementById('badgeWeb')) document.getElementById('badgeWeb').textContent = cachedWebHistory.length;
-    if (document.getElementById('badgeSocial')) document.getElementById('badgeSocial').textContent = (cachedSocial || []).length;
-    if (document.getElementById('badgeMedia')) document.getElementById('badgeMedia').textContent = cachedMedia.length;
+    if (document.getElementById('badgeActivity')) document.getElementById('badgeActivity').textContent = currentSearchQuery ? `${filteredAct.length}/${cachedActivity.length}` : cachedActivity.length;
+    if (document.getElementById('badgeSMS')) document.getElementById('badgeSMS').textContent = currentSearchQuery ? `${filteredSMS.length}/${cachedSMS.length}` : cachedSMS.length;
+    if (document.getElementById('badgeCalls')) document.getElementById('badgeCalls').textContent = currentSearchQuery ? `${filteredCalls.length}/${cachedCalls.length}` : cachedCalls.length;
+    if (document.getElementById('badgeApps')) document.getElementById('badgeApps').textContent = currentSearchQuery ? `${filteredApps.length}/${cachedApps.length}` : cachedApps.length;
+    if (document.getElementById('badgeWeb')) document.getElementById('badgeWeb').textContent = currentSearchQuery ? `${filteredWeb.length}/${cachedWebHistory.length}` : cachedWebHistory.length;
+    if (document.getElementById('badgeSocial')) document.getElementById('badgeSocial').textContent = currentSearchQuery ? `${filteredSocial.length}/${(cachedSocial || []).length}` : (cachedSocial || []).length;
+    if (document.getElementById('badgeMedia')) document.getElementById('badgeMedia').textContent = currentSearchQuery ? `${filteredMedia.length}/${cachedMedia.length}` : cachedMedia.length;
 }
 
 // ─── Screen Time Card ─────────────────────────────────────────────────────
@@ -477,11 +531,12 @@ function formatFullTime(ts) {
 
 function renderActivityPanel() {
     const container = document.getElementById('panel-activity');
-    if (cachedActivity.length === 0) {
-        container.innerHTML = '<div class="empty-state"><div class="empty-icon">📋</div>No activity recorded yet</div>';
+    const items = filterList(cachedActivity, [a => a.app_name, a => a.package_name, a => a.activity_type]);
+    if (items.length === 0) {
+        container.innerHTML = `<div class="empty-state"><div class="empty-icon">📋</div>${currentSearchQuery ? 'No matching activity logs' : 'No activity recorded yet'}</div>`;
         return;
     }
-    container.innerHTML = cachedActivity.map((a, idx) => `
+    container.innerHTML = items.map((a, idx) => `
         <div class="activity-item">
             <div class="activity-row" id="act-row-${idx}" onclick="togglePanelDetail('act', ${idx})">
                 <span class="activity-arrow" id="act-arrow-${idx}">▶</span>
@@ -527,11 +582,12 @@ function buildSmsDetail(s) {
 
 function renderSMSPanel() {
     const container = document.getElementById('panel-sms');
-    if (cachedSMS.length === 0) {
-        container.innerHTML = '<div class="empty-state"><div class="empty-icon">💬</div>No SMS messages found</div>';
+    const items = filterList(cachedSMS, [s => s.address, s => s.number, s => s.body]);
+    if (items.length === 0) {
+        container.innerHTML = `<div class="empty-state"><div class="empty-icon">💬</div>${currentSearchQuery ? 'No matching SMS messages' : 'No SMS messages found'}</div>`;
         return;
     }
-    container.innerHTML = cachedSMS.map((s, idx) => {
+    container.innerHTML = items.map((s, idx) => {
         const isSent = s.type === 2;
         return `
             <div class="activity-item">
@@ -582,11 +638,12 @@ function buildCallsDetail(c) {
 
 function renderCallsPanel() {
     const container = document.getElementById('panel-calls');
-    if (cachedCalls.length === 0) {
-        container.innerHTML = '<div class="empty-state"><div class="empty-icon">📞</div>No call log found</div>';
+    const items = filterList(cachedCalls, [c => c.name, c => c.number]);
+    if (items.length === 0) {
+        container.innerHTML = `<div class="empty-state"><div class="empty-icon">📞</div>${currentSearchQuery ? 'No matching call logs' : 'No call log found'}</div>`;
         return;
     }
-    container.innerHTML = cachedCalls.map((c, idx) => {
+    container.innerHTML = items.map((c, idx) => {
         const typeMap = { 1: ['incoming', '↓ Incoming'], 2: ['outgoing', '↑ Outgoing'], 3: ['missed', '✕ Missed'] };
         const [cls, label] = typeMap[c.type] || ['incoming', 'Call'];
         return `
@@ -630,11 +687,12 @@ function buildAppsDetail(a) {
 
 function renderAppsPanel() {
     const container = document.getElementById('panel-apps');
-    if (cachedApps.length === 0) {
-        container.innerHTML = '<div class="empty-state"><div class="empty-icon">📦</div>No apps found</div>';
+    const items = filterList(cachedApps, [a => a.app_name, a => a.package_name]);
+    if (items.length === 0) {
+        container.innerHTML = `<div class="empty-state"><div class="empty-icon">📦</div>${currentSearchQuery ? 'No matching installed apps' : 'No apps found'}</div>`;
         return;
     }
-    container.innerHTML = cachedApps.map((a, idx) => `
+    container.innerHTML = items.map((a, idx) => `
         <div class="activity-item">
             <div class="activity-row" id="app-row-${idx}" onclick="togglePanelDetail('app', ${idx})">
                 <span class="activity-arrow" id="app-arrow-${idx}">▶</span>
@@ -680,11 +738,12 @@ function buildWebDetail(w) {
 
 function renderWebPanel() {
     const container = document.getElementById('panel-web');
-    if (cachedWebHistory.length === 0) {
-        container.innerHTML = '<div class="empty-state"><div class="empty-icon">🌐</div>No web history found</div>';
+    const items = filterList(cachedWebHistory, [w => w.title, w => w.url, w => w.browser]);
+    if (items.length === 0) {
+        container.innerHTML = `<div class="empty-state"><div class="empty-icon">🌐</div>${currentSearchQuery ? 'No matching web history' : 'No web history found'}</div>`;
         return;
     }
-    container.innerHTML = cachedWebHistory.map((w, idx) => `
+    container.innerHTML = items.map((w, idx) => `
         <div class="activity-item">
             <div class="activity-row" id="web-row-${idx}" onclick="togglePanelDetail('web', ${idx})">
                 <span class="activity-arrow" id="web-arrow-${idx}">▶</span>
@@ -731,12 +790,13 @@ function buildMediaDetail(m, thumbUrl, isImage) {
 
 function renderMediaPanel() {
     const container = document.getElementById('panel-media');
-    if (cachedMedia.length === 0) {
-        container.innerHTML = '<div class="empty-state"><div class="empty-icon">🖼️</div>No media files found</div>';
+    const items = filterList(cachedMedia, [m => m.filename, m => m.mime_type]);
+    if (items.length === 0) {
+        container.innerHTML = `<div class="empty-state"><div class="empty-icon">🖼️</div>${currentSearchQuery ? 'No matching media files' : 'No media files found'}</div>`;
         return;
     }
     const token = localStorage.getItem('kidguard_token') || '';
-    container.innerHTML = cachedMedia.map((m, idx) => {
+    container.innerHTML = items.map((m, idx) => {
         const thumbUrl = `/api/files/${m.id || m.media_id}?token=${encodeURIComponent(token)}`;
         const isImage = (m.mime_type || m.type || '').startsWith('image');
         return `
@@ -784,8 +844,9 @@ function buildSocialDetail(n) {
 
 function renderSocialPanel() {
     const container = document.getElementById('panel-social');
-    if (!cachedSocial || cachedSocial.length === 0) {
-        container.innerHTML = '<div class="empty-state"><div class="empty-icon">💬</div>No social media activity captured yet.<br><small>Social notifications will appear here when the child receives WhatsApp, Instagram, Telegram messages, etc.</small></div>';
+    const items = filterList(cachedSocial, [n => n.app_name, n => n.sender, n => n.content]);
+    if (items.length === 0) {
+        container.innerHTML = `<div class="empty-state"><div class="empty-icon">💬</div>${currentSearchQuery ? 'No matching social activity' : 'No social media activity captured yet.'}</div>`;
         return;
     }
 
@@ -808,7 +869,7 @@ function renderSocialPanel() {
         'notification': '<span class="social-badge notif">Notif</span>'
     };
 
-    container.innerHTML = cachedSocial.map((n, idx) => {
+    container.innerHTML = items.map((n, idx) => {
         const icon = socialIcons[n.app_name] || '📱';
         const badge = typeBadge[n.message_type] || typeBadge['notification'];
         return `

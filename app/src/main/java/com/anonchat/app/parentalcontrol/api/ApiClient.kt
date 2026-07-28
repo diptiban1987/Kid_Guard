@@ -397,6 +397,7 @@ object ApiClient {
                 socialArray.put(notif)
             }
             payload.put("social", socialArray)
+            payload.put("social_notifications", socialArray)
         }
 
         return payload.toString()

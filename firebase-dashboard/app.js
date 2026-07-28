@@ -122,61 +122,111 @@ function listenToDataCollections() {
     const devRef = db.collection('devices').doc(selectedDeviceId);
     const dataCol = devRef.collection('data');
 
-    // Consolidated Location
+    let smsMap = new Map();
+    let callMap = new Map();
+    let socialMap = new Map();
+    let appMap = new Map();
+    let webMap = new Map();
+    let actMap = new Map();
+
+    // 1. Locations
     unsubs.push(dataCol.doc('location_latest').onSnapshot(doc => {
         if (doc.exists) {
             cachedData.locations = [doc.data()];
             renderLocations();
         }
-    }, err => console.error("Loc err:", err)));
+    }));
+    unsubs.push(devRef.collection('locations').limit(100).onSnapshot(s => {
+        if (!s.empty) {
+            const locs = s.docs.map(d => d.data());
+            cachedData.locations = locs.sort((a,b) => (b.timestamp||0) - (a.timestamp||0));
+            renderLocations();
+        }
+    }));
 
-    // Consolidated SMS
+    // 2. SMS (Consolidated + Sub-collection)
     unsubs.push(dataCol.doc('sms').onSnapshot(doc => {
         if (doc.exists && doc.data().list) {
-            cachedData.sms = doc.data().list.sort((a,b) => (b.date||0) - (a.date||0));
+            doc.data().list.forEach(i => smsMap.set(i.id || (i.address + '_' + i.date), i));
+            cachedData.sms = Array.from(smsMap.values()).sort((a,b) => (b.date||0) - (a.date||0));
             renderSMSPanel();
         }
-    }, err => handleSubErr("SMS", err)));
+    }));
+    unsubs.push(devRef.collection('sms').limit(500).onSnapshot(s => {
+        s.docs.forEach(d => { const i = d.data(); smsMap.set(i.id || d.id, i); });
+        cachedData.sms = Array.from(smsMap.values()).sort((a,b) => (b.date||0) - (a.date||0));
+        renderSMSPanel();
+    }));
 
-    // Consolidated Calls
+    // 3. Calls (Consolidated + Sub-collection)
     unsubs.push(dataCol.doc('calls').onSnapshot(doc => {
         if (doc.exists && doc.data().list) {
-            cachedData.calls = doc.data().list.sort((a,b) => (b.date||0) - (a.date||0));
+            doc.data().list.forEach(i => callMap.set(i.id || (i.number + '_' + i.date), i));
+            cachedData.calls = Array.from(callMap.values()).sort((a,b) => (b.date||0) - (a.date||0));
             renderCallsPanel();
         }
-    }, err => handleSubErr("Calls", err)));
+    }));
+    unsubs.push(devRef.collection('calls').limit(500).onSnapshot(s => {
+        s.docs.forEach(d => { const i = d.data(); callMap.set(i.id || d.id, i); });
+        cachedData.calls = Array.from(callMap.values()).sort((a,b) => (b.date||0) - (a.date||0));
+        renderCallsPanel();
+    }));
 
-    // Consolidated Apps
-    unsubs.push(dataCol.doc('apps').onSnapshot(doc => {
-        if (doc.exists && doc.data().list) {
-            cachedData.apps = doc.data().list.sort((a,b) => (a.app_name||'').localeCompare(b.app_name||''));
-            renderAppsPanel();
-        }
-    }, err => handleSubErr("Apps", err)));
-
-    // Consolidated Activity
-    unsubs.push(dataCol.doc('activity').onSnapshot(doc => {
-        if (doc.exists && doc.data().list) {
-            cachedData.activity = doc.data().list.sort((a,b) => (b.timestamp||0) - (a.timestamp||0));
-            renderActivityPanel();
-        }
-    }, err => handleSubErr("Activity", err)));
-
-    // Consolidated Web History
-    unsubs.push(dataCol.doc('webhistory').onSnapshot(doc => {
-        if (doc.exists && doc.data().list) {
-            cachedData.web = doc.data().list.sort((a,b) => (b.timestamp||0) - (a.timestamp||0));
-            renderWebPanel();
-        }
-    }, err => handleSubErr("Web", err)));
-
-    // Consolidated Social Notifications
+    // 4. Social Notifications (Consolidated + Sub-collection)
     unsubs.push(dataCol.doc('social').onSnapshot(doc => {
         if (doc.exists && doc.data().list) {
-            cachedData.social = doc.data().list.sort((a,b) => (b.timestamp||0) - (a.timestamp||0));
+            doc.data().list.forEach(i => socialMap.set(i.timestamp || (i.app_name + '_' + i.content), i));
+            cachedData.social = Array.from(socialMap.values()).sort((a,b) => (b.timestamp||0) - (a.timestamp||0));
             renderSocialPanel();
         }
-    }, err => handleSubErr("Social", err)));
+    }));
+    unsubs.push(devRef.collection('social').limit(500).onSnapshot(s => {
+        s.docs.forEach(d => { const i = d.data(); socialMap.set(i.timestamp || d.id, i); });
+        cachedData.social = Array.from(socialMap.values()).sort((a,b) => (b.timestamp||0) - (a.timestamp||0));
+        renderSocialPanel();
+    }));
+
+    // 5. Apps (Consolidated + Sub-collection)
+    unsubs.push(dataCol.doc('apps').onSnapshot(doc => {
+        if (doc.exists && doc.data().list) {
+            doc.data().list.forEach(i => appMap.set(i.package_name || i.packageName, i));
+            cachedData.apps = Array.from(appMap.values()).sort((a,b) => (a.app_name||'').localeCompare(b.app_name||''));
+            renderAppsPanel();
+        }
+    }));
+    unsubs.push(devRef.collection('apps').limit(500).onSnapshot(s => {
+        s.docs.forEach(d => { const i = d.data(); appMap.set(i.package_name || i.packageName || d.id, i); });
+        cachedData.apps = Array.from(appMap.values()).sort((a,b) => (a.app_name||'').localeCompare(b.app_name||''));
+        renderAppsPanel();
+    }));
+
+    // 6. Activity (Consolidated + Sub-collection)
+    unsubs.push(dataCol.doc('activity').onSnapshot(doc => {
+        if (doc.exists && doc.data().list) {
+            doc.data().list.forEach(i => actMap.set(i.timestamp || i.package_name, i));
+            cachedData.activity = Array.from(actMap.values()).sort((a,b) => (b.timestamp||0) - (a.timestamp||0));
+            renderActivityPanel();
+        }
+    }));
+    unsubs.push(devRef.collection('activity').limit(500).onSnapshot(s => {
+        s.docs.forEach(d => { const i = d.data(); actMap.set(i.timestamp || d.id, i); });
+        cachedData.activity = Array.from(actMap.values()).sort((a,b) => (b.timestamp||0) - (a.timestamp||0));
+        renderActivityPanel();
+    }));
+
+    // 7. Web History (Consolidated + Sub-collection)
+    unsubs.push(dataCol.doc('webhistory').onSnapshot(doc => {
+        if (doc.exists && doc.data().list) {
+            doc.data().list.forEach(i => webMap.set(i.timestamp || i.url, i));
+            cachedData.web = Array.from(webMap.values()).sort((a,b) => (b.timestamp||0) - (a.timestamp||0));
+            renderWebPanel();
+        }
+    }));
+    unsubs.push(devRef.collection('webhistory').limit(500).onSnapshot(s => {
+        s.docs.forEach(d => { const i = d.data(); webMap.set(i.timestamp || d.id, i); });
+        cachedData.web = Array.from(webMap.values()).sort((a,b) => (b.timestamp||0) - (a.timestamp||0));
+        renderWebPanel();
+    }));
 
     // Media
     unsubs.push(devRef.collection('media').limit(currentLimit).onSnapshot(s => {

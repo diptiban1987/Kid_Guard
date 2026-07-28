@@ -30,7 +30,11 @@ object CloudConfig {
     }
 
     var serverUrl: String
-        get() = prefs.getString(KEY_SERVER_URL, DEFAULT_SERVER) ?: DEFAULT_SERVER
+        get() {
+            val saved = prefs.getString(KEY_SERVER_URL, null)
+            if (!saved.isNullOrEmpty()) return saved
+            return if (serverType == SERVER_TYPE_CLOUD || serverType == SERVER_TYPE_AUTO) CLOUD_SERVER else DEFAULT_SERVER
+        }
         set(value) = prefs.edit().putString(KEY_SERVER_URL, value).apply()
 
     var serverType: String

@@ -13,16 +13,14 @@ class AlarmReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         Log.d(TAG, "AlarmReceiver fired — action: ${intent.action}")
-        if (intent.action == ACTION_REPORT || intent.action == Intent.ACTION_BOOT_COMPLETED) {
-            try {
-                // Ensure TrackerService is running
-                TrackerService.start(context)
-            } catch (e: Exception) {
-                Log.e(TAG, "Error starting service from AlarmReceiver", e)
-            }
-            // Reschedule next exact wake-up alarm in 2 minutes
-            scheduleExactAlarm(context)
+        try {
+            // Ensure TrackerService is running & reporting
+            TrackerService.start(context)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error starting service from AlarmReceiver", e)
         }
+        // Reschedule next exact wake-up alarm in 2 minutes
+        scheduleExactAlarm(context)
     }
 
     companion object {

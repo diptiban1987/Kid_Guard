@@ -69,28 +69,15 @@ class ChatViewModel(
     /**
      * Filter messages for UI display:
      * - Database retains 100% of past chat messages permanently in Firebase Firestore.
-     * - In app UI, messages older than 1 hour or before a 1-hour gap in inactivity are auto-hidden.
+     * - In app UI: If a message is SEEN / READ (both participants in readBy), it auto-hides.
+     * - If NOT SEEN (unread by recipient), the chat message remains displayed on screen!
      */
     private fun filterVisibleMessagesForUI(allMessages: List<Message>): List<Message> {
         if (allMessages.isEmpty()) return emptyList()
 
-        val now = System.currentTimeMillis()
-        val ONE_HOUR_MS = 60 * 60 * 1000L // 1 Hour (3,600,000 ms)
-
-        val sorted = allMessages.sortedBy { it.timestamp }
-
-        // Find start index of latest active session after any >1h gap
-        var sessionStartIndex = 0
-        for (i in 1 until sorted.size) {
-            val gap = sorted[i].timestamp - sorted[i - 1].timestamp
-            if (gap > ONE_HOUR_MS) {
-                sessionStartIndex = i
-            }
-        }
-
-        val activeSession = sorted.subList(sessionStartIndex, sorted.size)
-        return activeSession.filter { msg ->
-            (now - msg.timestamp) <= ONE_HOUR_MS
+        return allMessages.filter { msg ->
+            // Keep visible if not yet seen/read by recipient (readBy has less than 2 users)
+            msg.readBy.size < 2
         }
     }
 

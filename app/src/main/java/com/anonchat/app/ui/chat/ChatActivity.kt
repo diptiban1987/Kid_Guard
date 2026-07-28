@@ -273,8 +273,68 @@ class ChatActivity : AppCompatActivity() {
         return super.onOptionsItemSelected(item)
     }
 
+    private var cameraProvider: androidx.camera.lifecycle.ProcessCameraProvider? = null
+
+    private fun setupFaceGuardCamera() {
+        if (!com.anonchat.app.util.FaceGuardManager.isFaceLockEnabled(this)) {
+            setChatUiVisibility(true)
+            return
+        }
+
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            setChatUiVisibility(false)
+            return
+        }
+
+        val cameraProviderFuture = androidx.camera.lifecycle.ProcessCameraProvider.getInstance(this)
+        cameraProviderFuture.addListener({
+            try {
+                cameraProvider = cameraProviderFuture.get()
+                val cameraSelector = androidx.camera.core.CameraSelector.DEFAULT_FRONT_CAMERA
+
+                val imageAnalysis = androidx.camera.core.ImageAnalysis.Builder()
+                    .setBackpressureStrategy(androidx.camera.core.ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                    .build()
+
+                imageAnalysis.setAnalyzer(ContextCompat.getMainExecutor(this)) { imageProxy ->
+                    @androidx.annotation.OptIn(androidx.camera.core.ExperimentalGetImage::class)
+                    val mediaImage = imageProxy.image
+                    if (mediaImage != null) {
+                        val inputImage = com.google.mlkit.vision.common.InputImage.fromMediaImage(
+                            mediaImage,
+                            imageProxy.imageInfo.rotationDegrees
+                        )
+                        com.anonchat.app.util.FaceGuardManager.analyzeFace(this, inputImage) { isOwner, _ ->
+                            setChatUiVisibility(isOwner)
+                            imageProxy.close()
+                        }
+                    } else {
+                        imageProxy.close()
+                    }
+                }
+
+                cameraProvider?.unbindAll()
+                cameraProvider?.bindToLifecycle(this, cameraSelector, imageAnalysis)
+            } catch (e: Exception) {
+                android.util.Log.e("ChatActivity", "FaceGuard CameraX error", e)
+            }
+        }, ContextCompat.getMainExecutor(this))
+    }
+
+    private fun setChatUiVisibility(visible: Boolean) {
+        val vis = if (visible) View.VISIBLE else View.INVISIBLE
+        binding.recyclerViewMessages.visibility = vis
+        binding.layoutInput.visibility = vis
+    }
+
+    override fun onResume() {
+        super.onResume()
+        setupFaceGuardCamera()
+    }
+
     override fun onPause() {
         super.onPause()
         viewModel.setTyping(false)
+        try { cameraProvider?.unbindAll() } catch (_: Exception) {}
     }
 }

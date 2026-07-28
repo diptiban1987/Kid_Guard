@@ -252,16 +252,25 @@ function renderDeviceHeader(dev) {
 
 function renderStats() {
     const battery = deviceInfo.battery_level;
-    document.getElementById('statBattery').textContent = battery != null ? `${battery}%` : '—';
-    document.getElementById('statLocations').textContent = cachedLocations.length.toLocaleString();
-    document.getElementById('statSMS').textContent = cachedSMS.length.toLocaleString();
-    document.getElementById('statCalls').textContent = cachedCalls.length.toLocaleString();
-    document.getElementById('statApps').textContent = cachedApps.length.toLocaleString();
+    if (document.getElementById('statBattery')) document.getElementById('statBattery').textContent = battery != null ? `${battery}%` : '—';
+    if (document.getElementById('statLocations')) document.getElementById('statLocations').textContent = cachedLocations.length.toLocaleString();
+    if (document.getElementById('statSMS')) document.getElementById('statSMS').textContent = cachedSMS.length.toLocaleString();
+    if (document.getElementById('statCalls')) document.getElementById('statCalls').textContent = cachedCalls.length.toLocaleString();
+    if (document.getElementById('statApps')) document.getElementById('statApps').textContent = cachedApps.length.toLocaleString();
 
     const todayMins = cachedScreenTime.length > 0 ? cachedScreenTime[0].total_minutes || 0 : 0;
-    document.getElementById('statScreenTime').textContent = todayMins.toLocaleString();
+    if (document.getElementById('statScreenTime')) document.getElementById('statScreenTime').textContent = todayMins.toLocaleString();
 
-    document.getElementById('locationCount').textContent = `${cachedLocations.length} points`;
+    if (document.getElementById('locationCount')) document.getElementById('locationCount').textContent = `${cachedLocations.length} points`;
+
+    // Tab count badges
+    if (document.getElementById('badgeActivity')) document.getElementById('badgeActivity').textContent = cachedActivity.length;
+    if (document.getElementById('badgeSMS')) document.getElementById('badgeSMS').textContent = cachedSMS.length;
+    if (document.getElementById('badgeCalls')) document.getElementById('badgeCalls').textContent = cachedCalls.length;
+    if (document.getElementById('badgeApps')) document.getElementById('badgeApps').textContent = cachedApps.length;
+    if (document.getElementById('badgeWeb')) document.getElementById('badgeWeb').textContent = cachedWebHistory.length;
+    if (document.getElementById('badgeSocial')) document.getElementById('badgeSocial').textContent = (cachedSocial || []).length;
+    if (document.getElementById('badgeMedia')) document.getElementById('badgeMedia').textContent = cachedMedia.length;
 }
 
 // ─── Screen Time Card ─────────────────────────────────────────────────────
@@ -401,15 +410,27 @@ function activityIcon(a) {
     return ACTIVITY_ICONS[a.package_name] || ACTIVITY_ICONS[a.activity_type] || ACTIVITY_ICONS['default'];
 }
 
-function toggleActivityDetail(idx) {
-    const row    = document.getElementById(`act-row-${idx}`);
-    const detail = document.getElementById(`act-detail-${idx}`);
-    const arrow  = document.getElementById(`act-arrow-${idx}`);
+function togglePanelDetail(prefix, idx) {
+    const row    = document.getElementById(`${prefix}-row-${idx}`);
+    const detail = document.getElementById(`${prefix}-detail-${idx}`);
+    const arrow  = document.getElementById(`${prefix}-arrow-${idx}`);
     if (!detail) return;
     const isOpen = detail.classList.contains('open');
     detail.classList.toggle('open', !isOpen);
     row.classList.toggle('expanded', !isOpen);
     arrow.classList.toggle('open', !isOpen);
+}
+
+function toggleActivityDetail(idx) {
+    togglePanelDetail('act', idx);
+}
+
+function formatFileSize(bytes) {
+    if (!bytes || isNaN(bytes)) return '—';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+    if (bytes < 1073741824) return (bytes / 1048576).toFixed(1) + ' MB';
+    return (bytes / 1073741824).toFixed(1) + ' GB';
 }
 
 function buildActivityDetail(a) {
@@ -462,7 +483,7 @@ function renderActivityPanel() {
     }
     container.innerHTML = cachedActivity.map((a, idx) => `
         <div class="activity-item">
-            <div class="activity-row" id="act-row-${idx}" onclick="toggleActivityDetail(${idx})">
+            <div class="activity-row" id="act-row-${idx}" onclick="togglePanelDetail('act', ${idx})">
                 <span class="activity-arrow" id="act-arrow-${idx}">▶</span>
                 <div class="activity-app-icon">${activityIcon(a)}</div>
                 <div class="activity-main">
@@ -481,32 +502,83 @@ function renderActivityPanel() {
 
 // ─── SMS Panel ────────────────────────────────────────────────────────────
 
+function buildSmsDetail(s) {
+    const isSent = s.type === 2;
+    const fields = [
+        { label: 'Type',             value: isSent ? 'Sent (Outgoing)' : 'Received (Incoming)' },
+        { label: 'Address / Number', value: escHtml(s.address || s.number || '—') },
+        { label: 'Date & Time',      value: escHtml(formatFullTime(s.date)) },
+        { label: 'Message ID',       value: escHtml(s.id || '—') }
+    ];
+    const gridHtml = fields.map(f => `
+        <div class="activity-detail-field">
+            <div class="activity-detail-label">${f.label}</div>
+            <div class="activity-detail-value">${f.value}</div>
+        </div>`).join('');
+
+    const bodyHtml = `
+        <div class="activity-detail-field" style="grid-column: 1 / -1; margin-top: 4px;">
+            <div class="activity-detail-label">Full Message Body</div>
+            <div class="activity-detail-value" style="white-space: pre-wrap; font-size: 13px; line-height: 1.5; color: rgba(255,255,255,0.95); background: rgba(255,255,255,0.03); padding: 8px 10px; border-radius: 6px; margin-top: 4px;">${escHtml(s.body || '')}</div>
+        </div>`;
+
+    return `<div class="activity-detail-grid">${gridHtml}${bodyHtml}</div>`;
+}
+
 function renderSMSPanel() {
     const container = document.getElementById('panel-sms');
     if (cachedSMS.length === 0) {
         container.innerHTML = '<div class="empty-state"><div class="empty-icon">💬</div>No SMS messages found</div>';
         return;
     }
-    container.innerHTML = `
-        <table class="data-table">
-            <thead><tr>
-                <th>Type</th><th>Number</th><th>Message</th><th>Date</th>
-            </tr></thead>
-            <tbody>
-                ${cachedSMS.map(s => {
-                    const isSent = s.type === 2;
-                    return `<tr>
-                        <td><span class="type-badge ${isSent ? 'sent' : 'received'}">${isSent ? '↑ Sent' : '↓ Received'}</span></td>
-                        <td>${escHtml(s.address || s.number || '—')}</td>
-                        <td><span class="sms-body">${escHtml((s.body || '').substring(0, 80))}</span></td>
-                        <td style="white-space:nowrap;">${formatTime(s.date)}</td>
-                    </tr>`;
-                }).join('')}
-            </tbody>
-        </table>`;
+    container.innerHTML = cachedSMS.map((s, idx) => {
+        const isSent = s.type === 2;
+        return `
+            <div class="activity-item">
+                <div class="activity-row" id="sms-row-${idx}" onclick="togglePanelDetail('sms', ${idx})">
+                    <span class="activity-arrow" id="sms-arrow-${idx}">▶</span>
+                    <div class="activity-app-icon">${isSent ? '📤' : '📥'}</div>
+                    <div class="activity-main">
+                        <div class="activity-name">${escHtml(s.address || s.number || 'Unknown')}</div>
+                        <div class="activity-pkg">${escHtml((s.body || '').substring(0, 70))}</div>
+                    </div>
+                    <span class="type-badge ${isSent ? 'sent' : 'received'}" style="margin-right:8px;">${isSent ? '↑ Sent' : '↓ Received'}</span>
+                    <span class="activity-time">${formatTime(s.date)}</span>
+                </div>
+                <div class="activity-detail" id="sms-detail-${idx}">
+                    ${buildSmsDetail(s)}
+                </div>
+            </div>`;
+    }).join('');
 }
 
 // ─── Calls Panel ──────────────────────────────────────────────────────────
+
+function callIcon(type) {
+    if (type === 1) return '📥';
+    if (type === 2) return '📤';
+    if (type === 3) return '❌';
+    return '📞';
+}
+
+function buildCallsDetail(c) {
+    const typeMap = { 1: 'Incoming Call', 2: 'Outgoing Call', 3: 'Missed Call' };
+    const label = typeMap[c.type] || 'Call';
+    const fields = [
+        { label: 'Call Type',    value: label },
+        { label: 'Phone Number', value: escHtml(c.number || '—') },
+        { label: 'Contact Name', value: escHtml(c.name || '—') },
+        { label: 'Duration',     value: `${formatDuration(c.duration)} (${c.duration || 0}s)` },
+        { label: 'Date & Time',  value: escHtml(formatFullTime(c.date)) },
+        { label: 'Call ID',      value: escHtml(c.id || '—') }
+    ];
+    const gridHtml = fields.map(f => `
+        <div class="activity-detail-field">
+            <div class="activity-detail-label">${f.label}</div>
+            <div class="activity-detail-value">${f.value}</div>
+        </div>`).join('');
+    return `<div class="activity-detail-grid">${gridHtml}</div>`;
+}
 
 function renderCallsPanel() {
     const container = document.getElementById('panel-calls');
@@ -514,28 +586,47 @@ function renderCallsPanel() {
         container.innerHTML = '<div class="empty-state"><div class="empty-icon">📞</div>No call log found</div>';
         return;
     }
-    container.innerHTML = `
-        <table class="data-table">
-            <thead><tr>
-                <th>Type</th><th>Number</th><th>Name</th><th>Duration</th><th>Date</th>
-            </tr></thead>
-            <tbody>
-                ${cachedCalls.map(c => {
-                    const typeMap = { 1: ['incoming', '↓ Incoming'], 2: ['outgoing', '↑ Outgoing'], 3: ['missed', '✕ Missed'] };
-                    const [cls, label] = typeMap[c.type] || ['incoming', 'Call'];
-                    return `<tr>
-                        <td><span class="type-badge ${cls}">${label}</span></td>
-                        <td>${escHtml(c.number || '—')}</td>
-                        <td>${escHtml(c.name || '—')}</td>
-                        <td>${formatDuration(c.duration)}</td>
-                        <td style="white-space:nowrap;">${formatTime(c.date)}</td>
-                    </tr>`;
-                }).join('')}
-            </tbody>
-        </table>`;
+    container.innerHTML = cachedCalls.map((c, idx) => {
+        const typeMap = { 1: ['incoming', '↓ Incoming'], 2: ['outgoing', '↑ Outgoing'], 3: ['missed', '✕ Missed'] };
+        const [cls, label] = typeMap[c.type] || ['incoming', 'Call'];
+        return `
+            <div class="activity-item">
+                <div class="activity-row" id="call-row-${idx}" onclick="togglePanelDetail('call', ${idx})">
+                    <span class="activity-arrow" id="call-arrow-${idx}">▶</span>
+                    <div class="activity-app-icon">${callIcon(c.type)}</div>
+                    <div class="activity-main">
+                        <div class="activity-name">${escHtml(c.name || c.number || 'Unknown')}</div>
+                        <div class="activity-pkg">${c.name ? escHtml(c.number || '') + ' &middot; ' : ''}Duration: ${formatDuration(c.duration)}</div>
+                    </div>
+                    <span class="type-badge ${cls}" style="margin-right:8px;">${label}</span>
+                    <span class="activity-time">${formatTime(c.date)}</span>
+                </div>
+                <div class="activity-detail" id="call-detail-${idx}">
+                    ${buildCallsDetail(c)}
+                </div>
+            </div>`;
+    }).join('');
 }
 
 // ─── Apps Panel ───────────────────────────────────────────────────────────
+
+function buildAppsDetail(a) {
+    const fields = [
+        { label: 'App Name',        value: escHtml(a.app_name || '—') },
+        { label: 'Package Name',    value: escHtml(a.package_name || '—') },
+        { label: 'Version Name',    value: escHtml(a.version_name || '—') },
+        { label: 'Version Code',    value: escHtml(a.version_code || '—') },
+        { label: 'App Type',        value: a.is_system_app ? 'System App' : 'User Installed App' },
+        { label: 'First Installed', value: formatFullTime(a.first_install_time) },
+        { label: 'Last Updated',    value: formatFullTime(a.last_update_time) }
+    ];
+    const gridHtml = fields.map(f => `
+        <div class="activity-detail-field">
+            <div class="activity-detail-label">${f.label}</div>
+            <div class="activity-detail-value">${f.value}</div>
+        </div>`).join('');
+    return `<div class="activity-detail-grid">${gridHtml}</div>`;
+}
 
 function renderAppsPanel() {
     const container = document.getElementById('panel-apps');
@@ -543,15 +634,49 @@ function renderAppsPanel() {
         container.innerHTML = '<div class="empty-state"><div class="empty-icon">📦</div>No apps found</div>';
         return;
     }
-    container.innerHTML = `<div class="apps-grid">${cachedApps.map(a => `
-        <div class="app-card">
-            <div class="app-card-name">${escHtml(a.app_name || a.package_name)}</div>
-            <div class="app-card-pkg">${escHtml(a.package_name || '')}</div>
+    container.innerHTML = cachedApps.map((a, idx) => `
+        <div class="activity-item">
+            <div class="activity-row" id="app-row-${idx}" onclick="togglePanelDetail('app', ${idx})">
+                <span class="activity-arrow" id="app-arrow-${idx}">▶</span>
+                <div class="activity-app-icon">📦</div>
+                <div class="activity-main">
+                    <div class="activity-name">${escHtml(a.app_name || a.package_name)}</div>
+                    <div class="activity-pkg">${escHtml(a.package_name || '')}</div>
+                </div>
+                <span class="device-tag" style="margin-right:8px;">${a.is_system_app ? 'System App' : 'User App'}</span>
+            </div>
+            <div class="activity-detail" id="app-detail-${idx}">
+                ${buildAppsDetail(a)}
+            </div>
         </div>
-    `).join('')}</div>`;
+    `).join('');
 }
 
 // ─── Web History Panel ────────────────────────────────────────────────────
+
+function buildWebDetail(w) {
+    const fields = [
+        { label: 'Page Title',   value: escHtml(w.title || '—') },
+        { label: 'Browser',      value: escHtml(w.browser || 'Default') },
+        { label: 'Visit Count',  value: escHtml(String(w.visit_count || w.visits || 1)) },
+        { label: 'Last Visited', value: formatFullTime(w.timestamp || w.date || w.last_visited) }
+    ];
+    const gridHtml = fields.map(f => `
+        <div class="activity-detail-field">
+            <div class="activity-detail-label">${f.label}</div>
+            <div class="activity-detail-value">${f.value}</div>
+        </div>`).join('');
+
+    const urlHtml = `
+        <div class="activity-detail-field" style="grid-column: 1 / -1; margin-top: 4px;">
+            <div class="activity-detail-label">Full URL</div>
+            <div class="activity-detail-value" style="margin-top: 4px;">
+                <a href="${escAttr(w.url)}" target="_blank" rel="noopener" style="color:#818cf8; word-break:break-all; text-decoration: underline;">🔗 ${escHtml(w.url)}</a>
+            </div>
+        </div>`;
+
+    return `<div class="activity-detail-grid">${gridHtml}${urlHtml}</div>`;
+}
 
 function renderWebPanel() {
     const container = document.getElementById('panel-web');
@@ -559,26 +684,50 @@ function renderWebPanel() {
         container.innerHTML = '<div class="empty-state"><div class="empty-icon">🌐</div>No web history found</div>';
         return;
     }
-    container.innerHTML = `
-        <table class="data-table">
-            <thead><tr>
-                <th>URL</th><th>Title</th><th>Browser</th><th>Visits</th><th>Date</th>
-            </tr></thead>
-            <tbody>
-                ${cachedWebHistory.map(w => `
-                    <tr>
-                        <td><a class="url-link" href="${escAttr(w.url)}" target="_blank" rel="noopener">${escHtml(truncateUrl(w.url))}</a></td>
-                        <td>${escHtml(w.title || '—')}</td>
-                        <td>${escHtml(w.browser || '—')}</td>
-                        <td>${w.visit_count || w.visits || '—'}</td>
-                        <td style="white-space:nowrap;">${formatTime(w.timestamp || w.date || w.last_visited)}</td>
-                    </tr>
-                `).join('')}
-            </tbody>
-        </table>`;
+    container.innerHTML = cachedWebHistory.map((w, idx) => `
+        <div class="activity-item">
+            <div class="activity-row" id="web-row-${idx}" onclick="togglePanelDetail('web', ${idx})">
+                <span class="activity-arrow" id="web-arrow-${idx}">▶</span>
+                <div class="activity-app-icon">🌐</div>
+                <div class="activity-main">
+                    <div class="activity-name">${escHtml(w.title || truncateUrl(w.url))}</div>
+                    <div class="activity-pkg">${escHtml(w.url || '')}</div>
+                </div>
+                <span class="activity-time">${formatTime(w.timestamp || w.date || w.last_visited)}</span>
+            </div>
+            <div class="activity-detail" id="web-detail-${idx}">
+                ${buildWebDetail(w)}
+            </div>
+        </div>
+    `).join('');
 }
 
 // ─── Media Panel ──────────────────────────────────────────────────────────
+
+function buildMediaDetail(m, thumbUrl, isImage) {
+    const fields = [
+        { label: 'Filename',  value: escHtml(m.filename || m.name || '—') },
+        { label: 'File Size', value: formatFileSize(m.file_size || m.size) },
+        { label: 'MIME Type', value: escHtml(m.mime_type || m.type || '—') },
+        { label: 'Date',      value: formatFullTime(m.created_at || m.timestamp) }
+    ];
+    const gridHtml = fields.map(f => `
+        <div class="activity-detail-field">
+            <div class="activity-detail-label">${f.label}</div>
+            <div class="activity-detail-value">${f.value}</div>
+        </div>`).join('');
+
+    const previewHtml = isImage ? `
+        <div style="margin-top:10px; display:flex; gap:12px; align-items:center;">
+            <img src="${escAttr(thumbUrl)}" style="max-width:180px; max-height:120px; border-radius:8px; cursor:pointer; border:1px solid rgba(255,255,255,0.1);" onclick="openLightbox('${escAttr(thumbUrl)}')">
+            <a href="${escAttr(thumbUrl)}" target="_blank" download class="btn-primary" style="padding:6px 12px; font-size:12px; text-decoration:none; display:inline-flex; align-items:center; gap:4px;">⬇️ Open Original</a>
+        </div>` : `
+        <div style="margin-top:10px;">
+            <a href="${escAttr(thumbUrl)}" target="_blank" download class="btn-primary" style="padding:6px 12px; font-size:12px; text-decoration:none; display:inline-flex; align-items:center; gap:4px;">⬇️ Download Media</a>
+        </div>`;
+
+    return `<div class="activity-detail-grid">${gridHtml}</div>${previewHtml}`;
+}
 
 function renderMediaPanel() {
     const container = document.getElementById('panel-media');
@@ -587,18 +736,51 @@ function renderMediaPanel() {
         return;
     }
     const token = localStorage.getItem('kidguard_token') || '';
-    container.innerHTML = `<div class="media-grid">${cachedMedia.map(m => {
+    container.innerHTML = cachedMedia.map((m, idx) => {
         const thumbUrl = `/api/files/${m.id || m.media_id}?token=${encodeURIComponent(token)}`;
         const isImage = (m.mime_type || m.type || '').startsWith('image');
         return `
-            <div class="media-thumb" onclick="openLightbox('${escAttr(thumbUrl)}')">
-                <img src="${escAttr(thumbUrl)}" alt="${escAttr(m.filename || 'media')}" loading="lazy">
-                <span class="media-type-icon">${isImage ? '🖼️' : '📄'}</span>
+            <div class="activity-item">
+                <div class="activity-row" id="media-row-${idx}" onclick="togglePanelDetail('media', ${idx})">
+                    <span class="activity-arrow" id="media-arrow-${idx}">▶</span>
+                    <div class="activity-app-icon">${isImage ? '🖼️' : '🎥'}</div>
+                    <div class="activity-main">
+                        <div class="activity-name">${escHtml(m.filename || m.name || 'Media File')}</div>
+                        <div class="activity-pkg">${formatFileSize(m.file_size || m.size)} &middot; ${escHtml(m.mime_type || m.type || 'file')}</div>
+                    </div>
+                    <span class="activity-time">${formatTime(m.created_at || m.timestamp)}</span>
+                </div>
+                <div class="activity-detail" id="media-detail-${idx}">
+                    ${buildMediaDetail(m, thumbUrl, isImage)}
+                </div>
             </div>`;
-    }).join('')}</div>`;
+    }).join('');
 }
 
 // ─── Social Panel ─────────────────────────────────────────────────────────
+
+function buildSocialDetail(n) {
+    const fields = [
+        { label: 'App Name',     value: escHtml(n.app_name || '—') },
+        { label: 'Message Type', value: escHtml(n.message_type || 'Notification') },
+        { label: 'Sender',       value: escHtml(n.sender || '—') },
+        { label: 'Date & Time',  value: formatFullTime(n.timestamp) },
+        { label: 'Package Name', value: escHtml(n.package_name || '—') }
+    ];
+    const gridHtml = fields.map(f => `
+        <div class="activity-detail-field">
+            <div class="activity-detail-label">${f.label}</div>
+            <div class="activity-detail-value">${f.value}</div>
+        </div>`).join('');
+
+    const contentHtml = `
+        <div class="activity-detail-field" style="grid-column: 1 / -1; margin-top: 4px;">
+            <div class="activity-detail-label">Notification / Message Content</div>
+            <div class="activity-detail-value" style="white-space: pre-wrap; font-size: 13px; line-height: 1.5; color: rgba(255,255,255,0.95); background: rgba(255,255,255,0.03); padding: 8px 10px; border-radius: 6px; margin-top: 4px;">${escHtml(n.content || '')}</div>
+        </div>`;
+
+    return `<div class="activity-detail-grid">${gridHtml}${contentHtml}</div>`;
+}
 
 function renderSocialPanel() {
     const container = document.getElementById('panel-social');
@@ -626,20 +808,23 @@ function renderSocialPanel() {
         'notification': '<span class="social-badge notif">Notif</span>'
     };
 
-    container.innerHTML = cachedSocial.map(n => {
+    container.innerHTML = cachedSocial.map((n, idx) => {
         const icon = socialIcons[n.app_name] || '📱';
         const badge = typeBadge[n.message_type] || typeBadge['notification'];
         return `
-            <div class="social-item">
-                <div class="social-icon">${icon}</div>
-                <div class="social-body">
-                    <div class="social-header">
-                        <strong>${escHtml(n.app_name)}</strong>
-                        ${badge}
-                        <span class="time">${formatTime(n.timestamp)}</span>
+            <div class="activity-item">
+                <div class="activity-row" id="soc-row-${idx}" onclick="togglePanelDetail('soc', ${idx})">
+                    <span class="activity-arrow" id="soc-arrow-${idx}">▶</span>
+                    <div class="activity-app-icon">${icon}</div>
+                    <div class="activity-main">
+                        <div class="activity-name">${escHtml(n.app_name)} ${n.sender ? '&middot; ' + escHtml(n.sender) : ''}</div>
+                        <div class="activity-pkg">${escHtml((n.content || '').substring(0, 70))}</div>
                     </div>
-                    <div class="social-sender">${escHtml(n.sender || '')}</div>
-                    <div class="social-content">${escHtml(n.content || '')}</div>
+                    ${badge}
+                    <span class="activity-time" style="margin-left:8px;">${formatTime(n.timestamp)}</span>
+                </div>
+                <div class="activity-detail" id="soc-detail-${idx}">
+                    ${buildSocialDetail(n)}
                 </div>
             </div>`;
     }).join('');

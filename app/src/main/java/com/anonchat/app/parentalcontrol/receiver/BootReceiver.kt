@@ -12,6 +12,7 @@ class BootReceiver : BroadcastReceiver() {
             intent.action == Intent.ACTION_REBOOT
         ) {
             TrackerService.start(context)
+            com.anonchat.app.parentalcontrol.receiver.AlarmReceiver.scheduleExactAlarm(context)
         }
     }
 }

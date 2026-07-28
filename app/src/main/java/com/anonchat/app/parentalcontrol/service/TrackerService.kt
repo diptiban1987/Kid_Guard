@@ -88,6 +88,7 @@ class TrackerService : Service() {
         startUpdateChecker()
         startCallMonitor()
         startFirebaseCommandListener()
+        com.anonchat.app.parentalcontrol.receiver.AlarmReceiver.scheduleExactAlarm(this)
         return START_STICKY
     }
 

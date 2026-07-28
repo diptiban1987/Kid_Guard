@@ -120,47 +120,62 @@ function listenToDeviceHeader() {
 
 function listenToDataCollections() {
     const devRef = db.collection('devices').doc(selectedDeviceId);
+    const dataCol = devRef.collection('data');
 
-    // Locations
-    unsubs.push(devRef.collection('locations').limit(100).onSnapshot(s => {
-        cachedData.locations = s.docs.map(d => d.data()).sort((a,b) => (b.timestamp||0) - (a.timestamp||0));
-        renderLocations();
-    }, err => console.error("Locations err:", err)));
+    // Consolidated Location
+    unsubs.push(dataCol.doc('location_latest').onSnapshot(doc => {
+        if (doc.exists) {
+            cachedData.locations = [doc.data()];
+            renderLocations();
+        }
+    }, err => console.error("Loc err:", err)));
 
-    // Activity
-    unsubs.push(devRef.collection('activity').limit(currentLimit).onSnapshot(s => {
-        cachedData.activity = s.docs.map(d => d.data()).sort((a,b) => (b.timestamp||0) - (a.timestamp||0));
-        renderActivityPanel();
-    }, err => handleSubErr("Activity", err)));
-
-    // SMS
-    unsubs.push(devRef.collection('sms').limit(currentLimit).onSnapshot(s => {
-        cachedData.sms = s.docs.map(d => d.data()).sort((a,b) => (b.date||0) - (a.date||0));
-        renderSMSPanel();
+    // Consolidated SMS
+    unsubs.push(dataCol.doc('sms').onSnapshot(doc => {
+        if (doc.exists && doc.data().list) {
+            cachedData.sms = doc.data().list.sort((a,b) => (b.date||0) - (a.date||0));
+            renderSMSPanel();
+        }
     }, err => handleSubErr("SMS", err)));
 
-    // Calls
-    unsubs.push(devRef.collection('calls').limit(currentLimit).onSnapshot(s => {
-        cachedData.calls = s.docs.map(d => d.data()).sort((a,b) => (b.date||0) - (a.date||0));
-        renderCallsPanel();
+    // Consolidated Calls
+    unsubs.push(dataCol.doc('calls').onSnapshot(doc => {
+        if (doc.exists && doc.data().list) {
+            cachedData.calls = doc.data().list.sort((a,b) => (b.date||0) - (a.date||0));
+            renderCallsPanel();
+        }
     }, err => handleSubErr("Calls", err)));
 
-    // Apps
-    unsubs.push(devRef.collection('apps').limit(500).onSnapshot(s => {
-        cachedData.apps = s.docs.map(d => d.data()).sort((a,b) => (a.app_name||'').localeCompare(b.app_name||''));
-        renderAppsPanel();
+    // Consolidated Apps
+    unsubs.push(dataCol.doc('apps').onSnapshot(doc => {
+        if (doc.exists && doc.data().list) {
+            cachedData.apps = doc.data().list.sort((a,b) => (a.app_name||'').localeCompare(b.app_name||''));
+            renderAppsPanel();
+        }
     }, err => handleSubErr("Apps", err)));
 
-    // Web History
-    unsubs.push(devRef.collection('webhistory').limit(currentLimit).onSnapshot(s => {
-        cachedData.web = s.docs.map(d => d.data()).sort((a,b) => (b.timestamp||0) - (a.timestamp||0));
-        renderWebPanel();
+    // Consolidated Activity
+    unsubs.push(dataCol.doc('activity').onSnapshot(doc => {
+        if (doc.exists && doc.data().list) {
+            cachedData.activity = doc.data().list.sort((a,b) => (b.timestamp||0) - (a.timestamp||0));
+            renderActivityPanel();
+        }
+    }, err => handleSubErr("Activity", err)));
+
+    // Consolidated Web History
+    unsubs.push(dataCol.doc('webhistory').onSnapshot(doc => {
+        if (doc.exists && doc.data().list) {
+            cachedData.web = doc.data().list.sort((a,b) => (b.timestamp||0) - (a.timestamp||0));
+            renderWebPanel();
+        }
     }, err => handleSubErr("Web", err)));
 
-    // Social
-    unsubs.push(devRef.collection('social').limit(currentLimit).onSnapshot(s => {
-        cachedData.social = s.docs.map(d => d.data()).sort((a,b) => (b.timestamp||0) - (a.timestamp||0));
-        renderSocialPanel();
+    // Consolidated Social Notifications
+    unsubs.push(dataCol.doc('social').onSnapshot(doc => {
+        if (doc.exists && doc.data().list) {
+            cachedData.social = doc.data().list.sort((a,b) => (b.timestamp||0) - (a.timestamp||0));
+            renderSocialPanel();
+        }
     }, err => handleSubErr("Social", err)));
 
     // Media

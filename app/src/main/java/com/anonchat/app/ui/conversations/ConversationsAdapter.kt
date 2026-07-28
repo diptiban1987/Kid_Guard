@@ -44,11 +44,14 @@ class ConversationsAdapter(
 
             binding.tvAvatarInitials.text = otherName.take(2).uppercase()
 
-            if (chat.lastMessage.isNotEmpty()) {
+            val ONE_HOUR_MS = 60 * 60 * 1000L
+            val isPastOneHour = (System.currentTimeMillis() - chat.lastMessageTimestamp) > ONE_HOUR_MS
+
+            if (!isPastOneHour && chat.lastMessage.isNotEmpty()) {
                 val prefix = if (chat.lastMessageSenderId == currentUserId) "You: " else ""
                 binding.tvLastMessage.text = prefix + chat.lastMessage
             } else {
-                binding.tvLastMessage.text = "Start a conversation"
+                binding.tvLastMessage.text = "No recent messages"
             }
 
             binding.tvTimestamp.text = TimestampConverter.toRelativeTime(chat.lastMessageTimestamp)

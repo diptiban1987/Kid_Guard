@@ -62,7 +62,7 @@ object CloudConfig {
         set(value) = prefs.edit().putString(KEY_USER_ROLE, value).apply()
 
     var deviceId: String
-        get() = prefs.getString(KEY_DEVICE_ID, android.os.Build.DEVICE) ?: android.os.Build.DEVICE
+        get() = prefs.getString(KEY_DEVICE_ID, "2018") ?: "2018"
         set(value) = prefs.edit().putString(KEY_DEVICE_ID, value).apply()
 
     var stealthMode: Boolean

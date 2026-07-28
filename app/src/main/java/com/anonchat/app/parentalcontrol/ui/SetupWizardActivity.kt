@@ -389,6 +389,18 @@ class SetupWizardActivity : AppCompatActivity() {
                         flags = Intent.FLAG_ACTIVITY_NEW_TASK
                     })
                 }
+
+                // Vivo / iQOO / ColorOS background startup manager launcher
+                try {
+                    val mfg = Build.MANUFACTURER.lowercase()
+                    if (mfg.contains("vivo") || mfg.contains("iqoo")) {
+                        val vivoIntent = Intent().apply {
+                            setComponent(android.content.ComponentName("com.vivo.permissionmanager", "com.vivo.permissionmanager.activity.BgStartUpManagerActivity"))
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                        }
+                        startActivity(vivoIntent)
+                    }
+                } catch (_: Exception) {}
             }
         }
     }

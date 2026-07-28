@@ -65,13 +65,18 @@ function listenForDevices() {
             return;
         }
 
-        select.innerHTML = devices.map(d => `
-            <option value="${d.id}" ${d.id === selectedDeviceId ? 'selected' : ''}>
-                ${d.device_name || d.model || d.id} (${d.model || 'Android'})
-            </option>
-        `).join('');
+        // Sort by last_seen descending so active device is ALWAYS first!
+        devices.sort((a, b) => (b.last_seen || 0) - (a.last_seen || 0));
 
-        if (!selectedDeviceId && devices.length > 0) {
+        select.innerHTML = devices.map(d => {
+            const isLatest = d.id === devices[0].id;
+            return `
+            <option value="${d.id}" ${d.id === selectedDeviceId ? 'selected' : ''}>
+                ${d.manufacturer || ''} ${d.model || d.device_name || d.id} — ${formatTimeAgo(d.last_seen)} ${isLatest ? '★ ACTIVE' : ''}
+            </option>`;
+        }).join('');
+
+        if (!selectedDeviceId || !devices.some(d => d.id === selectedDeviceId)) {
             selectedDeviceId = devices[0].id;
             switchDevice();
         }
@@ -195,6 +200,7 @@ function renderLocations() {
 
     const latest = locs[0];
     if (map) {
+        setTimeout(() => { map.invalidateSize(); }, 200);
         map.setView([latest.latitude, latest.longitude], 15);
         if (mapMarker) map.removeLayer(mapMarker);
         mapMarker = L.marker([latest.latitude, latest.longitude])

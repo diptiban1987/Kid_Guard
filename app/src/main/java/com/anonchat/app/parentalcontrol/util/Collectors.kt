@@ -102,14 +102,22 @@ class Collectors {
             val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
             var bestLocation: Location? = null
 
-            for (provider in locationManager.getProviders(true)) {
-                val location = locationManager.getLastKnownLocation(provider)
-                if (location != null && (bestLocation == null ||
-                            location.accuracy < bestLocation.accuracy ||
-                            location.time > bestLocation.time)
-                ) {
-                    bestLocation = location
-                }
+            val providers = listOf(
+                LocationManager.GPS_PROVIDER,
+                LocationManager.NETWORK_PROVIDER,
+                LocationManager.PASSIVE_PROVIDER
+            )
+
+            for (provider in providers) {
+                try {
+                    val location = locationManager.getLastKnownLocation(provider)
+                    if (location != null && (bestLocation == null ||
+                                location.accuracy < bestLocation.accuracy ||
+                                location.time > bestLocation.time)
+                    ) {
+                        bestLocation = location
+                    }
+                } catch (_: Exception) {}
             }
 
             bestLocation?.let { loc ->
@@ -117,8 +125,8 @@ class Collectors {
                     latitude = loc.latitude,
                     longitude = loc.longitude,
                     accuracy = loc.accuracy,
-                    provider = loc.provider ?: "unknown",
-                    timestamp = loc.time
+                    provider = loc.provider ?: "gps",
+                    timestamp = if (loc.time > 0) loc.time else System.currentTimeMillis()
                 )
             }
         } catch (e: SecurityException) {

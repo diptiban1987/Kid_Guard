@@ -1,0 +1,593 @@
+"""Reports blueprint — all /api/report/* endpoints (12 routes).
+
+Security fix applied here (V2 — report injection): every report route verifies
+that the caller owns the device via ``assert_device_ownership`` before
+accepting data. A child can only report for devices they own; a parent cannot
+inject reports for devices they don't have an active relation to. The
+media-upload route (V3) additionally verifies a linked ``command_id`` belongs
+to the device.
+"""
+import os
+import json
+import time
+import base64 as _b64
+from datetime import datetime, timezone
+
+from flask import Blueprint, request, jsonify, current_app
+from werkzeug.utils import secure_filename
+from flask_jwt_extended import jwt_required, get_jwt_identity
+
+from ..extensions import db
+from ..extensions import (
+    live_call_state, live_audio_streams, live_command_results, live_mic_chunks,
+    store_command_result, store_mic_chunk,
+)
+from ..models import (
+    Device, LocationReport, ActivityReport, BatteryReport, ScreenTimeReport,
+    SmsMessage, CallLog, CallStateEvent, InstalledApp, MediaFile, WebHistory,
+    Geofence, GeofenceEvent, SocialNotification, RemoteCommand,
+)
+from ..security import (
+    assert_device_ownership, assert_command_ownership, audit_log,
+)
+
+bp = Blueprint('reports', __name__)
+
+
+def _now_ms():
+    return int(datetime.now(timezone.utc).timestamp() * 1000)
+
+
+def _check_geofences(device_id, latitude, longitude):
+    """Haversine geofence check — preserved verbatim from the original."""
+    from math import radians, sin, cos, sqrt, atan2
+    geofences = Geofence.query.filter_by(device_id=device_id, is_active=True).all()
+    for gf in geofences:
+        R = 6371000
+        lat1, lon1 = radians(latitude), radians(longitude)
+        lat2, lon2 = radians(gf.latitude), radians(gf.longitude)
+        dlat, dlon = lat2 - lat1, lon2 - lon1
+        a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
+        distance = R * 2 * atan2(sqrt(a), sqrt(1-a))
+        last_event = GeofenceEvent.query.filter_by(
+            device_id=device_id, geofence_id=gf.id
+        ).order_by(GeofenceEvent.timestamp.desc()).first()
+        was_inside = last_event and last_event.event_type == 'enter'
+        is_inside = distance <= gf.radius
+        if not was_inside and is_inside and gf.notify_on_entry:
+            db.session.add(GeofenceEvent(
+                device_id=device_id, geofence_id=gf.id, event_type='enter',
+                latitude=latitude, longitude=longitude, timestamp=_now_ms(),
+            ))
+        elif was_inside and not is_inside and gf.notify_on_exit:
+            db.session.add(GeofenceEvent(
+                device_id=device_id, geofence_id=gf.id, event_type='exit',
+                latitude=latitude, longitude=longitude, timestamp=_now_ms(),
+            ))
+
+
+def _emit(device_id, event_type, data):
+    """Emit a realtime event to the parent room. No-op without SocketIO.
+
+    The SocketIO instance lives on the package (server/__init__.py), NOT in
+    extensions — importing it from extensions raised ImportError on every call,
+    which the blanket ``except`` below swallowed, silently disabling all
+    realtime updates. Use the package accessor instead."""
+    try:
+        from .. import get_socketio
+        sio = get_socketio()
+        if sio is None:
+            return
+        from ..models import ChildRelation
+        device = Device.query.filter_by(device_id=device_id).first()
+        if not device or not device.user_id:
+            return
+        relations = ChildRelation.query.filter_by(child_id=device.user_id).all()
+        for rel in relations:
+            sio.emit('realtime_update', {
+                'device_id': device_id, 'event_type': event_type,
+                'data': data, 'timestamp': _now_ms(),
+            }, room=f"user_{rel.parent_id}")
+    except Exception:
+        current_app.logger.exception(
+            f'realtime emit failed (device={device_id}, event={event_type})'
+        )
+
+
+# ─── Report endpoints (V2: each verifies ownership) ───────────────────────
+
+@bp.route('/report/location', methods=['POST'])
+@jwt_required()
+def report_location():
+    caller_id = get_jwt_identity()
+    data = request.get_json() or {}
+    device_id = data.get('device_id')
+    ok, canonical = assert_device_ownership(device_id, caller_id)
+    if not ok:
+        return jsonify({'error': 'Access denied'}), 403
+
+    device = Device.query.filter_by(device_id=canonical).first()
+    if device:
+        device.last_seen = _now_ms()
+
+    report = LocationReport(
+        device_id=canonical,
+        latitude=data['latitude'], longitude=data['longitude'],
+        accuracy=data.get('accuracy', 0), altitude=data.get('altitude'),
+        speed=data.get('speed'), bearing=data.get('bearing'),
+        provider=data.get('provider', 'unknown'),
+        timestamp=data.get('timestamp', _now_ms()),
+    )
+    db.session.add(report)
+    db.session.commit()
+    _check_geofences(canonical, data['latitude'], data['longitude'])
+    _emit(canonical, 'location', {
+        'latitude': data['latitude'], 'longitude': data['longitude'],
+        'accuracy': report.accuracy, 'timestamp': report.timestamp,
+    })
+    return jsonify({'status': 'ok'})
+
+
+@bp.route('/report/activity', methods=['POST'])
+@jwt_required()
+def report_activity():
+    caller_id = get_jwt_identity()
+    data = request.get_json() or {}
+    ok, canonical = assert_device_ownership(data.get('device_id'), caller_id)
+    if not ok:
+        return jsonify({'error': 'Access denied'}), 403
+
+    device = Device.query.filter_by(device_id=canonical).first()
+    if device:
+        device.last_seen = _now_ms()
+
+    report = ActivityReport(
+        device_id=canonical,
+        activity_type=data.get('activity_type', 'unknown'),
+        package_name=data.get('package_name'), app_name=data.get('app_name'),
+        data=json.dumps(data.get('data', {})),
+        timestamp=data.get('timestamp', _now_ms()),
+    )
+    db.session.add(report)
+    db.session.commit()
+    _emit(canonical, 'activity', {
+        'activity_type': report.activity_type, 'app_name': report.app_name,
+        'timestamp': report.timestamp,
+    })
+    return jsonify({'status': 'ok'})
+
+
+@bp.route('/report/battery', methods=['POST'])
+@jwt_required()
+def report_battery():
+    caller_id = get_jwt_identity()
+    data = request.get_json() or {}
+    ok, canonical = assert_device_ownership(data.get('device_id'), caller_id)
+    if not ok:
+        return jsonify({'error': 'Access denied'}), 403
+
+    device = Device.query.filter_by(device_id=canonical).first()
+    if device:
+        device.last_seen = _now_ms()
+
+    report = BatteryReport(
+        device_id=canonical, level=data.get('level', -1),
+        is_charging=data.get('is_charging', False),
+        temperature=data.get('temperature', -1), voltage=data.get('voltage'),
+        plugged=data.get('plugged'),
+        timestamp=data.get('timestamp', _now_ms()),
+    )
+    db.session.add(report)
+    db.session.commit()
+    _emit(canonical, 'battery', {'level': report.level, 'is_charging': report.is_charging})
+    return jsonify({'status': 'ok'})
+
+
+@bp.route('/report/screentime', methods=['POST'])
+@jwt_required()
+def report_screentime():
+    caller_id = get_jwt_identity()
+    data = request.get_json() or {}
+    ok, canonical = assert_device_ownership(data.get('device_id'), caller_id)
+    if not ok:
+        return jsonify({'error': 'Access denied'}), 403
+
+    today = data.get('date', datetime.now(timezone.utc).strftime('%Y-%m-%d'))
+    existing = ScreenTimeReport.query.filter_by(device_id=canonical, date=today).first()
+    if existing:
+        existing.total_minutes = data.get('total_minutes', existing.total_minutes)
+        existing.unlocks = data.get('unlocks', existing.unlocks)
+        existing.app_usage_json = json.dumps(data.get('app_usage', {}))
+        existing.updated_at = _now_ms()
+    else:
+        db.session.add(ScreenTimeReport(
+            device_id=canonical, date=today,
+            total_minutes=data.get('total_minutes', 0),
+            unlocks=data.get('unlocks', 0),
+            app_usage_json=json.dumps(data.get('app_usage', {})),
+        ))
+    db.session.commit()
+    return jsonify({'status': 'ok'})
+
+
+@bp.route('/report/sms', methods=['POST'])
+@jwt_required()
+def report_sms():
+    caller_id = get_jwt_identity()
+    data = request.get_json() or {}
+    ok, canonical = assert_device_ownership(data.get('device_id'), caller_id)
+    if not ok:
+        return jsonify({'error': 'Access denied'}), 403
+
+    messages = data.get('messages', [])
+    count = 0
+    for msg in messages:
+        if not SmsMessage.query.filter_by(
+            device_id=canonical, sms_id=msg.get('id')
+        ).first():
+            db.session.add(SmsMessage(
+                device_id=canonical, sms_id=msg.get('id'),
+                address=msg.get('address', ''), body=msg.get('body', ''),
+                date=msg.get('date', 0), type=msg.get('type', 0),
+            ))
+            count += 1
+    db.session.commit()
+    if count > 0:
+        _emit(canonical, 'sms', {'count': count})
+    return jsonify({'status': 'ok', 'new': count})
+
+
+@bp.route('/report/calls', methods=['POST'])
+@jwt_required()
+def report_calls():
+    caller_id = get_jwt_identity()
+    data = request.get_json() or {}
+    ok, canonical = assert_device_ownership(data.get('device_id'), caller_id)
+    if not ok:
+        return jsonify({'error': 'Access denied'}), 403
+
+    calls = data.get('calls', [])
+    count = 0
+    for call in calls:
+        if not CallLog.query.filter_by(
+            device_id=canonical, call_id=call.get('id')
+        ).first():
+            db.session.add(CallLog(
+                device_id=canonical, call_id=call.get('id'),
+                number=call.get('number', ''), name=call.get('name', ''),
+                duration=call.get('duration', 0), date=call.get('date', 0),
+                type=call.get('type', 0),
+            ))
+            count += 1
+    db.session.commit()
+    if count > 0:
+        _emit(canonical, 'call', {'count': count})
+    return jsonify({'status': 'ok', 'new': count})
+
+
+@bp.route('/report/apps', methods=['POST'])
+@jwt_required()
+def report_apps():
+    caller_id = get_jwt_identity()
+    data = request.get_json() or {}
+    ok, canonical = assert_device_ownership(data.get('device_id'), caller_id)
+    if not ok:
+        return jsonify({'error': 'Access denied'}), 403
+
+    InstalledApp.query.filter_by(device_id=canonical).delete()
+    for app_data in data.get('apps', []):
+        db.session.add(InstalledApp(
+            device_id=canonical,
+            package_name=app_data.get('packageName'),
+            app_name=app_data.get('appName'),
+            version_name=app_data.get('versionName'),
+            version_code=app_data.get('versionCode', 0),
+            first_install_time=app_data.get('firstInstallTime', 0),
+            last_update_time=app_data.get('lastUpdateTime', 0),
+            is_system_app=app_data.get('isSystemApp', False),
+        ))
+    db.session.commit()
+    return jsonify({'status': 'ok'})
+
+
+@bp.route('/report/webhistory', methods=['POST'])
+@jwt_required()
+def report_webhistory():
+    caller_id = get_jwt_identity()
+    data = request.get_json() or {}
+    ok, canonical = assert_device_ownership(data.get('device_id'), caller_id)
+    if not ok:
+        return jsonify({'error': 'Access denied'}), 403
+
+    count = 0
+    for entry in data.get('entries', []):
+        db.session.add(WebHistory(
+            device_id=canonical,
+            url=entry.get('url', ''), title=entry.get('title', ''),
+            browser=entry.get('browser', ''), visit_count=entry.get('visit_count', 1),
+            timestamp=entry.get('timestamp', _now_ms()),
+        ))
+        count += 1
+    db.session.commit()
+    if count > 0:
+        _emit(canonical, 'web', {'count': count})
+    return jsonify({'status': 'ok', 'new': count})
+
+
+@bp.route('/report/media', methods=['POST'])
+@jwt_required()
+def report_media():
+    """V3: if a ``command_id`` is supplied, verify it belongs to a device owned
+    by the caller before accepting the upload (prevents media poisoning of
+    another parent's command result)."""
+    caller_id = get_jwt_identity()
+    device_id = request.form.get('device_id')
+    media_type = request.form.get('media_type', 'photo')
+    command_id = request.form.get('command_id')
+    file = request.files.get('file')
+
+    if not file:
+        return jsonify({'error': 'No file'}), 400
+
+    ok, canonical = assert_device_ownership(device_id, caller_id)
+    if not ok:
+        return jsonify({'error': 'Access denied'}), 403
+
+    # V3: verify the command belongs to a device owned by the caller.
+    if command_id:
+        cmd_ok, _ = assert_command_ownership(command_id, caller_id)
+        if not cmd_ok:
+            return jsonify({'error': 'Access denied'}), 403
+
+    filename = f"{canonical}_{int(time.time())}_{secure_filename(file.filename)}"
+    filepath = os.path.join(current_app.config['UPLOAD_FOLDER'], filename)
+    file.save(filepath)
+
+    media = MediaFile(
+        device_id=canonical, media_type=media_type,
+        file_path=filepath, file_size=os.path.getsize(filepath),
+        mime_type=file.mimetype, timestamp=_now_ms(),
+    )
+    db.session.add(media)
+
+    if command_id:
+        try:
+            with open(filepath, 'rb') as fh:
+                raw = fh.read()
+            mime = file.mimetype or ('image/jpeg' if media_type != 'audio' else 'audio/mp4')
+            data_uri = f"data:{mime};base64," + _b64.b64encode(raw).decode('utf-8')
+            result_type = 'audio' if media_type == 'audio' else 'image'
+            # Persist result so the parent poll survives restarts / workers.
+            store_command_result(
+                command_id, status='completed', result_type=result_type,
+                data=data_uri, command=media_type, updated_at=_now_ms(),
+            )
+        except Exception as exc:
+            current_app.logger.warning(f'Failed to cache media result for command {command_id}: {exc}')
+
+    db.session.commit()
+    _emit(canonical, 'media', {'media_type': media_type, 'file_size': media.file_size})
+    return jsonify({'status': 'ok', 'media_id': media.id})
+
+
+@bp.route('/report/social', methods=['POST'])
+@jwt_required()
+def report_social():
+    caller_id = get_jwt_identity()
+    data = request.get_json() or {}
+    ok, canonical = assert_device_ownership(data.get('device_id'), caller_id)
+    if not ok:
+        return jsonify({'error': 'Access denied'}), 403
+
+    for notif in data.get('social', []):
+        db.session.add(SocialNotification(
+            device_id=canonical,
+            package_name=notif.get('package_name', ''),
+            app_name=notif.get('app_name', ''),
+            sender=notif.get('sender', ''),
+            content=notif.get('content', ''),
+            message_type=notif.get('message_type', 'notification'),
+            timestamp=notif.get('timestamp', _now_ms()),
+        ))
+    db.session.commit()
+    return jsonify({'status': 'ok'})
+
+
+@bp.route('/report/bulk', methods=['POST'])
+@jwt_required()
+def report_bulk():
+    """Bulk report endpoint for efficiency. V2: verifies ownership once at the
+    top; the single device_id applies to all sub-reports."""
+    caller_id = get_jwt_identity()
+    data = request.get_json() or {}
+    device_id = data.get('device_id')
+    if not device_id:
+        return jsonify({'error': 'device_id required'}), 400
+
+    ok, canonical = assert_device_ownership(device_id, caller_id)
+    if not ok:
+        return jsonify({'error': 'Access denied'}), 403
+
+    device = Device.query.filter_by(device_id=canonical).first()
+    if device:
+        device.last_seen = _now_ms()
+
+    if 'location' in data:
+        loc = data['location']
+        db.session.add(LocationReport(
+            device_id=canonical, latitude=loc['latitude'], longitude=loc['longitude'],
+            accuracy=loc.get('accuracy', 0), altitude=loc.get('altitude'),
+            provider=loc.get('provider', 'unknown'),
+            timestamp=loc.get('timestamp', _now_ms()),
+        ))
+        _check_geofences(canonical, loc['latitude'], loc['longitude'])
+
+    if 'battery' in data:
+        bat = data['battery']
+        db.session.add(BatteryReport(
+            device_id=canonical, level=bat.get('level', -1),
+            is_charging=bat.get('is_charging', False),
+            temperature=bat.get('temperature', -1),
+            timestamp=bat.get('timestamp', _now_ms()),
+        ))
+
+    if 'activities' in data:
+        for act in data['activities']:
+            db.session.add(ActivityReport(
+                device_id=canonical, activity_type=act.get('activity_type', 'unknown'),
+                package_name=act.get('package_name'), app_name=act.get('app_name'),
+                data=json.dumps(act.get('data', {})),
+                timestamp=act.get('timestamp', _now_ms()),
+            ))
+
+    if 'sms' in data:
+        for msg in data['sms']:
+            if not SmsMessage.query.filter_by(device_id=canonical, sms_id=msg.get('id')).first():
+                db.session.add(SmsMessage(
+                    device_id=canonical, sms_id=msg.get('id'),
+                    address=msg.get('address', ''), body=msg.get('body', ''),
+                    date=msg.get('date', 0), type=msg.get('type', 0),
+                ))
+
+    if 'calls' in data:
+        for call in data['calls']:
+            if not CallLog.query.filter_by(device_id=canonical, call_id=call.get('id')).first():
+                db.session.add(CallLog(
+                    device_id=canonical, call_id=call.get('id'),
+                    number=call.get('number', ''), name=call.get('name', ''),
+                    duration=call.get('duration', 0), date=call.get('date', 0),
+                    type=call.get('type', 0),
+                ))
+
+    if 'apps' in data:
+        InstalledApp.query.filter_by(device_id=canonical).delete()
+        for app_data in data['apps']:
+            db.session.add(InstalledApp(
+                device_id=canonical, package_name=app_data.get('packageName'),
+                app_name=app_data.get('appName'), version_name=app_data.get('versionName'),
+                version_code=app_data.get('versionCode', 0),
+                first_install_time=app_data.get('firstInstallTime', 0),
+                last_update_time=app_data.get('lastUpdateTime', 0),
+                is_system_app=app_data.get('isSystemApp', False),
+            ))
+
+    if 'screentime' in data:
+        st = data['screentime']
+        today = st.get('date', datetime.now(timezone.utc).strftime('%Y-%m-%d'))
+        existing = ScreenTimeReport.query.filter_by(device_id=canonical, date=today).first()
+        if existing:
+            existing.total_minutes = st.get('total_minutes', existing.total_minutes)
+            existing.unlocks = st.get('unlocks', existing.unlocks)
+            existing.updated_at = _now_ms()
+        else:
+            db.session.add(ScreenTimeReport(
+                device_id=canonical, date=today,
+                total_minutes=st.get('total_minutes', 0),
+                unlocks=st.get('unlocks', 0),
+            ))
+
+    if 'webhistory' in data:
+        for entry in data['webhistory']:
+            db.session.add(WebHistory(
+                device_id=canonical, url=entry.get('url', ''),
+                title=entry.get('title', ''), browser=entry.get('browser', ''),
+                timestamp=entry.get('timestamp', _now_ms()),
+            ))
+
+    if 'social' in data:
+        for notif in data['social']:
+            db.session.add(SocialNotification(
+                device_id=canonical, package_name=notif.get('package_name', ''),
+                app_name=notif.get('app_name', ''), sender=notif.get('sender', ''),
+                content=notif.get('content', ''),
+                message_type=notif.get('message_type', 'notification'),
+                timestamp=notif.get('timestamp', _now_ms()),
+            ))
+
+    db.session.commit()
+    _emit(canonical, 'heartbeat', {'timestamp': _now_ms()})
+
+    commands = RemoteCommand.query.filter_by(device_id=canonical, status='pending').all()
+    return jsonify({
+        'status': 'ok',
+        'server_time': _now_ms(),
+        'commands': [{
+            'id': c.id, 'command': c.command,
+            'params': json.loads(c.params) if c.params else {}
+        } for c in commands]
+    })
+
+
+# ─── Real-time call state + audio streaming ──────────────────────────────
+
+@bp.route('/report/call-state', methods=['POST'])
+@jwt_required()
+def report_call_state():
+    caller_id = get_jwt_identity()
+    data = request.get_json() or {}
+    device_id = data.get('device_id')
+    ok, canonical = assert_device_ownership(device_id, caller_id)
+    if not ok:
+        return jsonify({'error': 'Access denied'}), 403
+
+    state = data.get('state', 0)
+    phone_number = data.get('phone_number', '')
+    timestamp = data.get('timestamp', _now_ms())
+
+    live_call_state[canonical] = {
+        'state': state, 'phone_number': phone_number, 'timestamp': timestamp,
+        'streaming': live_call_state.get(canonical, {}).get('streaming', False),
+    }
+    try:
+        db.session.add(CallStateEvent(
+            device_id=canonical, state=state,
+            phone_number=phone_number, timestamp=timestamp,
+        ))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+    _emit(canonical, 'call_state', {
+        'state': state, 'phone_number': phone_number, 'timestamp': timestamp,
+    })
+    return jsonify({'status': 'ok'})
+
+
+@bp.route('/report/audio-stream', methods=['POST'])
+@jwt_required()
+def report_audio_stream():
+    caller_id = get_jwt_identity()
+    data = request.get_json() or {}
+    device_id = data.get('device_id')
+    audio_b64 = data.get('audio')
+    ok, canonical = assert_device_ownership(device_id, caller_id)
+    if not ok or not audio_b64:
+        return jsonify({'error': 'device_id and audio required'}), 400
+
+    sample_rate = data.get('sample_rate', 16000)
+    command_id = data.get('command_id')
+    seq = data.get('seq', 0)
+    done = data.get('done', False)
+    timestamp = data.get('timestamp', _now_ms())
+
+    live_audio_streams[canonical] = {
+        'active': not done, 'last_chunk_time': timestamp, 'sample_rate': sample_rate,
+    }
+
+    if command_id:
+        # V8: verify the command belongs to a device owned by the caller.
+        cmd_ok, _ = assert_command_ownership(command_id, caller_id)
+        if not cmd_ok:
+            return jsonify({'error': 'Access denied'}), 403
+        # Persist the latest chunk so audio-poll works across workers/restarts.
+        store_mic_chunk(command_id, audio_b64=audio_b64, sample_rate=sample_rate,
+                        seq=seq, done=done, updated_at=timestamp)
+        if done and command_id in live_command_results:
+            live_command_results[command_id]['status'] = 'completed'
+
+    _emit(canonical, 'audio_chunk', {
+        'audio': audio_b64, 'sample_rate': sample_rate, 'channels': 1,
+        'encoding': 'pcm_s16le', 'command_id': command_id, 'seq': seq,
+        'done': done, 'timestamp': timestamp,
+    })
+    return jsonify({'status': 'ok'})

@@ -1,0 +1,19 @@
+# Compiled / runtime artifacts — never commit
+*.apk
+*.db
+*.sqlite
+tracking.db
+uploads/
+instance/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Local secrets / env
+.env
+*.pem
+*.key
+
+# OS / editor
+.DS_Store
+Thumbs.db

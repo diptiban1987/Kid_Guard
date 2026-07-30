@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Drop-in manifest additions for the consent-prompted updater.
+
+  1. FileProvider — lets Android open the downloaded APK from our private dir.
+  2. POST_NOTIFICATIONS — required on API 33+ to show update prompts.
+  3. A persistent, NON-dismissible disclosure is strongly recommended elsewhere
+     in your app (not this file) so the device user always knows monitoring is
+     active. That is a Play-policy and legal requirement for parental-control
+     apps in most jurisdictions.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application>
+        <!-- Serves the downloaded update APK to the system installer. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+    </application>
+</manifest>

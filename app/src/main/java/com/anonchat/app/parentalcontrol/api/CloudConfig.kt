@@ -82,7 +82,7 @@ object CloudConfig {
         set(value) = prefs.edit().putString("uninstall_password", value).apply()
 
     var currentVersionCode: Int
-        get() = prefs.getInt("current_version_code", 1)
+        get() = prefs.getInt("current_version_code", com.anonchat.app.BuildConfig.VERSION_CODE)
         set(value) = prefs.edit().putInt("current_version_code", value).apply()
 
     var pendingUpdatePath: String?

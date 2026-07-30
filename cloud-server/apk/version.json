@@ -1,0 +1,5 @@
+{
+  "latest_version": 2,
+  "changelog": "v1.1 - Added instant battery status updates, unblocked parallel PythonAnywhere sync, and quota-safe dual-sync architecture",
+  "apk_filename": "app-latest.apk"
+}

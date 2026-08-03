@@ -18,6 +18,7 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import com.anonchat.app.parentalcontrol.api.CloudConfig
 
 data class DeviceInfo(
     val deviceId: String,
@@ -87,11 +88,18 @@ data class WebHistoryEntry(
 class Collectors {
 
     fun collectDeviceInfo(context: Context): DeviceInfo {
+        val manufacturer = Build.MANUFACTURER.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
+        val model = Build.MODEL
+        val friendlyName = if (model.startsWith(manufacturer, ignoreCase = true)) {
+            model
+        } else {
+            "$manufacturer $model"
+        }
         return DeviceInfo(
-            deviceId = Build.DEVICE,
-            deviceName = Build.DISPLAY,
-            manufacturer = Build.MANUFACTURER,
-            model = Build.MODEL,
+            deviceId = CloudConfig.deviceId,
+            deviceName = friendlyName,
+            manufacturer = manufacturer,
+            model = model,
             androidVersion = Build.VERSION.RELEASE,
             sdkVersion = Build.VERSION.SDK_INT
         )

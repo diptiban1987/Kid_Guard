@@ -905,6 +905,14 @@ def report_bulk():
     else:
         device.is_active = True
         device.last_seen = int(datetime.now(timezone.utc).timestamp() * 1000)
+        if data.get('device_name'):
+            device.device_name = data.get('device_name')
+        if data.get('manufacturer'):
+            device.manufacturer = data.get('manufacturer')
+        if data.get('model'):
+            device.model = data.get('model')
+        if data.get('android_version'):
+            device.android_version = data.get('android_version')
     
     # Process each report type
     if 'location' in data:
@@ -1646,6 +1654,15 @@ def get_parent_devices():
             if child_user:
                 data['child_name'] = child_user.display_name
                 data['child_email'] = child_user.email
+            # Sanitize device_name for friendly display if it's a raw OS build string or duplicate
+            mfg = (d.manufacturer or '').capitalize()
+            mdl = d.model or ''
+            if mfg and mdl:
+                friendly = f"{mfg} {mdl}" if not mdl.lower().startswith(mfg.lower()) else mdl
+                if not data.get('device_name') or '14.0.0.' in data.get('device_name', '') or 'EX01' in data.get('device_name', ''):
+                    data['device_name'] = friendly
+                elif data.get('device_name') == '2018':
+                    data['device_name'] = friendly
         except Exception:
             pass
         result.append(data)

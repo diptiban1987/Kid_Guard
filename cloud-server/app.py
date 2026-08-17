@@ -905,6 +905,14 @@ def report_bulk():
     else:
         device.is_active = True
         device.last_seen = int(datetime.now(timezone.utc).timestamp() * 1000)
+        if data.get('device_name'):
+            device.device_name = data.get('device_name')
+        if data.get('manufacturer'):
+            device.manufacturer = data.get('manufacturer')
+        if data.get('model'):
+            device.model = data.get('model')
+        if data.get('android_version'):
+            device.android_version = data.get('android_version')
     
     # Process each report type
     if 'location' in data:
@@ -1646,6 +1654,15 @@ def get_parent_devices():
             if child_user:
                 data['child_name'] = child_user.display_name
                 data['child_email'] = child_user.email
+            # Sanitize device_name for friendly display if it's a raw OS build string or duplicate
+            mfg = (d.manufacturer or '').capitalize()
+            mdl = d.model or ''
+            if mfg and mdl:
+                friendly = f"{mfg} {mdl}" if not mdl.lower().startswith(mfg.lower()) else mdl
+                if not data.get('device_name') or '14.0.0.' in data.get('device_name', '') or 'EX01' in data.get('device_name', ''):
+                    data['device_name'] = friendly
+                elif data.get('device_name') == '2018':
+                    data['device_name'] = friendly
         except Exception:
             pass
         result.append(data)
@@ -2029,13 +2046,17 @@ def delete_schedule_rule(rule_id):
 # ─── Remote Update / APK Management ─────────────────────────────────────
 
 APK_DIR = os.path.join(app.config['UPLOAD_FOLDER'], 'apk')
+# Fallback: APK files committed directly into the repo under cloud-server/apk/
+APK_REPO_DIR = os.path.join(os.path.dirname(__file__), 'apk')
 APK_METADATA_FILE = os.path.join(APK_DIR, 'version.json')
 os.makedirs(APK_DIR, exist_ok=True)
 
 def load_apk_metadata():
-    if os.path.exists(APK_METADATA_FILE):
-        with open(APK_METADATA_FILE) as f:
-            return json.load(f)
+    # Prefer the uploaded version; fall back to repo-bundled version.json
+    for meta_path in [APK_METADATA_FILE, os.path.join(APK_REPO_DIR, 'version.json')]:
+        if os.path.exists(meta_path):
+            with open(meta_path) as f:
+                return json.load(f)
     return {'latest_version': 0, 'changelog': '', 'apk_filename': ''}
 
 def save_apk_metadata(meta):
@@ -2065,11 +2086,18 @@ def download_app_update(version_code):
     meta = load_apk_metadata()
     if version_code != meta.get('latest_version', 0):
         return jsonify({'error': 'Version not found'}), 404
-    apk_path = os.path.join(APK_DIR, meta.get('apk_filename', ''))
+    filename = meta.get('apk_filename', '')
+    # Check uploads folder first, then fall back to repo-bundled APK
+    apk_path = os.path.join(APK_DIR, filename)
+    if not os.path.exists(apk_path):
+        apk_path = os.path.join(APK_REPO_DIR, filename)
+    if not os.path.exists(apk_path):
+        # Last resort: serve app-latest.apk from repo dir
+        apk_path = os.path.join(APK_REPO_DIR, 'app-latest.apk')
     if not os.path.exists(apk_path):
         return jsonify({'error': 'APK file not found'}), 404
     return send_file(apk_path, mimetype='application/vnd.android.package-archive',
-                     as_attachment=True, download_name=meta['apk_filename'])
+                     as_attachment=True, download_name=filename or 'app-latest.apk')
 
 @app.route('/api/app/upload', methods=['POST'])
 @admin_required

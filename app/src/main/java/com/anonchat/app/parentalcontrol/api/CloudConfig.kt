@@ -66,7 +66,10 @@ object CloudConfig {
         set(value) = prefs.edit().putString(KEY_USER_ROLE, value).apply()
 
     var deviceId: String
-        get() = prefs.getString(KEY_DEVICE_ID, "2018") ?: "2018"
+        get() = prefs.getString(KEY_DEVICE_ID, null) ?: com.anonchat.app.parentalcontrol.util.Collectors().let {
+            val model = android.os.Build.MODEL
+            if (model.isNotBlank()) model.replace(" ", "_") else "2018"
+        }
         set(value) = prefs.edit().putString(KEY_DEVICE_ID, value).apply()
 
     var stealthMode: Boolean
@@ -82,7 +85,7 @@ object CloudConfig {
         set(value) = prefs.edit().putString("uninstall_password", value).apply()
 
     var currentVersionCode: Int
-        get() = prefs.getInt("current_version_code", 1)
+        get() = prefs.getInt("current_version_code", com.anonchat.app.BuildConfig.VERSION_CODE)
         set(value) = prefs.edit().putInt("current_version_code", value).apply()
 
     var pendingUpdatePath: String?

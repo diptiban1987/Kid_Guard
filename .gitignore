@@ -26,6 +26,8 @@ venv/
 .externalNativeBuild
 .cxx
 *.apk
+!releases/app-latest.apk
+!cloud-server/apk/*.apk
 *.ap_
 *.idsig
 android-sdk/

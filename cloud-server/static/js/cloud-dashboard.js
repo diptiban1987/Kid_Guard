@@ -262,9 +262,10 @@ async function loadDashboard() {
         deviceList.innerHTML = (stats.children || []).flatMap(c =>
             (c.devices || []).map(d => {
                 const online = isOnline(d.last_seen);
+                const name = d.device_name || (d.manufacturer ? `${d.manufacturer} ${d.model}` : d.device_id);
                 return `<a class="sidebar-item" href="/device/${d.device_id}" style="text-decoration:none;display:flex;align-items:center;gap:8px;">
                     <span class="status-dot ${online ? 'online' : 'offline'}"></span>
-                    ${escapeHtml(d.device_name || d.device_id)}
+                    ${escapeHtml(name)}
                 </a>`;
             })
         ).join('');
@@ -398,13 +399,15 @@ async function loadRecentActivity(tab) {
                 <div class="empty-state-title">No activity yet</div>
                 <div class="empty-state-text">Data will appear once devices start reporting.</div>
             </div>`
-            : allActivities.map(a => `
+            : allActivities.map(a => {
+                const devName = a.device?.device_name || (a.device?.manufacturer ? `${a.device.manufacturer} ${a.device.model}` : a.device?.device_id || '');
+                return `
                 <div class="activity-item">
                     ${a.html}
-                    <span class="device-tag">${escapeHtml(a.device?.device_name || a.device?.device_id || '')}</span>
+                    <span class="device-tag">${escapeHtml(devName)}</span>
                     <span class="time">${formatTime(a.time)}</span>
                 </div>
-            `).join('');
+            `;}).join('');
 
     } catch (err) {
         console.error('Activity error:', err);

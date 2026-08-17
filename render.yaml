@@ -1,0 +1,49 @@
+# Render Blueprint — declarative Infrastructure-as-Code for KidGuard.
+# Docs: https://render.com/docs/blueprint-spec
+#
+# How to use:
+#   1. Push this file to the repo (already done).
+#   2. In Render dashboard → New + → Blueprint → pick this repo.
+#   3. Render reads render.yaml and provisions everything below.
+#   4. Set the four SECRET_* env vars in the Render UI once prompted
+#      (they're marked `sync: false` so they aren't committed to the repo).
+#
+# Result: one PostgreSQL DB + one Flask web service, wired together, with
+# a persistent disk for uploads. Free tier supported (disk is optional
+# on free — uploads would be lost on redeploy).
+services:
+  - type: postgres
+    name: kidguard-db
+    region: oregon            # change to your nearest region
+    plan: free
+    databaseName: kidguard
+    user: kidguard
+
+  - type: web
+    name: kidguard-server
+    region: oregon            # MUST match the database region
+    plan: free                # upgrade to 'starter' to keep uploads on disk
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/auth/me  # returns 401 on a healthy server
+    autoDeploy: true
+    envVars:
+      - key: SECRET_KEY
+        sync: false           # set in the Render UI (use `secrets.token_hex(32)`)
+      - key: JWT_SECRET_KEY
+        sync: false           # set in the Render UI (use `secrets.token_hex(32)`)
+      - key: DATABASE_URL
+        fromDatabase:
+          name: kidguard-db
+          property: connectionString   # Render injects the internal PG URL
+      - key: CLOUD_SERVER_URL
+        value: https://kidguard-server.onrender.com   # change if you rename the service
+      - key: FLASK_AUTO_CREATE
+        value: "1"
+      - key: PYTHON_VERSION
+        value: "3.11"
+    disk:
+      # Free tier does NOT support disks — comment these two lines out if
+      # you're on free, otherwise Render will refuse to deploy.
+      # name: uploads
+      # mountPath: /app/uploads

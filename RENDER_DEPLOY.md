@@ -1,348 +1,337 @@
-# Deploy KidGuard Cloud Server to Render
+# Deploy KidGuard to Render — Step-by-Step (Modern `server/` Package)
 
-This guide covers every step to deploy the Flask cloud server (`cloud-server/`) to [Render](https://render.com) using a Docker image, a managed PostgreSQL database, and a persistent disk for uploaded files.
+This guide replaces the older `cloud-server/`-based Render guide and uses the
+**modern Flask package** (`server/` — the same one with the forgot-password
+fix, JWT revocation, multi-tenant ownership enforcement, etc.). Use this guide
+if you want the latest fixes deployed to Render.
+
+> If you've hit PythonAnywhere's free-quota limit, this is the recommended
+> migration path. See the **"Free up PythonAnywhere quota"** section of
+> `DEPLOY_STEPS.md` for how to clean up there before you migrate.
+
+---
+
+## Why Render instead of PythonAnywhere?
+
+| Issue | PythonAnywhere Free | Render Free |
+|---|---|---|
+| DB writes (`INSERT`/`UPDATE`) | ❌ `sqlite3.OperationalError: disk I/O error` on NFS — breaks forgot-password, register, etc. | ✅ Managed PostgreSQL, no disk-I/O class of failures |
+| MySQL on free tier | ✅ Free 512 MB | ❌ No MySQL (Render offers PostgreSQL instead) |
+| Always-on | ❌ Spins down after idle | ❌ Spins down after 15 min idle (Starter: always-on) |
+| Persistent disk | ✅ With paid plan | ❌ Free tier only; Starter ($7/mo) for disk |
+| Build from GitHub | ❌ Manual `git pull` on console | ✅ Auto-deploy on every `git push` |
+| Cold-start | ~1–2 s | ~30 s after idle (Starter: no cold start) |
+
+Forgets PostgreSQL is the **recommended** production DB for this project, so
+Render is a clean fit — you also get push-to-deploy for free.
 
 ---
 
 ## Prerequisites
 
-| Item | Details |
-|---|---|
-| GitHub repo | The project pushed to a GitHub repository (e.g. `https://github.com/diptiban1987/Kid_Guard.git`) |
-| Render account | Free or paid account at [render.com](https://render.com) |
-| Local clone | A local checkout of the repo so you can build the production APK afterwards |
+- A GitHub account with the KidGuard repo: `https://github.com/diptiban1987/Kid_Guard`
+- A free [Render account](https://render.com) (sign up with your GitHub login)
+- (Optional) The Render CLI if you prefer terminal over web UI
 
 ---
 
-## Step 1 — Push the Code to GitHub
+## Step 1 — Verify the latest code is on GitHub
 
-Render builds from a GitHub branch, so the latest code must be on GitHub.
+The latest commit `609096c` (or newer) was pushed already. Confirm by visiting:
 
-```bash
-git add .
-git commit -m "Prepare for Render deployment"
-git push origin main
+```
+https://github.com/diptiban1987/Kid_Guard/commits/main
 ```
 
-Make sure `cloud-server/` is **not** git-ignored. Confirm:
+You should see the commit:
+> "Merge origin/main + fix forgot-password 500 + add stepwise deploy guide"
 
+If you don't, on your local machine:
 ```bash
-git ls-files cloud-server/
-```
-
-You should see `app.py`, `config.py`, `Dockerfile`, `requirements.txt`, etc.
-
----
-
-## Step 2 — Create a PostgreSQL Database on Render
-
-The app supports PostgreSQL via the `DATABASE_URL` environment variable.
-
-1. Log in to the [Render Dashboard](https://dashboard.render.com).
-2. Click **New +** → **PostgreSQL**.
-3. Fill in:
-   | Field | Value |
-   |---|---|
-   | Name | `kidguard-db` |
-   | Database | `kidguard` |
-   | User | `kidguard` |
-   | Region | Choose the closest to your users |
-   | PostgreSQL Version | 15 (default) |
-   | Instance Type | Free (or Starter for production) |
-4. Click **Create Database**.
-5. Once created, note the **Internal Database URL** — it looks like:
-   ```
-   postgresql://kidguard:PASSWORD@dpg-xxxxx-a.kidguard-db.internal:5432/kidguard
-   ```
-   You will use this in Step 4.
-
-> The app calls `init_db()` on startup (`app.py:1521`), so all 18 tables are created automatically — no manual migration needed.
-
----
-
-## Step 3 — Add `gunicorn` and `eventlet` to `requirements.txt`
-
-The Dockerfile runs the app with `gunicorn` + `eventlet`, but these two packages are **missing** from `requirements.txt`. Add them:
-
-```diff
-  Pillow==10.2.0
-  qrcode==7.4.2
-+ gunicorn==21.2.0
-+ eventlet==0.35.1
-  # flask-socketio is optional — install only if WebSocket is needed
-  # flask-socketio==5.6.1
-```
-
-Commit and push:
-
-```bash
-git add cloud-server/requirements.txt
-git commit -m "Add gunicorn + eventlet for Render deployment"
 git push origin main
 ```
 
 ---
 
-## Step 4 — Create a Web Service on Render
+## Step 2 — Create a PostgreSQL DB on Render (one-click via Blueprint)
 
-1. In the Render Dashboard click **New +** → **Web Service**.
-2. Choose **"Build and deploy from a Git repository"**.
-3. Connect your GitHub account if not already connected, then select the `Kid_Guard` repository.
-4. Fill in the service settings:
+**Easiest path — use the included `render.yaml` Blueprint:**
 
-   | Field | Value |
-   |---|---|
-   | Name | `kidguard-server` |
-   | Region | Same region as the database |
-   | Branch | `main` (or your default branch) |
-   | Root Directory | `cloud-server` |
-   | Runtime | **Docker** |
-   | Instance Type | Free (or Starter for production) |
-
-   > **Important:** Set **Root Directory** to `cloud-server` so Render builds from the `Dockerfile` inside that folder.
-
-5. Scroll down to **Environment Variables** and add:
-
-   | Key | Value |
-   |---|---|
-   | `SECRET_KEY` | A random 64+ char string (e.g. run `python -c "import secrets;print(secrets.token_hex(32))"`) |
-   | `JWT_SECRET_KEY` | A different random 64+ char string |
-   | `DATABASE_URL` | The **Internal Database URL** from Step 2 |
-   | `CLOUD_SERVER_URL` | `https://kidguard-server.onrender.com` (your service URL — see below) |
-   | `PYTHON_VERSION` | `3.11` (optional, the Dockerfile already pins 3.11) |
-
-   > The `CLOUD_SERVER_URL` should match the public URL Render assigns. You can set a placeholder now and update it after the first deploy once you know the URL.
-
-6. Click **Create Web Service**.
-
-Render will now:
-- Pull the repo
-- Build the Docker image (installs `requirements.txt`, copies code)
-- Start `gunicorn --worker-class eventlet --workers 1 --bind 0.0.0.0:5000 app:app`
-
-> **Port note:** Render's Docker services expect the container to listen on the port specified by the `PORT` env var (default `10000` on Render). The Dockerfile binds to `5000`. To fix this, either:
-> - **Option A (recommended):** Add a `PORT` env var set to `5000` in Render's environment tab, OR
-> - **Option B:** Edit the Dockerfile CMD to use the `PORT` env var:
->   ```dockerfile
->   CMD gunicorn --worker-class eventlet --workers 1 --bind 0.0.0.0:${PORT:-5000} app:app
->   ```
-
----
-
-## Step 5 — Add a Persistent Disk for Uploads
-
-The app stores APK files and media uploads in `uploads/`. On Render's free tier, the filesystem is ephemeral — files are lost on every deploy/restart. To persist them:
-
-1. Go to your web service → **Settings**.
-2. Scroll to **Disks** → click **Add Disk**.
-3. Fill in:
-   | Field | Value |
-   |---|---|
-   | Name | `uploads` |
-   | Mount Path | `/app/uploads` |
-   | Size | 1 GB (or more as needed) |
-4. Click **Save**.
-
-> The `Dockerfile` already does `RUN mkdir -p uploads`, and the mount path `/app/uploads` matches `config.py:16` (`UPLOAD_FOLDER`).
-
----
-
-## Step 6 — Initialize the APK Version File
-
-The OTA update system reads `uploads/apk/version.json`. The persistent disk starts empty, so create the file after the first deploy:
-
-**Option A — via Render Shell:**
-
-1. In the Render Dashboard, go to your web service → **Shell** tab.
-2. Run:
-   ```bash
-   mkdir -p /app/uploads/apk
-   echo '{"latest_version": 1, "changelog": "", "apk_filename": ""}' > /app/uploads/apk/version.json
-   ```
-
-**Option B — via the API (after Step 7):**
-
-```bash
-curl -X POST https://kidguard-server.onrender.com/api/app/upload \
-  -H "Authorization: Bearer <admin_token>" \
-  -F "apk=@app-debug.apk" \
-  -F "version_code=2" \
-  -F "changelog=Initial release"
-```
-
----
-
-## Step 7 — Verify the Deployment
-
-1. Wait for the build and deploy to finish (check the **Logs** tab for `Booting worker`).
-2. Visit your service URL:
+1. Go to the [Render Dashboard](https://dashboard.render.com).
+2. Click **New +** in the top right → **Blueprint**.
+3. Select your `Kid_Guard` repository. Render reads `render.yaml` and shows you
+   the resources it's about to create:
+   - 1× PostgreSQL service (`kidguard-db`)
+   - 1× Web service (`kidguard-server`)
+4. Fill in the two secret env vars in the form (they're marked `sync: false`
+   in `render.yaml` so Render prompts for them):
+   - `SECRET_KEY` = paste a 32-byte hex string
+   - `JWT_SECRET_KEY` = paste a different 32-byte hex string
+   - Generate them in PowerShell with:
+     ```powershell
+     python3 -c "import secrets; print(secrets.token_hex(32))"
+     ```
+   - Or online at https://generate-random.org/api/passwords?length=64
+5. Pick a **region** (e.g. Oregon for US, Frankfurt for EU).
+6. Click **Apply**. Render will:
+   - Provision the database (~30 s)
+   - Build the Docker image (~3 min)
+   - Start the web service (~15 s)
+   - Wire `DATABASE_URL` automatically from the DB's internal connection string
+7. Once both are green, your server is live at:
    ```
    https://kidguard-server.onrender.com
    ```
-3. You should see the **KidGuard** login page.
-4. Register a parent account at `/api/auth/register` or via the web UI.
-5. Generate a pairing code from the dashboard.
 
-### Health check (optional):
+**Manual path (if you prefer not to use Blueprint):**
 
-```bash
-curl https://kidguard-server.onrender.com/api/auth/me
-```
+1. Dashboard → **New +** → **PostgreSQL**
+   - Name: `kidguard-db`
+   - Database: `kidguard`
+   - User: `kidguard`
+   - Region: e.g. Oregon
+   - Plan: Free
+   - Click **Create Database**
+2. Copy the **Internal Database URL** (`postgresql://...`). You'll need it in
+   Step 3.
+3. Dashboard → **New +** → **Web Service** → pick `Kid_Guard` repo
+   - Name: `kidguard-server`
+   - Region: SAME as the database
+   - Branch: `main`
+   - Runtime: **Docker**
+   - Dockerfile path: `/Dockerfile` (leave at the repo root)
+   - Plan: Free
+4. Add environment variables:
 
-Should return a `401` (unauthorized) — this confirms the server is running.
+   | Key | Value |
+   |---|---|
+   | `SECRET_KEY` | `<64-char hex string>` |
+   | `JWT_SECRET_KEY` | `<different 64-char hex string>` |
+   | `DATABASE_URL` | The Internal Database URL from sub-step 2 |
+   | `CLOUD_SERVER_URL` | `https://kidguard-server.onrender.com` |
+   | `FLASK_AUTO_CREATE` | `1` |
+
+5. Click **Create Web Service**.
 
 ---
 
-## Step 8 — Update `CLOUD_SERVER_URL` (if placeholder was used)
+## Step 3 — Add a Persistent Disk for Uploads (Starter tier only)
 
-If you set a placeholder `CLOUD_SERVER_URL` in Step 4, update it now with the real URL:
+> Skip this step if you're on the free tier — disks aren't supported there.
+> Uploads (camera photos, mic audio, APK OTA bundles) will be EJECTED on
+> every redeploy. For testing/eval that's fine; for real use upgrade to
+> Starter ($7/mo) and add the disk.
 
-1. Go to your web service → **Environment** tab.
-2. Edit `CLOUD_SERVER_URL` to `https://kidguard-server.onrender.com`.
-3. Save — Render will auto-redeploy.
+1. Dashboard → your `kidguard-server` service → **Settings**.
+2. Scroll to **Disks** → click **Add Disk**.
+   - Name: `uploads`
+   - Mount Path: `/app/uploads`
+   - Size: 1 GB (smallest available; bump up if you plan to upload many APKs)
+3. Click **Save**.
+
+The Dockerfile already does `RUN mkdir -p /app/uploads`, and the mount path
+matches the default `UPLOAD_FOLDER` resolution in `server/config.py` (which
+computes `/app/server/../uploads` = `/app/uploads`).
 
 ---
 
-## Step 9 — Build the Production APK
+## Step 4 — Initialize the APK version file (for OTA updates)
 
-The Android app embeds the server URL at build time from `local.properties`.
+On the free tier (no disk) you'll need to recreate this after every redeploy.
+On Starter with a disk, do it once.
 
-1. Edit `local.properties` in the project root:
+1. Dashboard → your `kidguard-server` service → **Shell** tab.
+2. Run:
+   ```bash
+   mkdir -p /app/uploads/apk
+   cat > /app/uploads/apk/version.json <<'EOF'
+   {"latest_version": 1, "changelog": "Initial release", "apk_filename": ""}
+   EOF
+   cat /app/uploads/apk/version.json  # verify
+   ```
+
+---
+
+## Step 5 — Verify the deployment
+
+1. Visit the service URL in your browser:
+   ```
+   https://kidguard-server.onrender.com
+   ```
+   You should see the KidGuard login page. The first request after idle may
+   take ~30 s (free-tier spin-up).
+
+2. Test the forgot-password flow (the original problem):
+   - Click **Forgot Password?** → enter an email → **Request Reset Token**
+   - An 8-character token appears in the yellow box
+   - Paste token + new password → reset completes → redirected to dashboard
+
+3. (Optional) Health check from the terminal:
+   ```bash
+   curl https://kidguard-server.onrender.com/api/auth/me
+   # 401 Unauthorized (correct — no token sent)
+   ```
+
+4. (Optional) Verify tables were created in the Render Postgres:
+   - In Render dashboard → `kidguard-db` → **Query** tab
+   - Run: `SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';`
+   - Should return 23 (or thereabouts)
+   - `SELECT * FROM password_reset_tokens LIMIT 1;` → empty result is fine;
+     the TABLE EXISTING is what matters (fixes the 500)
+
+---
+
+## Step 6 — (Optional) Configure SMTP for password reset emails
+
+By default (no `MAIL_SERVER` configured), `forgot-password` returns the
+8-char token in the response body — it's shown on the login page. This is the
+DEV mode. To switch to PROD mode (email the token, never echo it):
+
+In Render dashboard → your `kidguard-server` service → **Environment**:
+add the following keys, then **Save** (auto-redeploys):
+
+| Key | Value |
+|---|---|
+| `MAIL_SERVER` | `smtp.gmail.com` |
+| `MAIL_PORT` | `587` |
+| `MAIL_USE_TLS` | `1` |
+| `MAIL_USERNAME` | `<your-sender-gmail-address>` |
+| `MAIL_PASSWORD` | `<16-char Gmail App Password>` (https://myaccount.google.com/apppasswords) |
+| `MAIL_FROM` | `<your-sender-gmail-address>` |
+
+Once these are set, `forgot-password` no longer returns the token in the
+response body — it only sends it via email. The login page UI hides the
+yellow token box and shows "If that email exists, instructions were sent."
+
+---
+
+## Step 7 — Update the APK to point at Render
+
+The Android app embeds the server URL at build time:
+
+1. On your local machine, edit `local.properties`:
    ```properties
    server.url=https://kidguard-server.onrender.com
    ```
-   > `local.properties` is git-ignored, so this stays local.
+   (Already gitignored, stays local.)
 
-2. Build the APK:
+2. Rebuild the APK:
    ```bash
    ./gradlew assembleDebug
    ```
+   Output: `app/build/outputs/apk/debug/app-debug.apk`
 
-3. APK generated at:
-   ```
-   app/build/outputs/apk/debug/app-debug.apk
-   ```
-
-4. Install on the child's device:
+3. Install on the child device:
    ```bash
    adb install -r -g app/build/outputs/apk/debug/app-debug.apk
    ```
 
+4. Test the connection: open the app on the device, log in, it should report
+   location + receive commands from the parent dashboard at:
+   ```
+   https://kidguard-server.onrender.com/dashboard
+   ```
+
+> If you're on the free tier, the first request from the device after
+> 15 min of idle will take ~30 s. Subsequent requests during the next
+> 15 min are instant. For always-on responsiveness, upgrade to Starter.
+
 ---
 
-## Step 10 — Upload the APK for OTA Updates
+## Step 8 — Push an APK Update for OTA (optional)
 
-To enable over-the-air updates from the dashboard:
+If you want the dashboard to push APK updates over the air:
 
 ```bash
+# Get an admin token first:
+ADMIN_TOKEN=$(curl -s -X POST https://kidguard-server.onrender.com/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"<admin-email>","password":"<admin-password>"}' \
+  | python -c "import sys,json; print(json.load(sys.stdin)['token'])")
+
+# Then upload:
 curl -X POST https://kidguard-server.onrender.com/api/app/upload \
-  -H "Authorization: Bearer <admin_token>" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
   -F "apk=@app/build/outputs/apk/debug/app-debug.apk" \
   -F "version_code=2" \
-  -F "changelog=Production release for Render"
+  -F "changelog=Render-server release"
 ```
 
-The child app checks for updates every hour via `/api/app/check-update`.
+The child app auto-detects and installs the update within an hour.
+
+> Note: on the free tier the uploaded APK is lost on every redeploy. Either
+> keep it on a persistent disk (Starter tier) or re-upload after each deploy.
 
 ---
 
-## Step 11 — (Optional) Set Up a Custom Domain
+## Environment Variables — Full Reference
 
-1. Go to your web service → **Settings** → **Custom Domains**.
-2. Add your domain (e.g. `kidguard.yourdomain.com`).
-3. Render provides a CNAME target — add it to your DNS provider.
-4. Once DNS propagates, Render provisions an SSL certificate automatically.
-5. Update `CLOUD_SERVER_URL` env var to `https://kidguard.yourdomain.com`.
-6. Rebuild the APK with the new URL in `local.properties`.
-
----
-
-## Environment Variables Summary
-
-| Variable | Required | Example | Purpose |
+| Variable | Required | Default | Purpose |
 |---|---|---|---|
-| `SECRET_KEY` | Yes | `a1b2c3...` | Flask session signing |
-| `JWT_SECRET_KEY` | Yes | `x7y8z9...` | JWT token signing |
-| `DATABASE_URL` | Yes | `postgresql://...` | PostgreSQL connection string |
-| `CLOUD_SERVER_URL` | Yes | `https://kidguard-server.onrender.com` | Public URL (for APK, OTA links) |
-| `PORT` | Optional | `5000` | Override if Dockerfile binds to 5000 |
+| `SECRET_KEY` | Yes | (none) | Flask session/cookie signing |
+| `JWT_SECRET_KEY` | Yes | (none) | JWT token signing |
+| `DATABASE_URL` | Yes (auto-set by Blueprint) | SQLite fallback | SQLAlchemy connection string — Render injects the Postgres internal URL |
+| `CLOUD_SERVER_URL` | Yes | `http://localhost:5000` | Public URL (used in API responses) |
+| `FLASK_AUTO_CREATE` | No | (off) | When `1`, creates missing DB tables on boot — skips the alembic dance |
+| `PORT` | Auto-set by Render | `5000` (CMD fallback) | Container bind port — both the Dockerfile + Render cooperate here |
+| `MAIL_SERVER` | No | (empty = dev) | If set, forgot-password emails the token instead of echoing it |
+| `MAIL_USERNAME`/`PASSWORD` | No | — | SMTP credentials (see Step 6) |
+| `MAIL_FROM` | No | `noreply@kidguard.local` | Sender address (must match `MAIL_USERNAME` for Gmail) |
+| `DISABLE_SOCKETIO` | No | Auto-detected | Force-disable WebSocket (Render free doesn't expose WS ports natively but gunicorn+eventlet handles it) |
 
 ---
 
-## Render Free Tier Limitations
+## Render Free Tier — Gotchas
 
-| Limit | Free Tier | Impact |
-|---|---|---|
-| Web service | Spins down after 15 min of inactivity | First request after idle takes ~30s to wake up |
-| Build minutes | 750 hrs/month | Plenty for this project |
-| PostgreSQL | 90 days then deleted | Move to Starter for long-term use |
-| Persistent disk | Not available on free tier | Uploads lost on restart (use Starter for disk) |
-| Bandwidth | 100 GB/month | Fine for a family deployment |
-
-> For production use, upgrade the web service to **Starter ($7/mo)** to get:
-> - Always-on (no spin-down)
-> - Persistent disk support
-> - Custom domains
+| Gotcha | Workaround |
+|---|---|
+| Spins down after 15 min idle → first request takes 30 s | Upgrade to Starter ($7/mo) for always-on |
+| No persistent disk on free → uploads lost on redeploy | Upgrade to Starter + add disk at `/app/uploads` |
+| Free PostgreSQL DB is deleted after 90 days | Move to Starter before 90 days OR backup + recreate |
+| 750 build minutes/month (plenty for this project) | — |
+| 100 GB outbound bandwidth | Plenty for a family deployment |
+| Cold start after spin-down | Accept it (free tier) OR upgrade |
 
 ---
 
 ## Troubleshooting
 
-### Build fails: "Module not found"
-- Ensure `gunicorn` and `eventlet` are in `requirements.txt` (Step 3).
-- Check the **Logs** tab for the exact import error.
-
-### App crashes on startup: "Could not connect to database"
-- Verify `DATABASE_URL` uses the **Internal Database URL** (not external).
-- Ensure the database and web service are in the **same region**.
-- Check the database is active in the Render dashboard.
-
-### "502 Bad Gateway" on visit
-- The container is likely not listening on the port Render expects.
-- Fix: Set `PORT=5000` env var or update the Dockerfile CMD (see Step 4).
-
-### Uploads disappear after redeploy
-- You are on the free tier without a persistent disk.
-- Upgrade to Starter and add a disk at `/app/uploads` (Step 5).
-
-### Phone can't connect
-- Verify the APK was built with `server.url=https://kidguard-server.onrender.com`.
-- Check `CLOUD_SERVER_URL` env var matches the Render URL.
-- Ensure the child device has internet access.
-- If on free tier, the first request may be slow (cold start) — wait 30s and retry.
-
-### WebSocket not working
-- The current `requirements.txt` does **not** include `flask-socketio`.
-- The app falls back to 30-second polling automatically (see `app.py:14-19`).
-- To enable WebSocket, uncomment `flask-socketio==5.6.1` in `requirements.txt`, rebuild, and ensure `eventlet` is installed (gunicorn worker-class handles it).
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| Build fails: `psycopg2` not installed | Wrong Dockerfile used | Confirm Dockerfile path is `/Dockerfile` at repo root (NOT the old `cloud-server/Dockerfile`) |
+| Build fails: `from server import create_app` import error | Old `server/Dockerfile` was used | Use the new root `Dockerfile` (which `COPY server/ ./server/`) |
+| 502 Bad Gateway | Container not listening on Render's PORT | We use `${PORT:-5000}` in CMD — Render auto-injects PORT=10000, the container listens on 10000. Make sure you didn't override PORT to 5000 in Render UI. |
+| 500 on forgot-password | DB issue | Check **Logs** tab — should NOT happen on Render (Postgres, not SQLite) |
+| Health check fails (a `401` from `/api/auth/me` is treated as failing by Render) | Render persists on 2xx only | Either change `healthCheckPath` to `/` (returns 200 login page) or change `healthCheckPath` to a `200` endpoint. |
+| "I can't see uploaded APK / OTA media" | Free tier, no disk | Upgrade to Starter + add disk at `/app/uploads` |
+| First request after idle takes 30 s | Free tier spin-down | Upgrade to Starter |
 
 ---
 
-## Updating the Server Later
+## Quick Deploy Checklist (TL;DR)
 
-Any push to the `main` branch triggers an automatic rebuild and redeploy on Render:
+- [ ] Latest code pushed to GitHub (commit `609096c` or newer)
+- [ ] Render dashboard → **New + Blueprint** → select `Kid_Guard` repo
+- [ ] Set `SECRET_KEY` + `JWT_SECRET_KEY` (64-char hex strings)
+- [ ] Pick region → **Apply**
+- [ ] Wait for `kidguard-db` (green) + `kidguard-server` (green)
+- [ ] Visit `https://kidguard-server.onrender.com` → login page loads
+- [ ] Test forgot-password flow end-to-end
+- [ ] (Optional) Add persistent disk on `/app/uploads` (Starter tier)
+- [ ] Update `local.properties` with Render URL + rebuild APK
+- [ ] Install new APK on child device
+
+---
+
+## Updating Render deploys later
+
+Any `git push` to `main` triggers an automatic rebuild + redeploy:
 
 ```bash
-git add .
-git commit -m "Update server"
+git add ...
+git commit -m "..."
 git push origin main
 ```
 
-Monitor progress in the Render Dashboard → **Events** and **Logs** tabs.
-
----
-
-## Quick Deployment Checklist
-
-- [ ] Code pushed to GitHub
-- [ ] `gunicorn` + `eventlet` added to `requirements.txt`
-- [ ] PostgreSQL database created on Render
-- [ ] Web service created (Docker runtime, root = `cloud-server`)
-- [ ] Environment variables set (`SECRET_KEY`, `JWT_SECRET_KEY`, `DATABASE_URL`, `CLOUD_SERVER_URL`)
-- [ ] Port configured (`PORT=5000` or Dockerfile updated)
-- [ ] Persistent disk mounted at `/app/uploads` (Starter tier)
-- [ ] `uploads/apk/version.json` initialized
-- [ ] Server reachable at `https://kidguard-server.onrender.com`
-- [ ] `local.properties` updated with Render URL
-- [ ] APK rebuilt and installed on child device
-- [ ] APK uploaded via `/api/app/upload` for OTA updates
+Watch the build status in Render dashboard → **Events** + **Logs** tabs. Once
+green, the new version is live — no manual reload (unlike PythonAnywhere).

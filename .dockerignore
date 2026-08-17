@@ -1,0 +1,60 @@
+# Build context excludes — keeps the Docker image small + avoids copying
+# secrets / local dev artifacts into the rendered container.
+.git/
+.gitignore
+.github/
+.opencode/
+
+# Local Python venvs / caches
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+venv/
+.venv/
+*.egg-info/
+
+# Local DBs + uploads (the container creates empty uploads/ itself)
+*.db
+*.sqlite
+*.sqlite3
+tracking.db
+instance/
+uploads/
+server/instance/
+server/uploads/
+
+# Local env / secrets
+.env
+.env.*
+*.pem
+*.key
+
+# Android build artifacts (Render builds the server, not the APK)
+*.apk
+*.ap_
+*.idsig
+.gradle/
+build/
+app/build/
+captures/
+.cxx/
+.externalNativeBuild/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.swp
+
+# Docs (not needed at runtime)
+*.md
+LICENSE
+
+# Scripts not used by the container
+test_api.py
+test_cloud.py
+check_*.js
+patch_*.js
+patch_apk.py

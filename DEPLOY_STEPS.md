@@ -402,3 +402,183 @@ so you can run it as a fallback while debugging.
 
 That's it — the deployed server now uses MySQL, has the security fixes from
 the blueprint refactor, and the forgot-password flow works.
+
+---
+
+# Part 2 — Free up PythonAnywhere quota (or migrate to Render)
+
+If you're hitting PythonAnywhere's free-tier limit ("free quota exceeded"),
+you have two choices:
+
+| Choice | When to pick |
+|---|---|
+| **A. Free up space on PythonAnywhere** (below) | You want to keep the existing URL `https://diptiban2021.pythonanywhere.com` and the data already there. Best if your kid's phone is paired + reporting, and you don't want to re-pair. |
+| **B. Migrate to Render** | Free quota is mostly CPU/concurrent-worker-related (not disk) OR you don't mind re-pairing the child device. Cleaner stack (Postgres, push-to-deploy, no SQLite-on-NFS headaches). See `RENDER_DEPLOY.md` for the full guide. |
+
+Pa's free quota is shared across three resources:
+1. **CPU seconds per day** (2,500 s/day on free) — the most common limit
+2. **Disk space** (512 MB)
+3. **Concurrent workers** (only one web worker allowed)
+
+Most "quota exceeded" errors are **CPU seconds** — the dashboard polling 24/7
+burns CPU at a surprising rate. Cleaning up files won't fix that; you need
+either to reduce polling frequency or migrate.
+
+---
+
+## How to free up PythonAnywhere quota
+
+### Check what's using your quota
+
+1. Go to the dashboard → **Account** → look at the **"Free Tier Limits"**
+   panel. It shows CPU usage / disk usage bars. Identify which is exhausted.
+
+### Reduce disk usage (largest items first)
+
+In a Bash console:
+
+```bash
+# 1) See the biggest files/dirs in your home:
+du -h -d 2 ~ | sort -h | tail -20
+
+# 2) The single biggest space-hog is usually __pycache__ dirs + the Python
+#    package cache ~/.local — safe to clear:
+find ~/kidguard -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null
+rm -rf ~/.cache/pip
+
+# 3) Delete the old SQLite database that's not being used anymore (you're
+#    on MySQL now):
+rm -f ~/kidguard/tracking.db
+rm -f ~/kidguard/server/tracking.db
+rm -f ~/kidguard/instance/*.db 2>/dev/null
+
+# 4) Delete old uploaded APKs / media you no longer need (CAUTION — these
+#    may include camera photos captured from the child's device):
+ls -lh ~/kidguard/uploads/
+# Review carefully, then remove anything you don't need:
+# rm ~/kidguard/uploads/apk/old_v1.apk
+# rm ~/kidguard/uploads/*.jpg   # camera captures
+# rm ~/kidguard/uploads/*.mp4   # audio captures
+```
+
+### Drop the legacy MySQL database if unused
+
+If you kicked off the Render migration and no longer use PythonAnywhere:
+
+```bash
+# In a Bash console:
+python3 -c "
+import os
+from zoneinfo import ZoneInfo
+print('PA_MYSQL_DATABASE =', os.environ.get('PA_MYSQL_DATABASE'))
+print('PA_MYSQL_USER     =', os.environ.get('PA_MYSQL_USER'))
+"
+
+mysql -u "\$PA_MYSQL_USER" -p"\$PA_MYSQL_PASSWORD" -h "\$PA_MYSQL_HOST" "\$PA_MYSQL_DATABASE" -e "
+SHOW TABLES;
+SELECT COUNT(*) AS users FROM users;
+"
+
+# To WIPE all KidGuard data (irreversible!) — only if you're done with PA:
+# mysqldump -u "\$PA_MYSQL_USER" -p"\$PA_MYSQL_PASSWORD" -h "\$PA_MYSQL_HOST" "\$PA_MYSQL_DATABASE" > ~/kidguard-backup-\$(date +%F).sql
+# mysql -u "\$PA_MYSQL_USER" -p"\$PA_MYSQL_PASSWORD" -h "\$PA_MYSQL_HOST" "\$PA_MYSQL_DATABASE" -e "SET FOREIGN_KEY_CHECKS=0; SHOW TABLES; -- review, then DROP each: --"
+# Or simply delete the database from the **Databases** tab in the dashboard.
+```
+
+### Reduce CPU usage (most common limit)
+
+The biggest CPU drain is the dashboard polling every 30 s. If you've already
+resolved your immediate issue and just need to stay within the daily quota:
+
+1. In `server/templates/dashboard.html`, find:
+   ```js
+   startPolling() // 30s interval
+   ```
+   Change the interval to 60 s or 120 s (one line edit).
+
+2. In the child APK's `TrackerService` (`app/src/main/java/com/anonchat/app/parentalcontrol/service/TrackerService.kt`),
+   find `REPORT_INTERVAL_MS = 30_000` and bump it to `60_000`. Rebuild + reinstall.
+
+3. Disable the always-on polling on the OLD PythonAnywhere deploy: log out of
+   the dashboard in your browser when you're not actively monitoring (the
+   polling stops when the tab is closed or the JWT expires).
+
+### Delete the web app entirely (full teardown)
+
+If you've migrated to Render and want to fully delete PythonAnywhere:
+
+1. Open the **Web** tab.
+2. Find your web app entry → click the **Delete** button (trash icon at the
+   top right of the web app card).
+3. Confirm. This deletes the WSGI config and stops the worker (frees
+   CPU-qattach).
+
+Then delete the database:
+
+4. Open the **Databases** tab.
+5. Click your `kidguard` MySQL DB → **Delete**.
+
+Then delete the project files:
+
+6. Open a **Bash** console:
+   ```bash
+   # Move to the bundle folder first (git is huge)
+   cd ~
+   rm -rf ~/kidguard
+   ```
+7. (Optional) Delete the bash console itself: **Consoles** tab → click the X
+   on each console.
+
+Then (if you really want to leave PA):
+
+8. Account → **Delete account** (irreversible — only do this if you're
+   definitely done with PythonAnywhere).
+
+---
+
+## How to migrate to Render (full step-by-step guide)
+
+This is the **cleanest** path now that PythonAnywhere is hitting limits.
+Full instructions are in **`RENDER_STEPS.md`** in this repo, but the short
+version is:
+
+1. Log in to [render.com](https://render.com) with your GitHub account.
+2. Dashboard → **New +** → **Blueprint** → select the `Kid_Guard` repo.
+   Render auto-detects `render.yaml` and provisions:
+   - 1× PostgreSQL DB (`kidguard-db`)
+   - 1× Flask web service (`kidguard-server`) built from the new `Dockerfile`
+     at the repo root, running the modern `server/` package (with the
+     forgot-password fix).
+3. Fill in `SECRET_KEY` and `JWT_SECRET_KEY` (Render prompts for them).
+4. Pick a region → **Apply**.
+5. Wait ~4 min for the build to complete. Your server goes live at:
+   ```
+   https://kidguard-server.onrender.com
+   ```
+6. On your local machine, edit `local.properties`:
+   ```properties
+   server.url=https://kidguard-server.onrender.com
+   ```
+7. Rebuild + reinstall the APK on the child's phone:
+   ```bash
+   ./gradlew assembleDebug
+   adb install -r -g app/build/outputs/apk/debug/app-debug.apk
+   ```
+
+The End. The new URL is `https://kidguard-server.onrender.com` — update
+any links, bookmarks, or hotspot kickback URLs accordingly.
+
+---
+
+## Recommendation
+
+Given that you're hitting quota **and** the SQLite-on-NFS issue keeps
+breaking writes on PythonAnywhere, **migrate to Render**. It's:
+
+- The same codebase
+- The same security fixes (forgot-password, JWT revocation, ownership checks)
+- A proper PostgreSQL DB (no disk-I/O class of failures)
+- Auto-deploy on every `git push` (no manual "git pull + reload" dance)
+- A single URL change in your APK, once
+
+Follow `RENDER_DEPLOY.md`. You'll be done in 15 minutes.

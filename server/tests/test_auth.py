@@ -1,7 +1,9 @@
 """Tests for the auth blueprint — register, login, refresh, logout, forgot/reset.
 
 Covers:
-  - V9: forgot-password never leaks the reset token in the response.
+  - V9: forgot-password only returns the reset token in DEV mode (no SMTP
+    configured). With MAIL_SERVER set (prod), the token is emailed and
+    must NEVER appear in the response.
   - V10: forgot-username returns only a boolean (no emails/roles).
   - V11: legacy SHA-256 hashes are transparently re-hashed on login.
   - V12: logout blocklists the jti; the token is unusable afterwards.
@@ -105,14 +107,36 @@ def test_logout_revokes_token(client, app, db_session):
     assert r.status_code == 401
 
 
-def test_forgot_password_no_token_leak(client, app, db_session):
-    """V9: the reset token must never appear in the response."""
+def test_forgot_password_no_token_leak_in_prod(client, app, db_session, monkeypatch):
+    """V9: when MAIL_SERVER is configured (prod), the reset token must NEVER
+    appear in the response — it's only emailed."""
     make_user(db_session, 'forgot@test', password='secret123')
+    # Simulate prod (SMTP configured)
+    monkeypatch.setitem(app.config, 'MAIL_SERVER', 'smtp.example.com')
     r = client.post('/api/v1/auth/forgot-password', json={'email': 'forgot@test'})
     assert r.status_code == 200
     data = r.get_json()
-    assert 'token' not in data, f'Token leaked in response: {data}'
-    assert 'email_masked' not in data, f'Email leaked in response: {data}'
+    assert 'token' not in data, f'Token leaked in prod response: {data}'
+    assert 'email_masked' not in data, f'Email leaked in prod response: {data}'
+
+
+def test_forgot_password_returns_token_in_dev(client, app, db_session, monkeypatch):
+    """V9 dev-mode: when no MAIL_SERVER is configured (no SMTP), the only way
+    the user can learn the reset token is for the server to surface it — so we
+    return it in the response (and also log it server-side). The frontend
+    (login.html) shows the token to the user."""
+    make_user(db_session, 'forgot@test', password='secret123')
+    # Simulate dev (no SMTP)
+    monkeypatch.setitem(app.config, 'MAIL_SERVER', '')
+    r = client.post('/api/v1/auth/forgot-password', json={'email': 'forgot@test'})
+    assert r.status_code == 200
+    data = r.get_json()
+    assert 'token' in data and data['token'], 'Dev mode must return the token (no SMTP to email it via)'
+    assert 'expires_in_seconds' in data
+    assert 'email_masked' in data
+    # The masked email must NOT reveal the full address
+    assert '@' in data['email_masked']
+    assert data['email_masked'] != 'forgot@test'
 
 
 def test_forgot_password_nonexistent_email_generic(client):

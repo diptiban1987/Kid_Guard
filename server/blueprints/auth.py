@@ -3,8 +3,9 @@
 Security fixes applied here (see the audit + security.py):
   - V11 weak hashing: uses Werkzeug scrypt; transparently re-hashes legacy
     SHA-256 hashes on successful login (no-downtime migration).
-  - V9  reset token in response: forgot-password never returns the token. In
-    dev (no SMTP) the token is logged server-side only; in prod it's emailed.
+  - V9  reset token in response: forgot-password returns the token ONLY when
+    no SMTP (MAIL_SERVER) is configured (dev). With SMTP configured, the token
+    is emailed and never echoed in the response (prod-safe).
   - V10 account enumeration: forgot-username returns a generic boolean only.
   - V12 no token revocation: logout blocklists the current jti; reset-password
     revokes all the user's outstanding tokens via ``last_password_change``.
@@ -153,9 +154,10 @@ def logout():
 @bp.route('/auth/forgot-password', methods=['POST'])
 @limiter.limit('5/minute')
 def forgot_password():
-    """Issue a password-reset token. V9: the token is NEVER returned in the
-    response. In dev (no SMTP configured) it is logged server-side for
-    convenience; in prod it is emailed to the registered address."""
+    """Issue a password-reset token. V9: when MAIL_SERVER is configured the
+    token is emailed and NEVER echoed back (prod). When MAIL_SERVER is unset
+    (dev / no SMTP) the token is returned in the response so the frontend
+    reset flow can complete; server-side logging also happens in dev."""
     data = request.get_json() or {}
     email = data.get('email', '').strip().lower()
     if not email:
@@ -195,7 +197,22 @@ def forgot_password():
         )
 
     audit_log(user.id, 'forgot_password', target_type='user', target_id=user.id)
-    return jsonify(generic), 200
+
+    # V9 delivery policy:
+    #   - MAIL_SERVER configured → email the token, do NOT echo it back (prod).
+    #   - MAIL_SERVER unset (dev / no SMTP) → there's no other channel to send
+    #     the token, so return it in the response body. The frontend (login.html)
+    #     surfaces it to the user so they can paste it into the reset form.
+    #     This matches the legacy monolith's dev behavior and is consistent with
+    #     the existing server-side log line above.
+    #     Once MAIL_SERVER is configured, this branch stops returning the token
+    #     and the prod guarantee holds again.
+    payload = dict(generic)
+    if not current_app.config.get('MAIL_SERVER'):
+        payload['token'] = token
+        payload['expires_in_seconds'] = 1800
+        payload['email_masked'] = mask_email(user.email)
+    return jsonify(payload), 200
 
 
 @bp.route('/auth/reset-password', methods=['POST'])

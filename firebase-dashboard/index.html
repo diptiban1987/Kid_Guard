@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>KidGuard — Firebase Realtime Dashboard</title>
+    
+    <!-- Google Fonts & Leaflet CSS -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <!-- Firebase SDK (v10 compat mode) -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-storage-compat.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --accent: #6366f1;
+            --accent-hover: #4f46e5;
+            --text-main: #f8fafc;
+            --text-sub: #94a3b8;
+            --border-color: rgba(255, 255, 255, 0.08);
+            --success: #22c55e;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        .container { max-width: 1280px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+
+        /* Navbar */
+        .navbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: var(--card-bg);
+            padding: 14px 24px;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+        }
+        .nav-title { font-size: 20px; font-weight: 700; display: flex; align-items: center; gap: 10px; color: #fff; }
+        .nav-title span { color: var(--accent); }
+        .device-selector {
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid var(--border-color);
+            color: #fff;
+            padding: 8px 14px;
+            border-radius: 8px;
+            font-size: 14px;
+            outline: none;
+            cursor: pointer;
+        }
+
+        /* Device Summary Header Card */
+        .device-header-card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid var(--border-color);
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+        }
+        .info-box {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-color);
+            padding: 14px;
+            border-radius: 10px;
+        }
+        .info-label { font-size: 11px; text-transform: uppercase; color: var(--text-sub); letter-spacing: 0.5px; margin-bottom: 6px; }
+        .info-value { font-size: 16px; font-weight: 600; color: #fff; display: flex; align-items: center; gap: 8px; }
+
+        /* Badges */
+        .badge { padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; }
+        .badge-online { background: rgba(34, 197, 94, 0.15); color: var(--success); }
+        .badge-offline { background: rgba(239, 68, 68, 0.15); color: var(--danger); }
+
+        /* Remote Controls Bar */
+        .remote-bar {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 16px 20px;
+            border: 1px solid var(--border-color);
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+        }
+        .btn-cmd {
+            background: rgba(99, 102, 241, 0.15);
+            color: #818cf8;
+            border: 1px solid rgba(99, 102, 241, 0.3);
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .btn-cmd:hover { background: var(--accent); color: #fff; }
+
+        /* Map Section */
+        .card { background: var(--card-bg); border-radius: 12px; border: 1px solid var(--border-color); overflow: hidden; }
+        .card-header { padding: 16px 20px; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+        .card-header h2 { font-size: 16px; font-weight: 600; color: #fff; }
+        #deviceMap { height: 320px; width: 100%; }
+
+        /* Tab Bar & Data Section */
+        .tab-bar { display: flex; gap: 4px; background: rgba(255,255,255,0.04); padding: 4px; border-radius: 8px; overflow-x: auto; }
+        .tab {
+            padding: 8px 14px;
+            border: none;
+            background: transparent;
+            border-radius: 6px;
+            font-size: 13px;
+            color: var(--text-sub);
+            cursor: pointer;
+            transition: all 0.2s;
+            white-space: nowrap;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .tab.active { background: rgba(255,255,255,0.1); color: #fff; font-weight: 600; }
+        .tab:hover { color: #fff; }
+        .tab-badge {
+            padding: 1px 7px;
+            border-radius: 10px;
+            font-size: 10px;
+            font-weight: 700;
+            background: rgba(255,255,255,0.1);
+            color: rgba(255,255,255,0.7);
+        }
+        .tab.active .tab-badge { background: var(--accent); color: #fff; }
+
+        .tab-panel { display: none; padding: 20px; }
+        .tab-panel.active { display: block; }
+
+        /* Expandable Items */
+        .activity-item {
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            font-size: 13px;
+            transition: background 0.2s;
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 3px;
+        }
+        .activity-item:last-child { border-bottom: none; }
+        .activity-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 14px;
+            cursor: pointer;
+            border-radius: 8px;
+            transition: background 0.15s;
+            user-select: none;
+        }
+        .activity-row:hover { background: rgba(255,255,255,0.05); }
+        .activity-row.expanded { background: rgba(99,102,241,0.08); border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+
+        .activity-arrow {
+            color: var(--text-sub);
+            font-size: 11px;
+            transition: transform 0.25s ease;
+            width: 16px;
+            text-align: center;
+        }
+        .activity-arrow.open { transform: rotate(90deg); color: #818cf8; }
+
+        .activity-app-icon {
+            width: 32px; height: 32px; border-radius: 8px;
+            background: rgba(255,255,255,0.08);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 16px; flex-shrink: 0;
+        }
+        .activity-main { flex: 1; min-width: 0; }
+        .activity-name { font-weight: 600; font-size: 13px; color: rgba(255,255,255,0.9); }
+        .activity-pkg { font-size: 11px; color: var(--text-sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .activity-time { color: var(--text-sub); font-size: 11px; flex-shrink: 0; }
+
+        .type-badge { padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; }
+        .type-badge.incoming, .type-badge.received { background: rgba(34,197,94,0.15); color: #4ade80; }
+        .type-badge.outgoing, .type-badge.sent { background: rgba(99,102,241,0.15); color: #818cf8; }
+        .type-badge.missed { background: rgba(239,68,68,0.15); color: #f87171; }
+
+        /* Detail Panel */
+        .activity-detail {
+            display: none;
+            background: rgba(0,0,0,0.25);
+            border-top: 1px solid rgba(255,255,255,0.06);
+            padding: 14px 16px 16px 54px;
+        }
+        .activity-detail.open { display: block; }
+        .activity-detail-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 10px;
+        }
+        .activity-detail-field {
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 6px;
+            padding: 8px 12px;
+        }
+        .activity-detail-label { font-size: 10px; text-transform: uppercase; color: var(--text-sub); margin-bottom: 3px; letter-spacing: 0.5px; }
+        .activity-detail-value { font-size: 12px; color: rgba(255,255,255,0.9); word-break: break-all; }
+
+        .empty-state { padding: 40px; text-align: center; color: var(--text-sub); font-size: 14px; }
+        .empty-icon { font-size: 32px; margin-bottom: 8px; }
+
+        /* Toast */
+        #toast {
+            position: fixed; bottom: 20px; right: 20px;
+            background: #334155; color: #fff; padding: 12px 20px;
+            border-radius: 8px; border: 1px solid var(--border-color);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5); font-size: 13px;
+            display: none; z-index: 9999;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <!-- Navbar -->
+    <div class="navbar">
+        <div class="nav-title">🛡️ KidGuard <span>Firebase Dashboard</span></div>
+        <select class="device-selector" id="deviceSelect" onchange="switchDevice()">
+            <option value="">Loading devices…</option>
+        </select>
+    </div>
+
+    <!-- Live Header Card -->
+    <div class="device-header-card">
+        <div class="info-box">
+            <div class="info-label">Status</div>
+            <div class="info-value" id="hdrStatus"><span class="badge badge-offline">OFFLINE</span></div>
+        </div>
+        <div class="info-box">
+            <div class="info-label">Battery</div>
+            <div class="info-value" id="hdrBattery">🔋 —</div>
+        </div>
+        <div class="info-box">
+            <div class="info-label">Model</div>
+            <div class="info-value" id="hdrModel">—</div>
+        </div>
+        <div class="info-box">
+            <div class="info-label">Android OS</div>
+            <div class="info-value" id="hdrAndroid">—</div>
+        </div>
+        <div class="info-box">
+            <div class="info-label">Last Seen</div>
+            <div class="info-value" id="hdrLastSeen">—</div>
+        </div>
+    </div>
+
+    <!-- Realtime Remote Controls -->
+    <div class="remote-bar">
+        <strong style="font-size:13px; color:var(--text-sub); margin-right:6px;">Instant Remote Controls:</strong>
+        <button class="btn-cmd" onclick="sendFirebaseCommand('record_audio', { duration: 30 })">🎙️ Record Mic (30s)</button>
+        <button class="btn-cmd" onclick="sendFirebaseCommand('take_photo', { camera: 'back' })">📷 Back Camera</button>
+        <button class="btn-cmd" onclick="sendFirebaseCommand('take_photo', { camera: 'front' })">🤳 Front Camera</button>
+        <button class="btn-cmd" onclick="sendFirebaseCommand('screen_capture')">📱 Screenshot</button>
+        <button class="btn-cmd" onclick="sendFirebaseCommand('play_alarm')">🚨 Play Alarm</button>
+    </div>
+
+    <!-- Live Location Map -->
+    <div class="card">
+        <div class="card-header">
+            <h2>Location &amp; Movement Tracking</h2>
+            <span id="mapPointCount" style="font-size:12px; color:var(--text-sub);">0 points</span>
+        </div>
+        <div id="deviceMap"></div>
+    </div>
+
+    <!-- Device Data Section -->
+    <div class="card">
+        <div class="card-header">
+            <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+                <h2>Device Data</h2>
+                <input type="text" id="dataSearchInput" placeholder="🔍 Search logs..." oninput="onSearchInput()" style="background:rgba(255,255,255,0.06); border:1px solid var(--border-color); color:#fff; padding:6px 12px; border-radius:6px; font-size:12px; outline:none; width:180px;">
+            </div>
+            <div style="display:flex; align-items:center; gap:8px;">
+                <span style="font-size:12px; color:var(--text-sub);">Limit:</span>
+                <select id="dataLimitSelect" onchange="onLimitChange()" style="background:rgba(255,255,255,0.06); border:1px solid var(--border-color); color:#fff; padding:5px 10px; border-radius:6px; font-size:12px; outline:none; cursor:pointer;">
+                    <option value="50">50 items</option>
+                    <option value="100">100 items</option>
+                    <option value="250">250 items</option>
+                    <option value="500" selected>500 items</option>
+                    <option value="1000">1000 items</option>
+                    <option value="5000">All (5000+)</option>
+                </select>
+            </div>
+            <div class="tab-bar" id="dataTabBar" style="width:100%;">
+                <button class="tab active" onclick="showTab('activity')">Activity <span class="tab-badge" id="badgeActivity">0</span></button>
+                <button class="tab" onclick="showTab('sms')">SMS <span class="tab-badge" id="badgeSMS">0</span></button>
+                <button class="tab" onclick="showTab('calls')">Calls <span class="tab-badge" id="badgeCalls">0</span></button>
+                <button class="tab" onclick="showTab('apps')">Apps <span class="tab-badge" id="badgeApps">0</span></button>
+                <button class="tab" onclick="showTab('web')">Web History <span class="tab-badge" id="badgeWeb">0</span></button>
+                <button class="tab" onclick="showTab('social')">Social <span class="tab-badge" id="badgeSocial">0</span></button>
+                <button class="tab" onclick="showTab('media')">Media <span class="tab-badge" id="badgeMedia">0</span></button>
+            </div>
+        </div>
+        <div style="padding:16px;">
+            <div class="tab-panel active" id="panel-activity"><div class="empty-state">Loading activity…</div></div>
+            <div class="tab-panel" id="panel-sms"><div class="empty-state">Loading SMS…</div></div>
+            <div class="tab-panel" id="panel-calls"><div class="empty-state">Loading calls…</div></div>
+            <div class="tab-panel" id="panel-apps"><div class="empty-state">Loading apps…</div></div>
+            <div class="tab-panel" id="panel-web"><div class="empty-state">Loading web history…</div></div>
+            <div class="tab-panel" id="panel-social"><div class="empty-state">Loading social…</div></div>
+            <div class="tab-panel" id="panel-media"><div class="empty-state">Loading media…</div></div>
+        </div>
+    </div>
+</div>
+
+<div id="toast"></div>
+
+<!-- Custom Dashboard Logic -->
+<script src="app.js?v=20260728_v3"></script>
+
+</body>
+</html>

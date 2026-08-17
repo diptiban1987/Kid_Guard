@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Device Detail - Parental Control</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">
+            <span class="nav-logo">&#9679;</span>
+            <span>Device: {{ device_id }}</span>
+        </div>
+        <div class="nav-right">
+            <a href="/dashboard" class="btn-logout">&larr; Dashboard</a>
+            <a href="/logout" class="btn-logout">Logout</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="device-info-row" id="deviceInfo">
+            <div class="loading">Loading device info...</div>
+        </div>
+
+        <div class="dashboard-grid single-col">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Location History</h2>
+                </div>
+                <div id="deviceMap" style="height:400px"></div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h2>Recent SMS</h2>
+            </div>
+            <div class="card-body" id="deviceSms">
+                <div class="loading">Loading SMS...</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h2>Recent Calls</h2>
+            </div>
+            <div class="card-body" id="deviceCalls">
+                <div class="loading">Loading calls...</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h2>Installed Apps</h2>
+            </div>
+            <div class="card-body" id="deviceApps">
+                <div class="loading">Loading apps...</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        const DEVICE_ID = "{{ device_id }}";
+    </script>
+    <script src="{{ url_for('static', filename='js/device.js') }}"></script>
+</body>
+</html>

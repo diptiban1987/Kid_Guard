@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "145505706969",
+    "project_id": "anonchat-a690b",
+    "storage_bucket": "anonchat-a690b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:145505706969:android:91ae5e53ac40a5dec9efc8",
+        "android_client_info": {
+          "package_name": "com.anonchat.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "145505706969-hle3tcl5e421rd5bmdsrfgplb48850t4.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.anonchat.app",
+            "certificate_hash": "c36c353af472b0dbc6ac8f98b2b18ed313418ddd"
+          }
+        },
+        {
+          "client_id": "145505706969-1rd1uglkvnvi0kefh565p21oi8kjdmek.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDYe-a29HuvOuhIb3QrIJCcsORQnwSbh-E"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "145505706969-1rd1uglkvnvi0kefh565p21oi8kjdmek.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

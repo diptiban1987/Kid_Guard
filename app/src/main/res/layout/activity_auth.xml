@@ -1,0 +1,267 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#0D0D1A"
+    android:padding="24dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_centerVertical="true"
+        android:orientation="vertical">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="AnonChat"
+            android:textColor="#6C63FF"
+            android:textSize="36sp"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:id="@+id/tvSubtitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Chat anonymously. No phone. No email. Just you."
+            android:textColor="#B3FFFFFF"
+            android:textSize="14sp"
+            android:gravity="center"
+            android:layout_marginBottom="24dp" />
+
+        <!-- Mode Toggle -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:orientation="horizontal"
+            android:layout_marginBottom="24dp"
+            android:background="#1A1A2E"
+            android:padding="2dp">
+
+            <TextView
+                android:id="@+id/tvAnonTab"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:text="Anonymous"
+                android:textColor="#FFFFFF"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:gravity="center"
+                android:background="#6C63FF"
+                android:layout_margin="1dp" />
+
+            <TextView
+                android:id="@+id/tvParentTab"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:text="Parent Login"
+                android:textColor="#80FFFFFF"
+                android:textSize="13sp"
+                android:gravity="center"
+                android:background="@android:color/transparent"
+                android:layout_margin="1dp" />
+        </LinearLayout>
+
+        <!-- ═══ Anonymous Login Container ═══ -->
+        <LinearLayout
+            android:id="@+id/anonymousContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Choose your avatar color"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:gravity="center"
+                android:layout_marginBottom="12dp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center"
+                android:layout_marginBottom="32dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center">
+
+                    <View android:id="@+id/color1" android:layout_width="28dp" android:layout_height="28dp" android:layout_margin="4dp" android:background="#6C63FF" />
+                    <View android:id="@+id/color2" android:layout_width="28dp" android:layout_height="28dp" android:layout_margin="4dp" android:background="#FF6584" />
+                    <View android:id="@+id/color3" android:layout_width="28dp" android:layout_height="28dp" android:layout_margin="4dp" android:background="#43A047" />
+                    <View android:id="@+id/color4" android:layout_width="28dp" android:layout_height="28dp" android:layout_margin="4dp" android:background="#FB8C00" />
+                    <View android:id="@+id/color5" android:layout_width="28dp" android:layout_height="28dp" android:layout_margin="4dp" android:background="#E53935" />
+                    <View android:id="@+id/color6" android:layout_width="28dp" android:layout_height="28dp" android:layout_margin="4dp" android:background="#8E24AA" />
+                    <View android:id="@+id/color7" android:layout_width="28dp" android:layout_height="28dp" android:layout_margin="4dp" android:background="#1E88E5" />
+                    <View android:id="@+id/color8" android:layout_width="28dp" android:layout_height="28dp" android:layout_margin="4dp" android:background="#00ACC1" />
+                    <View android:id="@+id/color9" android:layout_width="28dp" android:layout_height="28dp" android:layout_margin="4dp" android:background="#7CB342" />
+                    <View android:id="@+id/color10" android:layout_width="28dp" android:layout_height="28dp" android:layout_margin="4dp" android:background="#F4511E" />
+                    <View android:id="@+id/color11" android:layout_width="28dp" android:layout_height="28dp" android:layout_margin="4dp" android:background="#3949AB" />
+                    <View android:id="@+id/color12" android:layout_width="28dp" android:layout_height="28dp" android:layout_margin="4dp" android:background="#C0CA33" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:textColorHint="#80FFFFFF"
+                android:backgroundTint="#6C63FF">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/etUsername"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="Pick a username"
+                    android:textColor="#FFFFFF"
+                    android:textColorHint="#80FFFFFF"
+                    android:inputType="text"
+                    android:maxLines="1"
+                    android:maxLength="20"
+                    android:padding="16dp"
+                    android:backgroundTint="#6C63FF" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <TextView
+                android:id="@+id/tvUsernameStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="#4CAF50"
+                android:textSize="12sp"
+                android:visibility="gone"
+                android:layout_marginBottom="16dp"
+                android:paddingStart="4dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnGetStarted"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:text="Get Started"
+                android:textAllCaps="false"
+                android:textSize="16sp"
+                android:backgroundTint="#6C63FF" />
+        </LinearLayout>
+
+        <!-- ═══ Parent Login Container ═══ -->
+        <LinearLayout
+            android:id="@+id/parentContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Login with your parent account to monitor devices"
+                android:textColor="#B3FFFFFF"
+                android:textSize="13sp"
+                android:gravity="center"
+                android:layout_marginBottom="24dp" />
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                android:textColorHint="#80FFFFFF"
+                android:backgroundTint="#6C63FF">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/etEmail"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="Email"
+                    android:textColor="#FFFFFF"
+                    android:textColorHint="#80FFFFFF"
+                    android:inputType="textEmailAddress"
+                    android:maxLines="1"
+                    android:padding="16dp"
+                    android:backgroundTint="#6C63FF"
+                    android:importantForAutofill="no" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:textColorHint="#80FFFFFF"
+                android:backgroundTint="#6C63FF"
+                app:passwordToggleEnabled="true"
+                xmlns:app="http://schemas.android.com/apk/res-auto">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/etPassword"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="Password"
+                    android:textColor="#FFFFFF"
+                    android:textColorHint="#80FFFFFF"
+                    android:inputType="textPassword"
+                    android:maxLines="1"
+                    android:padding="16dp"
+                    android:backgroundTint="#6C63FF"
+                    android:importantForAutofill="no" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <TextView
+                android:id="@+id/tvParentStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="#E53935"
+                android:textSize="12sp"
+                android:visibility="gone"
+                android:layout_marginBottom="16dp"
+                android:paddingStart="4dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnParentLogin"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:text="Parent Login"
+                android:textAllCaps="false"
+                android:textSize="16sp"
+                android:backgroundTint="#3949AB" />
+
+            <TextView
+                android:id="@+id/tvRegisterLink"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Don't have an account? Register"
+                android:textColor="#6C63FF"
+                android:textSize="13sp"
+                android:gravity="center"
+                android:padding="10dp"
+                android:layout_marginTop="8dp" />
+
+            <TextView
+                android:id="@+id/tvForgotPassword"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Forgot Password?"
+                android:textColor="#B3FFFFFF"
+                android:textSize="13sp"
+                android:gravity="center"
+                android:padding="8dp" />
+        </LinearLayout>
+
+        <ProgressBar
+            android:id="@+id/progressBar"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:layout_gravity="center"
+            android:layout_marginTop="16dp"
+            android:visibility="gone"
+            android:indeterminateTint="#6C63FF" />
+
+    </LinearLayout>
+
+</RelativeLayout>

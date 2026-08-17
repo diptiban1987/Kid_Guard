@@ -1,19 +1,41 @@
-# Compiled / runtime artifacts — never commit
-*.apk
+# ─── Python / server artifacts ────────────────────────────────────────────
 *.db
 *.sqlite
+*.sqlite3
 tracking.db
-uploads/
 instance/
+uploads/
 __pycache__/
 *.pyc
 .pytest_cache/
-
-# Local secrets / env
+*.egg-info/
 .env
 *.pem
 *.key
+venv/
+.venv/
 
-# OS / editor
+# ─── Android / Gradle artifacts ──────────────────────────────────────────
+*.iml
+.gradle
+/local.properties
+/.idea
+/build
+/app/build
+/captures
+.externalNativeBuild
+.cxx
+*.apk
+*.ap_
+*.idsig
+android-sdk/
+*.zip
+tools/
+build-tools.zip
+platform.zip
+platform-34.zip
+
+# NOTE: do NOT ignore *.bat — gradlew.bat + start_server.bat must be tracked.
 .DS_Store
 Thumbs.db
+*.swp

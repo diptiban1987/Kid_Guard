@@ -12,9 +12,9 @@
 # a persistent disk for uploads. Free tier supported (disk is optional
 # on free — uploads would be lost on redeploy).
 services:
-  - type: postgres
+  - type: postgresql
     name: kidguard-db
-    region: oregon            # change to your nearest region
+    region: oregon
     plan: free
     databaseName: kidguard
     user: kidguard

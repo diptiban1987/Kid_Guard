@@ -21,29 +21,24 @@ services:
 
   - type: web
     name: kidguard-server
-    region: oregon            # MUST match the database region
-    plan: free                # upgrade to 'starter' to keep uploads on disk
+    region: oregon
+    plan: free
     runtime: docker
     dockerfilePath: ./Dockerfile
-    healthCheckPath: /api/auth/me  # returns 401 on a healthy server
+    healthCheckPath: /
     autoDeploy: true
     envVars:
       - key: SECRET_KEY
-        sync: false           # set in the Render UI (use `secrets.token_hex(32)`)
+        sync: false
       - key: JWT_SECRET_KEY
-        sync: false           # set in the Render UI (use `secrets.token_hex(32)`)
+        sync: false
       - key: DATABASE_URL
         fromDatabase:
           name: kidguard-db
-          property: connectionString   # Render injects the internal PG URL
+          property: connectionString
       - key: CLOUD_SERVER_URL
-        value: https://kidguard-server.onrender.com   # change if you rename the service
+        value: https://kidguard-server.onrender.com
       - key: FLASK_AUTO_CREATE
         value: "1"
       - key: PYTHON_VERSION
         value: "3.11"
-    disk:
-      # Free tier does NOT support disks — comment these two lines out if
-      # you're on free, otherwise Render will refuse to deploy.
-      # name: uploads
-      # mountPath: /app/uploads

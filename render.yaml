@@ -1,24 +1,13 @@
-# Render Blueprint — declarative Infrastructure-as-Code for KidGuard.
+# Render Blueprint — KidGuard deployment.
 # Docs: https://render.com/docs/blueprint-spec
 #
 # How to use:
-#   1. Push this file to the repo (already done).
+#   1. Push this file to the repo.
 #   2. In Render dashboard → New + → Blueprint → pick this repo.
 #   3. Render reads render.yaml and provisions everything below.
-#   4. Set the four SECRET_* env vars in the Render UI once prompted
-#      (they're marked `sync: false` so they aren't committed to the repo).
-#
-# Result: one PostgreSQL DB + one Flask web service, wired together, with
-# a persistent disk for uploads. Free tier supported (disk is optional
-# on free — uploads would be lost on redeploy).
-services:
-  - type: postgresql
-    name: kidguard-db
-    region: oregon
-    plan: free
-    databaseName: kidguard
-    user: kidguard
+#   4. Set SECRET_KEY and JWT_SECRET_KEY when prompted (sync: false).
 
+services:
   - type: web
     name: kidguard-server
     region: oregon
@@ -42,3 +31,10 @@ services:
         value: "1"
       - key: PYTHON_VERSION
         value: "3.11"
+
+databases:
+  - name: kidguard-db
+    region: oregon
+    plan: free
+    databaseName: kidguard
+    user: kidguard

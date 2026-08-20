@@ -9,7 +9,7 @@
 
 services:
   - type: web
-    name: kidguard-server
+    name: kidguard
     region: oregon
     plan: free
     runtime: docker

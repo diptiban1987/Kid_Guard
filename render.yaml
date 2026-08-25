@@ -9,7 +9,7 @@
 
 services:
   - type: web
-    name: kidguard
+    name: kidguards
     region: oregon
     plan: free
     runtime: docker
@@ -26,7 +26,7 @@ services:
           name: kidguard-db
           property: connectionString
       - key: CLOUD_SERVER_URL
-        value: https://kidguard.onrender.com
+        value: https://kidguards.onrender.com
       - key: FLASK_AUTO_CREATE
         value: "1"
       - key: PYTHON_VERSION

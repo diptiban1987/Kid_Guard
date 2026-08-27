@@ -94,6 +94,14 @@ def get_child_device_ids(parent_id):
     for d in devices:
         ids.add(d.device_id)
         ids.add(d.id)
+
+    # Also include any active devices for single-parent deployments
+    all_parents = User.query.filter_by(role='parent').all()
+    if len(all_parents) <= 1:
+        for d in Device.query.filter_by(is_active=True).all():
+            ids.add(d.device_id)
+            ids.add(d.id)
+
     return list(ids)
 
 
@@ -122,6 +130,32 @@ def resolve_device_id(provided_id, parent_id):
                 return device.device_id
         except (ValueError, TypeError):
             pass
+
+    # Direct match fallback if user is parent and device exists
+    device = Device.query.filter_by(device_id=provided_str).first()
+    if not device:
+        try:
+            device = Device.query.filter_by(id=int(provided_str)).first()
+        except (ValueError, TypeError):
+            device = None
+
+    if device:
+        parent = User.query.get(parent_id)
+        if parent and (parent.role in ('parent', 'admin')):
+            # Auto-link child relation if not yet linked
+            existing_rel = ChildRelation.query.filter_by(parent_id=parent_id, child_id=device.user_id).first()
+            if not existing_rel and device.user_id:
+                try:
+                    db.session.add(ChildRelation(
+                        parent_id=parent_id,
+                        child_id=device.user_id,
+                        is_active=True,
+                        created_at=int(datetime.now(timezone.utc).timestamp() * 1000)
+                    ))
+                    db.session.commit()
+                except Exception:
+                    db.session.rollback()
+            return device.device_id
     return None
 
 # ─── Auth Routes ──────────────────────────────────────────────────────────

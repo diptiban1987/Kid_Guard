@@ -1255,11 +1255,12 @@ def report_audio_stream():
 @app.route('/api/parent/audio-recording/<command_id>', methods=['GET'])
 def get_audio_recording(command_id):
     """Serves assembled audio recording file (.wav or .m4a) with all accumulated audio frames."""
-    wav_file = os.path.join(AUDIO_DIR, f"{command_id}.wav")
-    m4a_file = os.path.join(AUDIO_DIR, f"{command_id}.m4a")
-    pcm_file = os.path.join(AUDIO_DIR, f"{command_id}.pcm")
+    cmd_str = str(command_id)
+    wav_file = os.path.join(AUDIO_DIR, f"{cmd_str}.wav")
+    m4a_file = os.path.join(AUDIO_DIR, f"{cmd_str}.m4a")
+    pcm_file = os.path.join(AUDIO_DIR, f"{cmd_str}.pcm")
 
-    # Always assemble full WAV from all recorded PCM bytes
+    # Rebuild full WAV from all recorded PCM bytes if PCM exists
     if os.path.exists(pcm_file):
         try:
             with open(pcm_file, 'rb') as pf:
@@ -1271,13 +1272,24 @@ def get_audio_recording(command_id):
                     wf.setframerate(16000)
                     wf.writeframes(pcm_data)
         except Exception as e:
-            print(f"On-the-fly WAV build error: {e}")
+            print(f"WAV assembly error: {e}")
 
-    if os.path.exists(wav_file):
-        return send_file(wav_file, mimetype='audio/wav', as_attachment=False, download_name=f"recording_{command_id}.wav", conditional=True)
+    if os.path.exists(wav_file) and os.path.getsize(wav_file) > 44:
+        return send_file(wav_file, mimetype='audio/wav', as_attachment=False, download_name=f"recording_{cmd_str}.wav", conditional=True)
 
     if os.path.exists(m4a_file):
-        return send_file(m4a_file, mimetype='audio/mp4', as_attachment=False, download_name=f"recording_{command_id}.m4a", conditional=True)
+        return send_file(m4a_file, mimetype='audio/mp4', as_attachment=False, download_name=f"recording_{cmd_str}.m4a", conditional=True)
+
+    # If no audio file uploaded yet, generate a 1-second initialized WAV header so browser never gets 404
+    try:
+        with wave.open(wav_file, 'wb') as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(16000)
+            wf.writeframes(b'\x00\x00' * 16000)
+        return send_file(wav_file, mimetype='audio/wav', as_attachment=False, download_name=f"recording_{cmd_str}.wav", conditional=True)
+    except Exception:
+        pass
 
     return jsonify({'error': 'Audio recording not found'}), 404
 

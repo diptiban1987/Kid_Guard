@@ -1425,26 +1425,46 @@
         // Note: Real-time WebSocket events removed (not supported on PythonAnywhere WSGI).
         // Call state is monitored via HTTP polling (startCallStatePolling every 3s).
 
+        let liveAudioNextTime = 0;
+
         function playAudioChunk(data) {
-            if (!audioContext || !data.audio) return;
+            if (!data || !data.audio) return;
             try {
+                if (!audioContext) {
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                if (audioContext.state === 'suspended') {
+                    audioContext.resume();
+                }
                 const raw = atob(data.audio);
-                const buffer = new ArrayBuffer(raw.length);
+                if (raw.length < 2) return;
+                const evenLen = raw.length - (raw.length % 2);
+                const buffer = new ArrayBuffer(evenLen);
                 const view = new Uint8Array(buffer);
-                for (let i = 0; i < raw.length; i++) view[i] = raw.charCodeAt(i);
+                for (let i = 0; i < evenLen; i++) view[i] = raw.charCodeAt(i);
                 const int16 = new Int16Array(buffer);
                 const float32 = new Float32Array(int16.length);
                 for (let i = 0; i < int16.length; i++) {
-                    float32[i] = int16[i] / 32768.0;
+                    float32[i] = (int16[i] / 32768.0) * 3.5;
                 }
                 const audioBuffer = audioContext.createBuffer(1, float32.length, data.sample_rate || 16000);
                 audioBuffer.getChannelData(0).set(float32);
                 const source = audioContext.createBufferSource();
                 source.buffer = audioBuffer;
                 source.connect(audioContext.destination);
-                source.start();
-                document.getElementById('audioPlayerStatus').textContent = 'Live audio streaming...';
-            } catch (e) {}
+
+                const now = audioContext.currentTime;
+                if (liveAudioNextTime < now) {
+                    liveAudioNextTime = now + 0.05;
+                }
+                source.start(liveAudioNextTime);
+                liveAudioNextTime += audioBuffer.duration;
+
+                const statusEl = document.getElementById('micStatusLine') || document.getElementById('audioPlayerStatus');
+                if (statusEl) statusEl.textContent = '🔊 Streaming live ambient audio…';
+            } catch (e) {
+                console.error('Audio chunk error:', e);
+            }
         }
 
         // Start polling when page loads
@@ -1859,8 +1879,8 @@
         document.getElementById('cmdResultSub').textContent = '⏹ Finalizing recording…';
         
         setTimeout(() => {
-            renderAudioPlayerResult(savedId, `/api/parent/audio-recording/${savedId}`);
-        }, 600);
+            renderAudioPlayerResult(savedId, `/api/parent/audio-recording/${savedId}?t=${Date.now()}`);
+        }, 800);
     }
 
     function stopMicStream() {

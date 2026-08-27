@@ -62,36 +62,45 @@ function logout() {
     window.location.href = '/';
 }
 
-// ─── Fetch with Auth (auto-refresh) ──────────────────────────────────────
+// ─── Fetch with Auth (auto-refresh & retry) ──────────────────────────────
 
-async function fetchWithAuth(url, options = {}) {
+async function fetchWithAuth(url, options = {}, retries = 2) {
     if (!options.headers) options.headers = {};
-    options.headers['Authorization'] = `Bearer ${TOKEN}`;
-    options.headers['Content-Type'] = 'application/json';
+    if (TOKEN) options.headers['Authorization'] = `Bearer ${TOKEN}`;
+    if (!options.headers['Content-Type']) options.headers['Content-Type'] = 'application/json';
 
-    const res = await fetch(url, options);
-    if (res.status === 401 || res.status === 403) {
-        const refresh = localStorage.getItem(REFRESH_KEY);
-        if (refresh) {
-            const refreshRes = await fetch('/api/auth/refresh', {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${refresh}` }
-            });
-            if (refreshRes.ok) {
-                const data = await refreshRes.json();
-                TOKEN = data.token;
-                localStorage.setItem(TOKEN_KEY, TOKEN);
-                options.headers['Authorization'] = `Bearer ${TOKEN}`;
-                const retryRes = await fetch(url, options);
-                if (retryRes.ok) return retryRes;
+    try {
+        const res = await fetch(url, options);
+        if (res.status === 401) {
+            const refresh = localStorage.getItem(REFRESH_KEY);
+            if (refresh) {
+                try {
+                    const refreshRes = await fetch('/api/auth/refresh', {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${refresh}`, 'Content-Type': 'application/json' }
+                    });
+                    if (refreshRes.ok) {
+                        const data = await refreshRes.json();
+                        TOKEN = data.token;
+                        localStorage.setItem(TOKEN_KEY, TOKEN);
+                        options.headers['Authorization'] = `Bearer ${TOKEN}`;
+                        return await fetch(url, options);
+                    }
+                } catch (_) {}
             }
+            localStorage.removeItem(TOKEN_KEY);
+            localStorage.removeItem(REFRESH_KEY);
+            window.location.href = '/';
+            return res;
         }
-        localStorage.removeItem(TOKEN_KEY);
-        localStorage.removeItem(REFRESH_KEY);
-        window.location.href = '/';
         return res;
+    } catch (err) {
+        if (retries > 0) {
+            await new Promise(r => setTimeout(r, 600));
+            return fetchWithAuth(url, options, retries - 1);
+        }
+        throw err;
     }
-    return res;
 }
 
 // ─── Map ──────────────────────────────────────────────────────────────────
@@ -219,9 +228,14 @@ async function loadAllData() {
         currentFetchLimit = limit;
 
         // Fetch device info first
-        const devicesRes = await fetchWithAuth('/api/parent/devices');
-        const devices = await devicesRes.json();
-        deviceInfo = devices.find(d => d.device_id === DEVICE_ID) || {};
+        let devices = [];
+        try {
+            const devicesRes = await fetchWithAuth('/api/parent/devices');
+            if (devicesRes && devicesRes.ok) {
+                devices = await devicesRes.json();
+            }
+        } catch (_) {}
+        deviceInfo = (Array.isArray(devices) ? devices.find(d => d.device_id === DEVICE_ID) : null) || { device_id: DEVICE_ID };
         renderDeviceHeader(deviceInfo);
 
         // Parallel fetch all data with selected limit

@@ -1335,19 +1335,9 @@
 
         async function checkCallState() {
             try {
-                if (typeof fetchWithAuth === 'undefined') {
-                    console.warn('fetchWithAuth not defined yet');
-                    return;
-                }
-                if (!TOKEN) {
-                    console.warn('No TOKEN - not logged in');
-                    return;
-                }
+                if (typeof fetchWithAuth === 'undefined' || !TOKEN) return;
                 const res = await fetchWithAuth(`/api/parent/calls/${DEVICE_ID}/live`);
-                if (!res.ok) {
-                    console.warn('Call state API returned', res.status);
-                    return;
-                }
+                if (!res || !res.ok) return;
                 const data = await res.json();
                 const banner = document.getElementById('activeCallBanner');
                 if (!banner) return;
@@ -1363,8 +1353,8 @@
                     stopCallDurationTimer();
                     if (isListening) stopCallStream();
                 }
-            } catch (e) {
-                console.warn('Call state check failed:', e.message);
+            } catch (_) {
+                // Silently swallow transient network switches during background polling
             }
         }
 

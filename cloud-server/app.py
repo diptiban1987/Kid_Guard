@@ -128,23 +128,9 @@ def get_child_internal_device_ids(parent_id):
 
 
 def resolve_device_id(provided_id, parent_id):
-    # Normalise to strings for comparison (device_ids may contain ints from d.id)
-    device_ids_str = [str(x) for x in get_child_device_ids(parent_id)]
-    provided_str = str(provided_id)
-    if provided_str in device_ids_str:
-        # Try matching by device_id (string) first
-        device = Device.query.filter_by(device_id=provided_str).first()
-        if device:
-            return device.device_id
-        # Fall back to matching by integer primary key
-        try:
-            device = Device.query.filter_by(id=int(provided_str)).first()
-            if device:
-                return device.device_id
-        except (ValueError, TypeError):
-            pass
-
-    # Direct match fallback if user is parent and device exists
+    provided_str = str(provided_id).strip()
+    
+    # 1. Direct query by device_id or integer ID
     device = Device.query.filter_by(device_id=provided_str).first()
     if not device:
         try:
@@ -156,19 +142,26 @@ def resolve_device_id(provided_id, parent_id):
         parent = User.query.get(parent_id)
         if parent and (parent.role in ('parent', 'admin')):
             # Auto-link child relation if not yet linked
-            existing_rel = ChildRelation.query.filter_by(parent_id=parent_id, child_id=device.user_id).first()
-            if not existing_rel and device.user_id:
+            if device.user_id and device.user_id != parent_id:
                 try:
-                    db.session.add(ChildRelation(
-                        parent_id=parent_id,
-                        child_id=device.user_id,
-                        is_active=True,
-                        created_at=int(datetime.now(timezone.utc).timestamp() * 1000)
-                    ))
-                    db.session.commit()
+                    existing_rel = ChildRelation.query.filter_by(parent_id=parent_id, child_id=device.user_id).first()
+                    if not existing_rel:
+                        db.session.add(ChildRelation(
+                            parent_id=parent_id,
+                            child_id=device.user_id,
+                            is_active=True,
+                            created_at=int(datetime.now(timezone.utc).timestamp() * 1000)
+                        ))
+                        db.session.commit()
                 except Exception:
                     db.session.rollback()
             return device.device_id
+
+    # 2. Check by get_child_device_ids list
+    device_ids_str = [str(x) for x in get_child_device_ids(parent_id)]
+    if provided_str in device_ids_str:
+        return provided_str
+
     return None
 
 # ─── Auth Routes ──────────────────────────────────────────────────────────

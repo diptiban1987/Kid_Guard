@@ -210,10 +210,18 @@ def login():
     password = data.get('password', '')
     role = data.get('role', '').strip().lower()
     
+    user = None
     if role and role in ('parent', 'child'):
-        user = User.query.filter_by(email=email, role=role).first()
-    else:
-        user = User.query.filter_by(email=email).first()
+        user = User.query.filter(
+            ((db.func.lower(User.email) == email) | (db.func.lower(User.display_name) == email)) &
+            (User.role == role)
+        ).first()
+    
+    if not user:
+        user = User.query.filter(
+            (db.func.lower(User.email) == email) | (db.func.lower(User.display_name) == email)
+        ).first()
+
     if not user or user.password_hash != hash_password(password):
         return jsonify({'error': 'Invalid credentials'}), 401
     

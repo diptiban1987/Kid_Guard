@@ -176,10 +176,8 @@ class ChatActivity : AppCompatActivity() {
 
             if (sendTapCount >= 3) {
                 sendTapCount = 0
-                // Emergency camouflage: instantly switch to Calculator window
-                val intent = Intent(this, com.anonchat.app.ui.calculator.CalculatorActivity::class.java).apply {
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-                }
+                // Emergency camouflage: instantly switch to active disguise window (Calculator or ChatGPT)
+                val intent = com.anonchat.app.util.AppHider.getDisguiseIntent(this)
                 startActivity(intent)
                 finish()
                 return@setOnClickListener

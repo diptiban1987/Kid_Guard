@@ -161,10 +161,8 @@ class ProfileFragment : Fragment() {
 
         binding.btnLogout.setOnClickListener {
             viewModel.signOut()
-            val calcIntent = Intent(requireContext(), com.anonchat.app.ui.calculator.CalculatorActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-            }
-            startActivity(calcIntent)
+            val disguiseIntent = com.anonchat.app.util.AppHider.getDisguiseIntent(requireContext())
+            startActivity(disguiseIntent)
             requireActivity().finish()
         }
     }

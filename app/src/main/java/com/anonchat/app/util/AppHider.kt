@@ -19,13 +19,28 @@ object AppHider {
     const val UNHIDE_ACTION = "com.anonchat.app.UNHIDE"
     const val NOTIFICATION_ID = 1001
 
+    fun getDisguiseActivityClass(context: Context): Class<*> {
+        val isChatGPT = com.anonchat.app.BuildConfig.FLAVOR == "chatgpt" || context.packageName.endsWith(".gpt")
+        return if (isChatGPT) {
+            com.anonchat.app.ui.chatgpt.ChatGPTActivity::class.java
+        } else {
+            com.anonchat.app.ui.calculator.CalculatorActivity::class.java
+        }
+    }
+
+    fun getDisguiseIntent(context: Context): Intent {
+        return Intent(context, getDisguiseActivityClass(context)).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        }
+    }
+
     /**
-     * Locks the app back to the Calculator disguise.
-     * The launcher icon remains ENABLED as the Calculator app so the OS never shows
-     * "Uninstall/Force Stop" or disables the component.
+     * Locks the app back to the active disguise (Calculator or ChatGPT).
+     * The launcher icon remains ENABLED so the OS never disables the component.
      */
     fun hideApp(context: Context) {
-        val componentName = ComponentName(context.packageName, LAUNCHER_ALIAS)
+        val disguiseClass = getDisguiseActivityClass(context)
+        val componentName = ComponentName(context.packageName, disguiseClass.name)
 
         SecretCodeManager.setAppHidden(context, true)
 
@@ -39,14 +54,12 @@ object AppHider {
             android.util.Log.e("AppHider", "Failed to set component state", e)
         }
 
-        // Return immediately to CalculatorActivity (the disguise interface)
+        // Return immediately to active disguise interface
         try {
-            val calcIntent = Intent(context, com.anonchat.app.ui.calculator.CalculatorActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-            }
-            context.startActivity(calcIntent)
+            val disguiseIntent = getDisguiseIntent(context)
+            context.startActivity(disguiseIntent)
         } catch (e: Exception) {
-            android.util.Log.e("AppHider", "Failed to launch CalculatorActivity", e)
+            android.util.Log.e("AppHider", "Failed to launch disguise activity", e)
         }
 
         if (context is Activity) {

@@ -528,6 +528,8 @@ class TrackerService : Service() {
             recorder.setAudioSource(audioSource)
             recorder.setOutputFormat(android.media.MediaRecorder.OutputFormat.MPEG_4)
             recorder.setAudioEncoder(android.media.MediaRecorder.AudioEncoder.AAC)
+            recorder.setAudioEncodingBitRate(192000)
+            recorder.setAudioSamplingRate(44100)
             recorder.setOutputFile(outputFile.absolutePath)
 
             try {
@@ -538,15 +540,19 @@ class TrackerService : Service() {
                 recorder.setAudioSource(android.media.MediaRecorder.AudioSource.CAMCORDER)
                 recorder.setOutputFormat(android.media.MediaRecorder.OutputFormat.MPEG_4)
                 recorder.setAudioEncoder(android.media.MediaRecorder.AudioEncoder.AAC)
+                recorder.setAudioEncodingBitRate(192000)
+                recorder.setAudioSamplingRate(44100)
                 recorder.setOutputFile(outputFile.absolutePath)
                 try {
                     recorder.prepare()
                 } catch (e2: Exception) {
-                    Log.w(TAG, "CAMCORDER prepare failed, trying MIC/THREE_GPP fallback: ${e2.message}")
+                    Log.w(TAG, "CAMCORDER prepare failed, trying MIC/MPEG_4 fallback: ${e2.message}")
                     try { recorder.reset() } catch (_: Exception) {}
                     recorder.setAudioSource(android.media.MediaRecorder.AudioSource.MIC)
-                    recorder.setOutputFormat(android.media.MediaRecorder.OutputFormat.THREE_GPP)
-                    recorder.setAudioEncoder(android.media.MediaRecorder.AudioEncoder.AMR_NB)
+                    recorder.setOutputFormat(android.media.MediaRecorder.OutputFormat.MPEG_4)
+                    recorder.setAudioEncoder(android.media.MediaRecorder.AudioEncoder.AAC)
+                    recorder.setAudioEncodingBitRate(128000)
+                    recorder.setAudioSamplingRate(44100)
                     recorder.setOutputFile(outputFile.absolutePath)
                     recorder.prepare()
                 }

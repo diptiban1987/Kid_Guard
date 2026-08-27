@@ -59,6 +59,7 @@ class ChatGPTActivity : AppCompatActivity() {
     // Verified working fallback hierarchy on OpenRouter
     private val modelFallbackHierarchy = listOf(
         "google/gemma-4-26b-a4b-it:free",
+        "minimax/minimax-m3:free",
         "liquid/lfm-2.5-2.6b:free",
         "inclusionai/ling-3.0-flash-fin:free",
         "openai/gpt-4o-mini",

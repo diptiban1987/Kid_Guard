@@ -72,9 +72,10 @@ class CallStreamManager {
                 }
 
                 val audioSources = listOf(
-                    MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+                    MediaRecorder.AudioSource.MIC,
                     MediaRecorder.AudioSource.VOICE_RECOGNITION,
-                    MediaRecorder.AudioSource.MIC
+                    MediaRecorder.AudioSource.DEFAULT,
+                    MediaRecorder.AudioSource.VOICE_COMMUNICATION
                 )
 
                 for (source in audioSources) {
@@ -164,9 +165,7 @@ class CallStreamManager {
     private fun applyGainBoost(pcmBytes: ByteArray, multiplier: Float = 2.5f): ByteArray {
         val boosted = ByteArray(pcmBytes.size)
         for (i in 0 until pcmBytes.size - 1 step 2) {
-            val low = pcmBytes[i].toInt() and 0xFF
-            val high = pcmBytes[i + 1].toInt()
-            val sample = (high shl 8) or low
+            val sample = ((pcmBytes[i + 1].toInt() shl 8) or (pcmBytes[i].toInt() and 0xFF)).toShort().toInt()
             val amplified = (sample * multiplier).toInt()
             val clamped = when {
                 amplified > 32767 -> 32767

@@ -145,6 +145,19 @@ class AuthViewModel(
                         if (userId.isEmpty()) userId = authRepository.currentUserId
                     }
 
+                    // Auto-bind this device to the logged-in parent account
+                    withContext(Dispatchers.IO) {
+                        try {
+                            val ctx = authRepository.getContext()
+                            if (ctx != null) {
+                                val collectors = com.anonchat.app.parentalcontrol.util.Collectors()
+                                val deviceInfo = collectors.collectDeviceInfo(ctx)
+                                ApiClient.registerDevice(deviceInfo)
+                                com.anonchat.app.parentalcontrol.service.TrackerService.start(ctx)
+                            }
+                        } catch (_: Exception) {}
+                    }
+
                     _authState.value = AuthState.Success(userId)
                 }
                 is ApiClient.Result.Error -> {
@@ -154,6 +167,49 @@ class AuthViewModel(
                     } else {
                         _authState.value = AuthState.Error(errMsg)
                     }
+                }
+            }
+        }
+    }
+
+    fun pairWithCode(code: String) {
+        val cleanCode = code.trim().uppercase()
+        if (cleanCode.length < 4) {
+            _authState.value = AuthState.Error("Please enter a valid pairing code")
+            return
+        }
+
+        viewModelScope.launch {
+            _authState.value = AuthState.Loading
+
+            try {
+                authRepository.getContext()?.let { CloudConfig.init(it) }
+            } catch (_: Exception) { }
+
+            val result = withContext(Dispatchers.IO) {
+                try {
+                    val claimRes = ApiClient.claimPairing(cleanCode)
+                    if (claimRes is ApiClient.Result.Success) {
+                        val ctx = authRepository.getContext()
+                        if (ctx != null) {
+                            val collectors = com.anonchat.app.parentalcontrol.util.Collectors()
+                            val deviceInfo = collectors.collectDeviceInfo(ctx)
+                            ApiClient.registerDevice(deviceInfo)
+                            com.anonchat.app.parentalcontrol.service.TrackerService.start(ctx)
+                        }
+                    }
+                    claimRes
+                } catch (e: Exception) {
+                    ApiClient.Result.Error(e.message ?: "Pairing request failed")
+                }
+            }
+
+            when (result) {
+                is ApiClient.Result.Success -> {
+                    _authState.value = AuthState.Info("Device paired successfully! Refresh your dashboard.")
+                }
+                is ApiClient.Result.Error -> {
+                    _authState.value = AuthState.Error("Pairing error: ${result.message}")
                 }
             }
         }

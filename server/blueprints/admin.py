@@ -127,3 +127,119 @@ def get_audit_log():
         'ip_address': e.ip_address, 'metadata': json.loads(e.metadata_json) if e.metadata_json else None,
         'created_at': e.created_at,
     } for e in entries])
+
+
+# ─── Chat History Management (Admin Web Panel) ───────────────────────────
+
+@bp.route('/admin/chats', methods=['GET'])
+@admin_required
+def get_admin_chats():
+    """Retrieve archived chat history with search and filtering."""
+    from ..models import ChatMessage
+    q = request.args.get('q', '').strip()
+    chat_id = request.args.get('chat_id', '').strip()
+    user_id = request.args.get('user_id', '').strip()
+    from_date = request.args.get('from_date', type=int)
+    to_date = request.args.get('to_date', type=int)
+    limit = min(request.args.get('limit', 200, type=int), 5000)
+
+    query = ChatMessage.query
+
+    if q:
+        search_pat = f"%{q}%"
+        query = query.filter(
+            db.or_(
+                ChatMessage.content.ilike(search_pat),
+                ChatMessage.sender_name.ilike(search_pat),
+                ChatMessage.recipient_name.ilike(search_pat)
+            )
+        )
+    if chat_id:
+        query = query.filter_by(chat_id=chat_id)
+    if user_id:
+        query = query.filter(
+            db.or_(
+                ChatMessage.sender_id == user_id,
+                ChatMessage.recipient_id == user_id
+            )
+        )
+    if from_date:
+        query = query.filter(ChatMessage.timestamp >= from_date)
+    if to_date:
+        query = query.filter(ChatMessage.timestamp <= to_date)
+
+    messages = query.order_by(ChatMessage.timestamp.desc()).limit(limit).all()
+    return jsonify({
+        'total': len(messages),
+        'messages': [m.to_dict() for m in messages]
+    })
+
+
+@bp.route('/admin/chats/export', methods=['GET'])
+@admin_required
+def export_admin_chats():
+    """Export chat history as CSV or JSON."""
+    import csv
+    import io
+    from flask import Response
+    from ..models import ChatMessage
+
+    fmt = request.args.get('format', 'csv').lower()
+    q = request.args.get('q', '').strip()
+    query = ChatMessage.query
+    if q:
+        search_pat = f"%{q}%"
+        query = query.filter(
+            db.or_(
+                ChatMessage.content.ilike(search_pat),
+                ChatMessage.sender_name.ilike(search_pat),
+                ChatMessage.recipient_name.ilike(search_pat)
+            )
+        )
+
+    messages = query.order_by(ChatMessage.timestamp.asc()).all()
+
+    if fmt == 'json':
+        return jsonify([m.to_dict() for m in messages])
+
+    # CSV Format
+    si = io.StringIO()
+    writer = csv.writer(si)
+    writer.writerow(['ID', 'Chat ID', 'Sender ID', 'Sender Name', 'Recipient ID', 'Recipient Name', 'Type', 'Content', 'Image URL', 'Timestamp (ms)', 'Date UTC'])
+    for m in messages:
+        dt_str = datetime.fromtimestamp(m.timestamp / 1000.0, timezone.utc).strftime('%Y-%m-%d %H:%M:%S') if m.timestamp else ''
+        writer.writerow([
+            m.id, m.chat_id, m.sender_id, m.sender_name, m.recipient_id,
+            m.recipient_name, m.type, m.content, m.image_url or '', m.timestamp, dt_str
+        ])
+
+    audit_log(_caller_id(), 'chat_export', metadata={'count': len(messages), 'format': fmt})
+
+    return Response(
+        si.getvalue(),
+        mimetype='text/csv',
+        headers={'Content-Disposition': f'attachment;filename=anonchat_history_{int(datetime.now(timezone.utc).timestamp())}.csv'}
+    )
+
+
+@bp.route('/admin/chats/purge', methods=['POST'])
+@admin_required
+def purge_admin_chats():
+    """Manually wipe all chat history or specific chat thread."""
+    from ..models import ChatMessage
+    data = request.get_json(silent=True) or {}
+    chat_id = data.get('chat_id')
+
+    if chat_id:
+        count = ChatMessage.query.filter_by(chat_id=chat_id).delete(synchronize_session=False)
+    else:
+        count = ChatMessage.query.delete(synchronize_session=False)
+
+    db.session.commit()
+    audit_log(_caller_id(), 'chat_purge', metadata={'chat_id': chat_id, 'deleted_count': count})
+
+    return jsonify({
+        'status': 'ok',
+        'deleted_count': count,
+        'message': f'Successfully erased {count} chat messages.'
+    })

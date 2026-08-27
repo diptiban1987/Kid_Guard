@@ -104,6 +104,17 @@ class AuthActivity : AppCompatActivity() {
             viewModel.parentLogin(email, password)
         }
 
+        binding.btnPairCode.setOnClickListener {
+            val code = binding.etPairingCode.text.toString().trim()
+            if (code.isBlank()) {
+                binding.tvParentStatus.text = "Please enter the pairing code from your dashboard"
+                binding.tvParentStatus.setTextColor(ContextCompat.getColor(this, android.R.color.holo_orange_dark))
+                binding.tvParentStatus.visibility = View.VISIBLE
+                return@setOnClickListener
+            }
+            viewModel.pairWithCode(code)
+        }
+
         binding.tvRegisterLink.setOnClickListener {
             val email = binding.etEmail.text.toString().trim()
             val password = binding.etPassword.text.toString().trim()

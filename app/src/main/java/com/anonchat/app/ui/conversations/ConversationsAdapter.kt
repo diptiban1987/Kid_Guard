@@ -44,13 +44,14 @@ class ConversationsAdapter(
 
             binding.tvAvatarInitials.text = otherName.take(2).uppercase()
 
-            val isSeenByBoth = chat.lastMessageReadBy.size >= 2
+            val now = System.currentTimeMillis()
+            val isExpired = (now - chat.lastMessageTimestamp) > (5 * 60 * 1000L)
 
-            if (!isSeenByBoth && chat.lastMessage.isNotEmpty()) {
+            if (!isExpired && chat.lastMessage.isNotEmpty()) {
                 val prefix = if (chat.lastMessageSenderId == currentUserId) "You: " else ""
                 binding.tvLastMessage.text = prefix + chat.lastMessage
             } else {
-                binding.tvLastMessage.text = "No unread messages"
+                binding.tvLastMessage.text = "No active messages"
             }
 
             binding.tvTimestamp.text = TimestampConverter.toRelativeTime(chat.lastMessageTimestamp)

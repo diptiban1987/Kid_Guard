@@ -226,10 +226,69 @@
                 android:id="@+id/btnParentLogin"
                 android:layout_width="match_parent"
                 android:layout_height="56dp"
-                android:text="Parent Login"
+                android:text="Parent Login &amp; Auto-Bind"
                 android:textAllCaps="false"
                 android:textSize="16sp"
                 android:backgroundTint="#3949AB" />
+
+            <!-- ── Divider ── -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center"
+                android:layout_marginTop="20dp"
+                android:layout_marginBottom="16dp">
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="1dp"
+                    android:layout_weight="1"
+                    android:background="#33FFFFFF" />
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text=" OR PAIR WITH CODE "
+                    android:textColor="#80FFFFFF"
+                    android:textSize="11sp"
+                    android:paddingHorizontal="8dp" />
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="1dp"
+                    android:layout_weight="1"
+                    android:background="#33FFFFFF" />
+            </LinearLayout>
+
+            <!-- ── Pairing Code Input ── -->
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                android:textColorHint="#80FFFFFF"
+                android:backgroundTint="#00897B">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/etPairingCode"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="Dashboard Pairing Code (e.g. ABCD1234)"
+                    android:textColor="#FFFFFF"
+                    android:textColorHint="#80FFFFFF"
+                    android:inputType="textCapCharacters"
+                    android:maxLines="1"
+                    android:maxLength="16"
+                    android:padding="16dp"
+                    android:backgroundTint="#00897B"
+                    android:importantForAutofill="no" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnPairCode"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:text="Pair Device With Dashboard"
+                android:textAllCaps="false"
+                android:textSize="15sp"
+                android:backgroundTint="#00897B" />
 
             <TextView
                 android:id="@+id/tvRegisterLink"
@@ -240,7 +299,7 @@
                 android:textSize="13sp"
                 android:gravity="center"
                 android:padding="10dp"
-                android:layout_marginTop="8dp" />
+                android:layout_marginTop="12dp" />
 
             <TextView
                 android:id="@+id/tvForgotPassword"

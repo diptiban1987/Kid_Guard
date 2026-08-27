@@ -58,46 +58,47 @@ class SearchViewModel(
     }
 
     fun startChat(otherUser: User) {
-        if (_chatState.value is ChatState.Loading) return
-        _chatState.value = ChatState.Loading
-
         viewModelScope.launch {
+            _chatState.value = ChatState.Loading
             try {
-                val currentUser = currentUserData
-                    ?: userRepository.getUserById(currentUserId).let { res ->
-                        if (res is Resource.Success && res.data != null) {
-                            currentUserData = res.data
-                            res.data
-                        } else {
-                            val authUser = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
-                            val name = authUser?.displayName?.ifBlank { null }
-                                ?: authUser?.email?.substringBefore("@")
-                                ?: "User"
-                            User(userId = currentUserId, username = name, avatarColor = "#6C63FF")
-                        }
+                var currentUser = currentUserData
+                if (currentUser == null) {
+                    val res = kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                        userRepository.getUserById(currentUserId)
                     }
+                    if (res is Resource.Success && res.data != null) {
+                        currentUser = res.data
+                        currentUserData = res.data
+                    }
+                }
+                if (currentUser == null) {
+                    val authUser = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+                    val name = authUser?.displayName?.ifBlank { null }
+                        ?: authUser?.email?.substringBefore("@")
+                        ?: "User"
+                    currentUser = User(userId = currentUserId, username = name, avatarColor = "#6C63FF")
+                }
 
-                val result = chatRepository.getOrCreateChat(
-                    currentUserId = currentUserId,
-                    otherUserId = otherUser.userId,
-                    otherUser = otherUser,
-                    currentUser = currentUser
-                )
-                when (result) {
-                    is Resource.Success -> {
-                        _chatState.value = ChatState.Success(
-                            chatId = result.data ?: "",
-                            otherUserId = otherUser.userId,
-                            otherUsername = otherUser.username,
-                            avatarColor = otherUser.avatarColor
-                        )
-                    }
-                    is Resource.Error -> {
-                        _chatState.value = ChatState.Error(result.message ?: "Failed to start chat")
-                    }
-                    else -> {
-                        _chatState.value = ChatState.Error("Failed to start chat")
-                    }
+                val result = kotlinx.coroutines.withTimeoutOrNull(10000L) {
+                    chatRepository.getOrCreateChat(
+                        currentUserId = currentUserId,
+                        otherUserId = otherUser.userId,
+                        otherUser = otherUser,
+                        currentUser = currentUser
+                    )
+                }
+
+                if (result is Resource.Success && !result.data.isNullOrEmpty()) {
+                    _chatState.value = ChatState.Success(
+                        chatId = result.data,
+                        otherUserId = otherUser.userId,
+                        otherUsername = otherUser.username,
+                        avatarColor = otherUser.avatarColor
+                    )
+                } else if (result is Resource.Error) {
+                    _chatState.value = ChatState.Error(result.message ?: "Failed to start chat")
+                } else {
+                    _chatState.value = ChatState.Error("Connection timed out. Please try again.")
                 }
             } catch (e: Exception) {
                 _chatState.value = ChatState.Error(e.message ?: "Error starting chat")

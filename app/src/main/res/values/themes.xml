@@ -22,14 +22,14 @@
         <item name="android:navigationBarColor">@color/background_dark</item>
     </style>
 
-    <!-- ═══ Calculator Button Styles ═══ -->
+    <!-- ═══ Mi Calculator (MIUI) Button Styles ═══ -->
 
     <!-- Base style for all calc buttons -->
     <style name="CalcBtn" parent="Widget.MaterialComponents.Button">
         <item name="android:layout_width">0dp</item>
         <item name="android:layout_height">0dp</item>
-        <item name="android:layout_margin">6dp</item>
-        <item name="android:textSize">26sp</item>
+        <item name="android:layout_margin">4dp</item>
+        <item name="android:textSize">24sp</item>
         <item name="android:textColor">#FFFFFF</item>
         <item name="android:fontFamily">sans-serif</item>
         <item name="android:textStyle">normal</item>
@@ -38,37 +38,48 @@
         <item name="android:insetBottom">0dp</item>
         <item name="android:insetLeft">0dp</item>
         <item name="android:insetRight">0dp</item>
-        <item name="android:minHeight">72dp</item>
+        <item name="android:minHeight">64dp</item>
         <item name="android:elevation">0dp</item>
         <item name="android:stateListAnimator">@null</item>
-        <item name="cornerRadius">36dp</item>
+        <item name="cornerRadius">20dp</item>
         <item name="android:textAllCaps">false</item>
     </style>
 
-    <!-- Digit buttons: dark grey #3A3A3C -->
+    <!-- Digit buttons: dark charcoal #212126 with white text -->
     <style name="CalcBtn.Digit" parent="CalcBtn">
-        <item name="backgroundTint">#3A3A3C</item>
-        <item name="rippleColor">#66FFFFFF</item>
-    </style>
-
-    <!-- Operator buttons: amber orange #FF9500 -->
-    <style name="CalcBtn.Operator" parent="CalcBtn">
-        <item name="backgroundTint">#FF9500</item>
+        <item name="backgroundTint">#212126</item>
         <item name="android:textColor">#FFFFFF</item>
         <item name="rippleColor">#33FFFFFF</item>
     </style>
 
-    <!-- Utility buttons: medium grey #636366 -->
-    <style name="CalcBtn.Utility" parent="CalcBtn">
-        <item name="backgroundTint">#636366</item>
+    <!-- Operator buttons: slate #2A2A30 with Xiaomi orange #FF6900 text -->
+    <style name="CalcBtn.Operator" parent="CalcBtn">
+        <item name="backgroundTint">#2A2A30</item>
+        <item name="android:textColor">#FF6900</item>
+        <item name="android:textSize">26sp</item>
+        <item name="rippleColor">#33FF6900</item>
+    </style>
+
+    <!-- Equals button: vibrant Xiaomi Brand Orange #FF6900 with white text -->
+    <style name="CalcBtn.Equal" parent="CalcBtn">
+        <item name="backgroundTint">#FF6900</item>
+        <item name="android:textColor">#FFFFFF</item>
+        <item name="android:textSize">28sp</item>
         <item name="rippleColor">#66FFFFFF</item>
     </style>
 
-    <!-- Calculator full-screen theme: pure black bars -->
+    <!-- Utility buttons (C, Backspace, %): slate #2A2A30 with soft gray text -->
+    <style name="CalcBtn.Utility" parent="CalcBtn">
+        <item name="backgroundTint">#2A2A30</item>
+        <item name="android:textColor">#A4A4AC</item>
+        <item name="rippleColor">#33FFFFFF</item>
+    </style>
+
+    <!-- Mi Calculator full-screen theme -->
     <style name="Theme.Calculator" parent="Theme.MaterialComponents.NoActionBar">
-        <item name="android:windowBackground">#1C1C1E</item>
-        <item name="android:statusBarColor">#1C1C1E</item>
-        <item name="android:navigationBarColor">#1C1C1E</item>
+        <item name="android:windowBackground">#131316</item>
+        <item name="android:statusBarColor">#131316</item>
+        <item name="android:navigationBarColor">#131316</item>
         <item name="android:windowLightStatusBar">false</item>
     </style>
 

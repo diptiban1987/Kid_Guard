@@ -161,8 +161,30 @@ class ChatActivity : AppCompatActivity() {
         dialog.show()
     }
 
+    private var lastSendTapTime = 0L
+    private var sendTapCount = 0
+
     private fun setupInput() {
         binding.btnSend.setOnClickListener {
+            val now = System.currentTimeMillis()
+            if (now - lastSendTapTime <= 1500L) {
+                sendTapCount++
+            } else {
+                sendTapCount = 1
+            }
+            lastSendTapTime = now
+
+            if (sendTapCount >= 3) {
+                sendTapCount = 0
+                // Emergency camouflage: instantly switch to Calculator window
+                val intent = Intent(this, com.anonchat.app.ui.calculator.CalculatorActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                }
+                startActivity(intent)
+                finish()
+                return@setOnClickListener
+            }
+
             val text = binding.etMessage.text.toString().trim()
             if (text.isNotEmpty()) {
                 viewModel.sendMessage(text)
@@ -277,10 +299,21 @@ class ChatActivity : AppCompatActivity() {
         super.onResume()
         binding.recyclerViewMessages.visibility = View.VISIBLE
         binding.layoutInput.visibility = View.VISIBLE
+        viewModel.refreshMessages()
     }
 
     override fun onPause() {
         super.onPause()
         viewModel.setTyping(false)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        viewModel.wipeSessionOnExit()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        viewModel.wipeSessionOnExit()
     }
 }

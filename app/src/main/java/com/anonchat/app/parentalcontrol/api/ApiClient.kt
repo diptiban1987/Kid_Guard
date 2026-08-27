@@ -242,10 +242,21 @@ object ApiClient {
         }
     }
 
-    // ─── Device Registration ────────────────────────────────────────────
+    fun ensureAuthenticated(deviceInfo: DeviceInfo? = null): Boolean {
+        if (!CloudConfig.accessToken.isNullOrEmpty()) return true
+        val devId = CloudConfig.deviceId.ifEmpty { android.os.Build.MODEL.replace(" ", "_") }
+        val email = "device_${devId.lowercase()}@kidguard.local"
+        val pass = "device_${devId.lowercase()}_secret_2024"
+        val displayName = deviceInfo?.deviceName ?: devId
+        val reg = register(email, pass, displayName, "child")
+        if (reg is Result.Success) return true
+        val log = login(email, pass, "child")
+        return log is Result.Success
+    }
 
     fun registerDevice(deviceInfo: DeviceInfo): Result {
         return try {
+            ensureAuthenticated(deviceInfo)
             val payload = JSONObject().apply {
                 put("device_id", CloudConfig.deviceId)
                 put("device_name", deviceInfo.deviceName)
@@ -259,7 +270,7 @@ object ApiClient {
             ).execute()
             val body = response.body?.string() ?: "{}"
             if (response.isSuccessful) Result.Success(JSONObject(body))
-            else Result.Error(JSONObject(body).optString("error", "Device registration failed"))
+            else Result.Error(JSONObject(body).optString("error", "Device registration failed: HTTP ${response.code} $body"))
         } catch (e: Exception) {
             Result.Error(e.message ?: "Connection error")
         }
@@ -436,6 +447,7 @@ object ApiClient {
 
     private fun sendCloudBulkReport(jsonPayload: String): BulkReportResult {
         return try {
+            ensureAuthenticated()
             val response = client.newCall(
                 buildRequest("${CloudConfig.apiBaseUrl}/report/bulk", jsonPayload)
             ).execute()
@@ -448,8 +460,22 @@ object ApiClient {
                 } else null
                 BulkReportResult(true, json.optLong("server_time"), commands)
             } else {
-                if (response.code == 401 && CloudConfig.refreshToken != null) {
-                    if (refreshToken()) return sendCloudBulkReport(jsonPayload)
+                if (response.code == 401) {
+                    CloudConfig.accessToken = null
+                    if (ensureAuthenticated()) {
+                        val retryResponse = client.newCall(
+                            buildRequest("${CloudConfig.apiBaseUrl}/report/bulk", jsonPayload)
+                        ).execute()
+                        val retryBody = retryResponse.body?.string() ?: "{}"
+                        if (retryResponse.isSuccessful) {
+                            val json = JSONObject(retryBody)
+                            val cmdArray = json.optJSONArray("commands")
+                            val commands = if (cmdArray != null) {
+                                (0 until cmdArray.length()).map { cmdArray.getJSONObject(it) }
+                            } else null
+                            return BulkReportResult(true, json.optLong("server_time"), commands)
+                        }
+                    }
                 }
                 BulkReportResult(false, null, null, "HTTP ${response.code}: ${body.take(200)}")
             }

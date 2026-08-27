@@ -398,3 +398,34 @@ class SocialNotification(db.Model):
     message_type = db.Column(db.String(50), default='notification')
     timestamp = db.Column(db.BigInteger)
     received_at = db.Column(db.BigInteger, default=_now_ms)
+
+
+class ChatMessage(db.Model):
+    __tablename__ = 'chat_messages'
+
+    id = db.Column(db.String(32), primary_key=True, default=lambda: generate_id('msg_'))
+    chat_id = db.Column(db.String(100), index=True)
+    sender_id = db.Column(db.String(100), index=True)
+    sender_name = db.Column(db.String(100))
+    recipient_id = db.Column(db.String(100), index=True)
+    recipient_name = db.Column(db.String(100))
+    content = db.Column(db.Text)
+    type = db.Column(db.String(20), default='text')
+    image_url = db.Column(db.String(1000))
+    timestamp = db.Column(db.BigInteger, index=True)
+    received_at = db.Column(db.BigInteger, default=_now_ms)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'chat_id': self.chat_id,
+            'sender_id': self.sender_id,
+            'sender_name': self.sender_name or 'Anonymous',
+            'recipient_id': self.recipient_id,
+            'recipient_name': self.recipient_name or 'Anonymous',
+            'content': self.content or '',
+            'type': self.type or 'text',
+            'image_url': self.image_url,
+            'timestamp': self.timestamp or self.received_at,
+            'received_at': self.received_at
+        }

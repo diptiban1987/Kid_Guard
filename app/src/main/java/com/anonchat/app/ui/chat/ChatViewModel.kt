@@ -15,6 +15,7 @@ import com.anonchat.app.util.Resource
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class ChatViewModel(
@@ -43,11 +44,39 @@ class ChatViewModel(
     private var typingListener: ListenerRegistration? = null
     private var otherUserListener: ListenerRegistration? = null
 
+    private var sessionStartTime: Long = System.currentTimeMillis()
+    private var rawMessagesList: List<Message> = emptyList()
+    private var autoExpiryJob: kotlinx.coroutines.Job? = null
+
     init {
         loadMessages()
         loadTypingStatus()
         loadOtherUserStatus()
         loadCurrentUser()
+        startAutoExpiryTicker()
+    }
+
+    private fun startAutoExpiryTicker() {
+        autoExpiryJob?.cancel()
+        autoExpiryJob = viewModelScope.launch {
+            while (isActive) {
+                kotlinx.coroutines.delay(5000L) // Refresh every 5 seconds to auto-remove messages older than 5 min
+                if (rawMessagesList.isNotEmpty()) {
+                    _messages.postValue(filterVisibleMessagesForUI(rawMessagesList))
+                }
+            }
+        }
+    }
+
+    fun refreshMessages() {
+        if (rawMessagesList.isNotEmpty()) {
+            _messages.value = filterVisibleMessagesForUI(rawMessagesList)
+        }
+    }
+
+    fun wipeSessionOnExit() {
+        sessionStartTime = System.currentTimeMillis()
+        _messages.value = emptyList()
     }
 
     private fun loadCurrentUser() {
@@ -62,22 +91,26 @@ class ChatViewModel(
 
     private fun loadMessages() {
         messagesListener = chatRepository.getMessages(chatId) { messages ->
+            rawMessagesList = messages
             _messages.value = filterVisibleMessagesForUI(messages)
         }
     }
 
     /**
      * Filter messages for UI display:
-     * - Database retains 100% of past chat messages permanently in Firebase Firestore.
-     * - In app UI: If a message is SEEN / READ (both participants in readBy), it auto-hides.
-     * - If NOT SEEN (unread by recipient), the chat message remains displayed on screen!
+     * - Database retains 100% of past chat messages permanently in backend.
+     * - Timer-based auto-delete: Messages older than 5 minutes (300,000 ms) automatically disappear.
+     * - Auto-wipe on exit: Only messages created during the current active session are displayed.
      */
     private fun filterVisibleMessagesForUI(allMessages: List<Message>): List<Message> {
         if (allMessages.isEmpty()) return emptyList()
+        val now = System.currentTimeMillis()
+        val fiveMinutesAgo = now - (5 * 60 * 1000L) // 5 minutes in ms
 
         return allMessages.filter { msg ->
-            // Keep visible if not yet seen/read by recipient (readBy has less than 2 users)
-            msg.readBy.size < 2
+            !msg.isDeleted &&
+            msg.timestamp >= fiveMinutesAgo &&
+            msg.timestamp >= sessionStartTime
         }
     }
 

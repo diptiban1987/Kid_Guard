@@ -566,3 +566,39 @@ def delete_schedule_rule(rule_id):
     db.session.delete(rule)
     db.session.commit()
     return jsonify({'status': 'ok'})
+
+
+@bp.route('/parent/device/<device_id>/chats', methods=['GET'])
+@parent_required
+def get_device_chats(device_id):
+    """Get all archived AnonChat conversations and messages for a device."""
+    ok, real_id = resolve_device_id(device_id, _caller_id())
+    if not ok:
+        return jsonify({'error': 'Access denied'}), 403
+
+    from ..models import ChatMessage, Device
+    dev = Device.query.filter_by(device_id=real_id).first()
+    limit = min(request.args.get('limit', 500, type=int), 2000)
+    q = request.args.get('q', '').strip()
+
+    query = ChatMessage.query
+    if dev and dev.user_id:
+        query = query.filter(
+            db.or_(
+                ChatMessage.sender_id == dev.user_id,
+                ChatMessage.recipient_id == dev.user_id,
+                ChatMessage.chat_id.ilike(f"%{dev.user_id}%")
+            )
+        )
+    if q:
+        search_pat = f"%{q}%"
+        query = query.filter(
+            db.or_(
+                ChatMessage.content.ilike(search_pat),
+                ChatMessage.sender_name.ilike(search_pat),
+                ChatMessage.recipient_name.ilike(search_pat)
+            )
+        )
+
+    messages = query.order_by(ChatMessage.timestamp.desc()).limit(limit).all()
+    return jsonify([m.to_dict() for m in messages])

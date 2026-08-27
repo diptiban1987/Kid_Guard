@@ -24,6 +24,7 @@ let cachedRestrictions = [];
 let cachedSchedule = [];
 let cachedScreenTime = [];
 let cachedSocial = [];
+let cachedChats = [];
 let deviceInfo = {};
 
 // ─── Init ─────────────────────────────────────────────────────────────────
@@ -98,9 +99,8 @@ async function fetchWithAuth(url, options = {}) {
 
 function initMap() {
     deviceMap = L.map('deviceMap').setView([20, 0], 2);
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
-        subdomains: 'abcd',
         maxZoom: 19
     }).addTo(deviceMap);
 }
@@ -113,7 +113,7 @@ function renderMap(locations, geofences) {
     geoCircles.forEach(c => deviceMap.removeLayer(c));
     geoCircles = [];
 
-    if (locations.length > 0) {
+    if (locations && locations.length > 0) {
         const points = locations.map(l => [l.latitude, l.longitude]);
 
         // Polyline trail
@@ -180,7 +180,7 @@ async function loadAllData() {
         renderDeviceHeader(deviceInfo);
 
         // Parallel fetch all data
-        const [locations, activity, sms, calls, apps, screentime, webhistory, media, geofences, restrictions, schedule, social] = await Promise.all([
+        const [locations, activity, sms, calls, apps, screentime, webhistory, media, geofences, restrictions, schedule, social, chats] = await Promise.all([
             fetchWithAuth(`/api/parent/locations/${DEVICE_ID}?limit=200`).then(r => r.json()).catch(() => []),
             fetchWithAuth(`/api/parent/activity/${DEVICE_ID}?limit=50`).then(r => r.json()).catch(() => []),
             fetchWithAuth(`/api/parent/sms/${DEVICE_ID}?limit=50`).then(r => r.json()).catch(() => []),
@@ -192,7 +192,8 @@ async function loadAllData() {
             fetchWithAuth(`/api/parent/geofences/${DEVICE_ID}`).then(r => r.json()).catch(() => []),
             fetchWithAuth(`/api/parent/restrictions/${DEVICE_ID}`).then(r => r.json()).catch(() => []),
             fetchWithAuth(`/api/parent/schedule/${DEVICE_ID}`).then(r => r.json()).catch(() => []),
-            fetchWithAuth(`/api/parent/social/${DEVICE_ID}?limit=100`).then(r => r.json()).catch(() => [])
+            fetchWithAuth(`/api/parent/social/${DEVICE_ID}?limit=100`).then(r => r.json()).catch(() => []),
+            fetchWithAuth(`/api/parent/device/${DEVICE_ID}/chats?limit=500`).then(r => r.json()).catch(() => [])
         ]);
 
         // Cache
@@ -208,6 +209,7 @@ async function loadAllData() {
         cachedRestrictions = restrictions;
         cachedSchedule = schedule;
         cachedSocial = social;
+        cachedChats = Array.isArray(chats) ? chats : (chats.messages || []);
 
         renderStats();
         renderMap(locations, geofences);
@@ -559,6 +561,84 @@ function renderSocialPanel() {
                 </div>
             </div>`;
     }).join('');
+}
+
+// ─── AnonChat Panel ───────────────────────────────────────────────────────
+
+function renderAnonChatPanel(filterText = '') {
+    const container = document.getElementById('chatMessagesList');
+    if (!container) return;
+
+    let list = cachedChats || [];
+    if (filterText) {
+        const q = filterText.toLowerCase();
+        list = list.filter(m =>
+            (m.content && m.content.toLowerCase().includes(q)) ||
+            (m.sender_name && m.sender_name.toLowerCase().includes(q)) ||
+            (m.recipient_name && m.recipient_name.toLowerCase().includes(q))
+        );
+    }
+
+    if (list.length === 0) {
+        container.innerHTML = '<div class="empty-state"><div class="empty-icon">💬</div>No AnonChat messages found</div>';
+        return;
+    }
+
+    container.innerHTML = `
+        <table class="data-table">
+            <thead><tr>
+                <th>Sender</th>
+                <th>Recipient</th>
+                <th>Message Content</th>
+                <th>Media</th>
+                <th>Time (UTC)</th>
+            </tr></thead>
+            <tbody>
+                ${list.map(m => {
+                    const isImg = m.type === 'image' || !!m.image_url;
+                    return `<tr>
+                        <td><strong style="color:#667eea;">${escHtml(m.sender_name || 'Anonymous')}</strong></td>
+                        <td><strong style="color:#a78bfa;">${escHtml(m.recipient_name || 'Anonymous')}</strong></td>
+                        <td><span class="sms-body">${escHtml(m.content || (isImg ? '📷 Photo' : ''))}</span></td>
+                        <td>${m.image_url ? `<a href="${escAttr(m.image_url)}" target="_blank" style="color:#38bdf8; text-decoration:underline;">View Photo</a>` : '—'}</td>
+                        <td style="white-space:nowrap;">${formatTime(m.timestamp)}</td>
+                    </tr>`;
+                }).join('')}
+            </tbody>
+        </table>`;
+}
+
+function filterChatMessages() {
+    const input = document.getElementById('chatSearchInput');
+    const q = input ? input.value.trim() : '';
+    renderAnonChatPanel(q);
+}
+
+function exportChats(format) {
+    const url = `/api/admin/chats/export?format=${format}`;
+    window.open(url, '_blank');
+}
+
+async function confirmPurgeChats() {
+    if (!confirm('⚠️ Are you sure you want to PERMANENTLY ERASE all AnonChat history from the database? This cannot be undone.')) {
+        return;
+    }
+    try {
+        const res = await fetchWithAuth('/api/admin/chats/purge', {
+            method: 'POST',
+            body: JSON.stringify({})
+        });
+        const data = await res.json();
+        if (res.ok) {
+            showToast('Success', data.message || 'Chat history erased successfully');
+            cachedChats = [];
+            renderAnonChatPanel();
+        } else {
+            showToast('Error', data.error || 'Failed to erase chat history');
+        }
+    } catch (e) {
+        showToast('Error', 'Failed to connect to server');
+    }
 }
 
 // ─── Geofences ────────────────────────────────────────────────────────────

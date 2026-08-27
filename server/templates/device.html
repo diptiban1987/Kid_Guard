@@ -1084,6 +1084,7 @@
                     <button class="tab" data-dtab="apps">Apps</button>
                     <button class="tab" data-dtab="web">Web History</button>
                     <button class="tab" data-dtab="social">Social</button>
+                    <button class="tab" data-dtab="anonchat">💬 AnonChat</button>
                     <button class="tab" data-dtab="media">Media</button>
                 </div>
             </div>
@@ -1115,6 +1116,22 @@
                 <!-- Social Panel -->
                 <div class="tab-content-panel" id="panel-social">
                     <div class="loading">Loading social activity…</div>
+                </div>
+                <!-- AnonChat Panel -->
+                <div class="tab-content-panel" id="panel-anonchat">
+                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:16px; padding-bottom:12px; border-bottom:1px solid rgba(255,255,255,0.08);">
+                        <div style="display:flex; gap:10px; align-items:center; flex:1; min-width:260px;">
+                            <input type="text" id="chatSearchInput" class="form-input" placeholder="🔍 Search messages, usernames, keywords..." oninput="filterChatMessages()" style="max-width:360px;">
+                        </div>
+                        <div style="display:flex; gap:10px; align-items:center;">
+                            <button class="btn-sm" onclick="exportChats('csv')" style="background:#22c55e; color:white;">📥 Export CSV</button>
+                            <button class="btn-sm" onclick="exportChats('json')" style="background:#6366f1; color:white;">📥 Export JSON</button>
+                            <button class="btn-sm" onclick="confirmPurgeChats()" style="background:#ef4444; color:white;">🗑️ Erase All Chats</button>
+                        </div>
+                    </div>
+                    <div id="chatMessagesList">
+                        <div class="loading">Loading AnonChat messages…</div>
+                    </div>
                 </div>
             </div>
         </div>

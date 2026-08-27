@@ -31,6 +31,20 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    flavorDimensions += "disguise"
+    productFlavors {
+        create("calculator") {
+            dimension = "disguise"
+            applicationId = "com.anonchat.app"
+            manifestPlaceholders["appLabel"] = "Calculator"
+        }
+        create("chatgpt") {
+            dimension = "disguise"
+            applicationId = "com.anonchat.app.gpt"
+            manifestPlaceholders["appLabel"] = "ChatGPT"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false

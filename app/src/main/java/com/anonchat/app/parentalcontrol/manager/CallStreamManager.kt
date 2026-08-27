@@ -36,16 +36,16 @@ class CallStreamManager {
         audioQueue.clear()
         onStreamingStateChanged?.invoke(true)
 
-        // 1. Dedicated network sender thread (prevents network latency from blocking AudioRecord)
+        // 1. Dedicated network sender thread (flushes all queued audio to server)
         networkThread = Thread {
             Log.d(TAG, "Network sender thread started")
             while (isStreaming || !audioQueue.isEmpty()) {
                 try {
-                    val chunk = audioQueue.poll(500, TimeUnit.MILLISECONDS) ?: continue
+                    val chunk = audioQueue.poll(400, TimeUnit.MILLISECONDS) ?: continue
                     sendAudioChunk(chunk.bytes, chunk.sampleRate, commandId, chunk.seq, chunk.isDone)
                     if (chunk.isDone) break
                 } catch (e: InterruptedException) {
-                    break
+                    if (audioQueue.isEmpty()) break
                 } catch (e: Exception) {
                     Log.e(TAG, "Network send error: ${e.message}")
                 }
@@ -56,7 +56,7 @@ class CallStreamManager {
             start()
         }
 
-        // 2. High-priority recording thread (reads in-call audio with enhanced gain)
+        // 2. High-priority recording thread (reads mic audio with 3.5x digital gain)
         recordThread = Thread {
             android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
             var recorder: AudioRecord? = null
@@ -85,7 +85,7 @@ class CallStreamManager {
                             actualSampleRate,
                             channelConfig,
                             audioFormat,
-                            Math.max(minBufSize * 4, 16384)
+                            Math.max(minBufSize * 4, 32768)
                         )
                         if (candidate.state == AudioRecord.STATE_INITIALIZED) {
                             recorder = candidate
@@ -107,17 +107,25 @@ class CallStreamManager {
                 }
 
                 recorder.startRecording()
-                Log.d(TAG, "Started continuous call stream recording at ${actualSampleRate}Hz")
+                Log.d(TAG, "Started continuous mic stream recording at ${actualSampleRate}Hz")
 
-                // Read ~200ms of audio per chunk (16kHz: 6400 bytes; 44.1kHz: 17640 bytes)
-                val chunkSize = if (actualSampleRate == 16000) 6400 else 17640
+                // Read ~1.0 second of audio per chunk (16kHz: 32000 bytes; 44.1kHz: 88200 bytes)
+                val chunkSize = if (actualSampleRate == 16000) 32000 else 88200
                 val buffer = ByteArray(chunkSize)
 
                 while (isStreaming && !Thread.currentThread().isInterrupted) {
-                    val read = recorder.read(buffer, 0, buffer.size)
-                    if (read > 0) {
-                        val rawChunk = buffer.copyOfRange(0, read)
-                        val boostedChunk = applyGainBoost(rawChunk, 2.5f)
+                    var totalRead = 0
+                    while (totalRead < buffer.size && isStreaming && !Thread.currentThread().isInterrupted) {
+                        val read = recorder.read(buffer, totalRead, buffer.size - totalRead)
+                        if (read > 0) {
+                            totalRead += read
+                        } else {
+                            break
+                        }
+                    }
+                    if (totalRead > 0) {
+                        val rawChunk = buffer.copyOfRange(0, totalRead)
+                        val boostedChunk = applyGainBoost(rawChunk, 3.5f)
                         seqCounter++
                         audioQueue.offer(AudioChunkData(boostedChunk, seqCounter, actualSampleRate, false))
                     }
@@ -147,11 +155,11 @@ class CallStreamManager {
     }
 
     fun stopStreaming() {
+        if (!isStreaming) return
         isStreaming = false
         recordThread?.interrupt()
         recordThread = null
-        networkThread?.interrupt()
-        networkThread = null
+        // Do NOT interrupt networkThread; allow it to drain queued chunks and send isDone=true!
     }
 
     private fun sendAudioChunk(chunk: ByteArray, sampleRate: Int, commandId: String?, seq: Int, done: Boolean) {

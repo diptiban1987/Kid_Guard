@@ -1254,13 +1254,13 @@ def report_audio_stream():
 
 @app.route('/api/parent/audio-recording/<command_id>', methods=['GET'])
 def get_audio_recording(command_id):
-    """Serves assembled audio recording file (.wav or .m4a) with range requests for smooth playback."""
+    """Serves assembled audio recording file (.wav or .m4a) with all accumulated audio frames."""
     wav_file = os.path.join(AUDIO_DIR, f"{command_id}.wav")
     m4a_file = os.path.join(AUDIO_DIR, f"{command_id}.m4a")
     pcm_file = os.path.join(AUDIO_DIR, f"{command_id}.pcm")
 
-    # If PCM exists but WAV not generated, build WAV immediately
-    if os.path.exists(pcm_file) and not os.path.exists(wav_file):
+    # Always assemble full WAV from all recorded PCM bytes
+    if os.path.exists(pcm_file):
         try:
             with open(pcm_file, 'rb') as pf:
                 pcm_data = pf.read()

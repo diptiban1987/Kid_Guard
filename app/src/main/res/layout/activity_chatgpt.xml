@@ -1,357 +1,572 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout
+<androidx.drawerlayout.widget.DrawerLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/drawerLayoutGpt"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
     android:background="#212121"
     android:fitsSystemWindows="true">
 
-    <!-- ═══════════════════ TOP HEADER ═══════════════════ -->
+    <!-- ═══════════════════ MAIN CHAT CONTENT ═══════════════════ -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="56dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
         android:background="#212121">
 
-        <!-- Sidebar / Menu icon -->
-        <TextView
-            android:id="@+id/btnGptMenu"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:text="☰"
-            android:textColor="#B4B4B4"
-            android:textSize="20sp"
-            android:gravity="center"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:clickable="true"
-            android:focusable="true" />
-
-        <!-- Model Selector Dropdown Pill -->
-        <LinearLayout
-            android:id="@+id/btnModelSelector"
-            android:layout_width="0dp"
-            android:layout_height="36dp"
-            android:layout_weight="1"
-            android:orientation="horizontal"
-            android:gravity="center"
-            android:layout_marginStart="12dp"
-            android:layout_marginEnd="12dp"
-            android:background="@drawable/bg_gpt_model_pill"
-            android:clickable="true"
-            android:focusable="true">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="ChatGPT"
-                android:textColor="#FFFFFF"
-                android:textSize="14sp"
-                android:textStyle="bold"
-                android:fontFamily="sans-serif-medium" />
-
-            <TextView
-                android:id="@+id/tvModelName"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text=" 4o mini ▾"
-                android:textColor="#8E8EA0"
-                android:textSize="12sp" />
-        </LinearLayout>
-
-        <!-- New Chat icon -->
-        <TextView
-            android:id="@+id/btnNewChat"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:text="✎"
-            android:textColor="#B4B4B4"
-            android:textSize="20sp"
-            android:gravity="center"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:clickable="true"
-            android:focusable="true" />
-
-    </LinearLayout>
-
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:background="#2A2A2A" />
-
-    <!-- ═══════════════════ CONVERSATION AREA ═══════════════════ -->
-    <androidx.core.widget.NestedScrollView
-        android:id="@+id/scrollViewGpt"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:fillViewport="true"
-        android:padding="16dp">
-
+        <!-- ── Top Header ── -->
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical">
-
-            <!-- Initial Greeting & Suggestion Chips View -->
-            <LinearLayout
-                android:id="@+id/layoutGreeting"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:orientation="vertical"
-                android:gravity="center"
-                android:layout_marginTop="32dp"
-                android:layout_marginBottom="32dp">
-
-                <!-- Small ChatGPT Glyph Circle -->
-                <FrameLayout
-                    android:layout_width="52dp"
-                    android:layout_height="52dp"
-                    android:background="@drawable/bg_gpt_avatar"
-                    android:layout_marginBottom="16dp">
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="match_parent"
-                        android:text="✦"
-                        android:textColor="#FFFFFF"
-                        android:textSize="24sp"
-                        android:gravity="center" />
-                </FrameLayout>
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="What can I help with today?"
-                    android:textColor="#FFFFFF"
-                    android:textSize="20sp"
-                    android:textStyle="bold"
-                    android:fontFamily="sans-serif-medium"
-                    android:layout_marginBottom="24dp" />
-
-                <!-- Suggestion Chips (2x2 Grid) -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical">
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:layout_marginBottom="8dp">
-
-                        <LinearLayout
-                            android:id="@+id/chipCreateImage"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:layout_marginEnd="4dp"
-                            android:background="@drawable/bg_gpt_chip"
-                            android:orientation="vertical"
-                            android:padding="12dp">
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="🖼️ Create image"
-                                android:textColor="#E0E0E0"
-                                android:textSize="12sp"
-                                android:textStyle="bold" />
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="for a modern app icon"
-                                android:textColor="#8E8EA0"
-                                android:textSize="10sp"
-                                android:layout_marginTop="2dp" />
-                        </LinearLayout>
-
-                        <LinearLayout
-                            android:id="@+id/chipBrainstorm"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:layout_marginStart="4dp"
-                            android:background="@drawable/bg_gpt_chip"
-                            android:orientation="vertical"
-                            android:padding="12dp">
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="💡 Brainstorm"
-                                android:textColor="#E0E0E0"
-                                android:textSize="12sp"
-                                android:textStyle="bold" />
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="ideas for a project"
-                                android:textColor="#8E8EA0"
-                                android:textSize="10sp"
-                                android:layout_marginTop="2dp" />
-                        </LinearLayout>
-                    </LinearLayout>
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal">
-
-                        <LinearLayout
-                            android:id="@+id/chipSummarize"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:layout_marginEnd="4dp"
-                            android:background="@drawable/bg_gpt_chip"
-                            android:orientation="vertical"
-                            android:padding="12dp">
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="📝 Summarize text"
-                                android:textColor="#E0E0E0"
-                                android:textSize="12sp"
-                                android:textStyle="bold" />
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="key points and notes"
-                                android:textColor="#8E8EA0"
-                                android:textSize="10sp"
-                                android:layout_marginTop="2dp" />
-                        </LinearLayout>
-
-                        <LinearLayout
-                            android:id="@+id/chipHelpWrite"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:layout_marginStart="4dp"
-                            android:background="@drawable/bg_gpt_chip"
-                            android:orientation="vertical"
-                            android:padding="12dp">
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="✉️ Help me write"
-                                android:textColor="#E0E0E0"
-                                android:textSize="12sp"
-                                android:textStyle="bold" />
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="a professional message"
-                                android:textColor="#8E8EA0"
-                                android:textSize="10sp"
-                                android:layout_marginTop="2dp" />
-                        </LinearLayout>
-                    </LinearLayout>
-
-                </LinearLayout>
-
-            </LinearLayout>
-
-            <!-- Dynamic Messages Container -->
-            <LinearLayout
-                android:id="@+id/layoutMessages"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:visibility="gone" />
-
-        </LinearLayout>
-
-    </androidx.core.widget.NestedScrollView>
-
-    <!-- ═══════════════════ BOTTOM INPUT BAR ═══════════════════ -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:paddingStart="12dp"
-        android:paddingEnd="12dp"
-        android:paddingBottom="12dp"
-        android:paddingTop="4dp">
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_height="56dp"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:background="@drawable/bg_gpt_input"
-            android:paddingStart="6dp"
-            android:paddingEnd="6dp"
-            android:paddingTop="4dp"
-            android:paddingBottom="4dp">
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:background="#212121">
 
-            <!-- Plus attachment button -->
+            <!-- Sidebar / Menu icon -->
             <TextView
-                android:id="@+id/btnAttachment"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
-                android:text="+"
+                android:id="@+id/btnGptMenu"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:text="☰"
                 android:textColor="#B4B4B4"
-                android:textSize="22sp"
-                android:gravity="center"
-                android:background="@drawable/bg_gpt_icon_btn"
-                android:clickable="true"
-                android:focusable="true" />
-
-            <!-- Text input field -->
-            <EditText
-                android:id="@+id/etGptPrompt"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:minHeight="40dp"
-                android:maxHeight="100dp"
-                android:background="@null"
-                android:hint="Message ChatGPT"
-                android:textColorHint="#707078"
-                android:textColor="#FFFFFF"
-                android:textSize="14sp"
-                android:paddingStart="10dp"
-                android:paddingEnd="10dp"
-                android:inputType="textCapSentences|textMultiLine"
-                android:imeOptions="actionSend" />
-
-            <!-- Mic / Voice button -->
-            <TextView
-                android:id="@+id/btnVoice"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
-                android:text="🎙️"
-                android:textSize="16sp"
+                android:textSize="20sp"
                 android:gravity="center"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:clickable="true"
                 android:focusable="true" />
 
-            <!-- Send button -->
-            <FrameLayout
-                android:id="@+id/btnSendGpt"
-                android:layout_width="34dp"
-                android:layout_height="34dp"
-                android:background="@drawable/bg_gpt_send_btn"
-                android:layout_marginStart="4dp"
+            <!-- Model Selector Dropdown Pill -->
+            <LinearLayout
+                android:id="@+id/btnModelSelector"
+                android:layout_width="0dp"
+                android:layout_height="36dp"
+                android:layout_weight="1"
+                android:orientation="horizontal"
+                android:gravity="center"
+                android:layout_marginStart="12dp"
+                android:layout_marginEnd="12dp"
+                android:background="@drawable/bg_gpt_model_pill"
                 android:clickable="true"
                 android:focusable="true">
+
                 <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="ChatGPT"
+                    android:textColor="#FFFFFF"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:fontFamily="sans-serif-medium" />
+
+                <TextView
+                    android:id="@+id/tvModelName"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text=" 4o mini ▾"
+                    android:textColor="#8E8EA0"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+            <!-- New Chat icon -->
+            <TextView
+                android:id="@+id/btnNewChat"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:text="✎"
+                android:textColor="#B4B4B4"
+                android:textSize="20sp"
+                android:gravity="center"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:clickable="true"
+                android:focusable="true" />
+
+        </LinearLayout>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#2A2A2A" />
+
+        <!-- ── Conversation Area ── -->
+        <androidx.core.widget.NestedScrollView
+            android:id="@+id/scrollViewGpt"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:fillViewport="true"
+            android:padding="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <!-- Greeting & Suggestion Chips -->
+                <LinearLayout
+                    android:id="@+id/layoutGreeting"
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
-                    android:text="↑"
-                    android:textColor="#000000"
-                    android:textSize="18sp"
-                    android:textStyle="bold"
-                    android:gravity="center" />
-            </FrameLayout>
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:layout_marginTop="24dp"
+                    android:layout_marginBottom="24dp">
+
+                    <FrameLayout
+                        android:layout_width="52dp"
+                        android:layout_height="52dp"
+                        android:background="@drawable/bg_gpt_avatar"
+                        android:layout_marginBottom="16dp">
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:text="✦"
+                            android:textColor="#FFFFFF"
+                            android:textSize="24sp"
+                            android:gravity="center" />
+                    </FrameLayout>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="What can I help with today?"
+                        android:textColor="#FFFFFF"
+                        android:textSize="20sp"
+                        android:textStyle="bold"
+                        android:fontFamily="sans-serif-medium"
+                        android:layout_marginBottom="24dp" />
+
+                    <!-- Suggestion Chips -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:layout_marginBottom="8dp">
+
+                            <LinearLayout
+                                android:id="@+id/chipCreateImage"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:layout_marginEnd="4dp"
+                                android:background="@drawable/bg_gpt_chip"
+                                android:orientation="vertical"
+                                android:padding="12dp">
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="🖼️ Create image"
+                                    android:textColor="#E0E0E0"
+                                    android:textSize="12sp"
+                                    android:textStyle="bold" />
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="for a modern concept"
+                                    android:textColor="#8E8EA0"
+                                    android:textSize="10sp"
+                                    android:layout_marginTop="2dp" />
+                            </LinearLayout>
+
+                            <LinearLayout
+                                android:id="@+id/chipBrainstorm"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:layout_marginStart="4dp"
+                                android:background="@drawable/bg_gpt_chip"
+                                android:orientation="vertical"
+                                android:padding="12dp">
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="💡 Brainstorm"
+                                    android:textColor="#E0E0E0"
+                                    android:textSize="12sp"
+                                    android:textStyle="bold" />
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="ideas for a project"
+                                    android:textColor="#8E8EA0"
+                                    android:textSize="10sp"
+                                    android:layout_marginTop="2dp" />
+                            </LinearLayout>
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal">
+
+                            <LinearLayout
+                                android:id="@+id/chipSummarize"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:layout_marginEnd="4dp"
+                                android:background="@drawable/bg_gpt_chip"
+                                android:orientation="vertical"
+                                android:padding="12dp">
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="📝 Summarize text"
+                                    android:textColor="#E0E0E0"
+                                    android:textSize="12sp"
+                                    android:textStyle="bold" />
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="key points and notes"
+                                    android:textColor="#8E8EA0"
+                                    android:textSize="10sp"
+                                    android:layout_marginTop="2dp" />
+                            </LinearLayout>
+
+                            <LinearLayout
+                                android:id="@+id/chipHelpWrite"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:layout_marginStart="4dp"
+                                android:background="@drawable/bg_gpt_chip"
+                                android:orientation="vertical"
+                                android:padding="12dp">
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="✉️ Help me write"
+                                    android:textColor="#E0E0E0"
+                                    android:textSize="12sp"
+                                    android:textStyle="bold" />
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="a professional message"
+                                    android:textColor="#8E8EA0"
+                                    android:textSize="10sp"
+                                    android:layout_marginTop="2dp" />
+                            </LinearLayout>
+                        </LinearLayout>
+
+                    </LinearLayout>
+
+                </LinearLayout>
+
+                <!-- Dynamic Messages Container -->
+                <LinearLayout
+                    android:id="@+id/layoutMessages"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone" />
+
+            </LinearLayout>
+
+        </androidx.core.widget.NestedScrollView>
+
+        <!-- ── Bottom Input Bar ── -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:paddingBottom="12dp"
+            android:paddingTop="4dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="@drawable/bg_gpt_input"
+                android:paddingStart="6dp"
+                android:paddingEnd="6dp"
+                android:paddingTop="4dp"
+                android:paddingBottom="4dp">
+
+                <TextView
+                    android:id="@+id/btnAttachment"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:text="+"
+                    android:textColor="#B4B4B4"
+                    android:textSize="22sp"
+                    android:gravity="center"
+                    android:background="@drawable/bg_gpt_icon_btn"
+                    android:clickable="true"
+                    android:focusable="true" />
+
+                <EditText
+                    android:id="@+id/etGptPrompt"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:minHeight="40dp"
+                    android:maxHeight="100dp"
+                    android:background="@null"
+                    android:hint="Message ChatGPT"
+                    android:textColorHint="#707078"
+                    android:textColor="#FFFFFF"
+                    android:textSize="14sp"
+                    android:paddingStart="10dp"
+                    android:paddingEnd="10dp"
+                    android:inputType="textCapSentences|textMultiLine"
+                    android:imeOptions="actionSend" />
+
+                <TextView
+                    android:id="@+id/btnVoice"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:text="🎙️"
+                    android:textSize="16sp"
+                    android:gravity="center"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:clickable="true"
+                    android:focusable="true" />
+
+                <FrameLayout
+                    android:id="@+id/btnSendGpt"
+                    android:layout_width="34dp"
+                    android:layout_height="34dp"
+                    android:background="@drawable/bg_gpt_send_btn"
+                    android:layout_marginStart="4dp"
+                    android:clickable="true"
+                    android:focusable="true">
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:text="↑"
+                        android:textColor="#000000"
+                        android:textSize="18sp"
+                        android:textStyle="bold"
+                        android:gravity="center" />
+                </FrameLayout>
+
+            </LinearLayout>
 
         </LinearLayout>
 
     </LinearLayout>
 
-</LinearLayout>
+    <!-- ═══════════════════ AUTHENTIC SIDEBAR DRAWER ═══════════════════ -->
+    <LinearLayout
+        android:id="@+id/sidebarDrawer"
+        android:layout_width="300dp"
+        android:layout_height="match_parent"
+        android:layout_gravity="start"
+        android:orientation="vertical"
+        android:background="#181818"
+        android:padding="16dp">
+
+        <!-- Top Search / New Chat Row -->
+        <LinearLayout
+            android:id="@+id/drawerNewChat"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@drawable/bg_gpt_chip"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:clickable="true"
+            android:focusable="true">
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="✦"
+                android:textColor="#10A37F"
+                android:textSize="16sp"
+                android:layout_marginEnd="8dp" />
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="New chat"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="✎"
+                android:textColor="#8E8EA0"
+                android:textSize="16sp" />
+        </LinearLayout>
+
+        <!-- Chat History List -->
+        <ScrollView
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="12dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Recent"
+                    android:textColor="#707078"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    android:layout_marginBottom="8dp"
+                    android:paddingStart="4dp" />
+
+                <!-- Mock History Item 1 -->
+                <TextView
+                    android:id="@+id/historyItem1"
+                    android:layout_width="match_parent"
+                    android:layout_height="38dp"
+                    android:gravity="center_vertical"
+                    android:text="Quantum Computing Basics"
+                    android:textColor="#D1D5DB"
+                    android:textSize="13sp"
+                    android:singleLine="true"
+                    android:ellipsize="end"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="8dp"
+                    android:background="?attr/selectableItemBackground"
+                    android:clickable="true"
+                    android:focusable="true" />
+
+                <!-- Mock History Item 2 -->
+                <TextView
+                    android:id="@+id/historyItem2"
+                    android:layout_width="match_parent"
+                    android:layout_height="38dp"
+                    android:gravity="center_vertical"
+                    android:text="Python Async Workflows"
+                    android:textColor="#D1D5DB"
+                    android:textSize="13sp"
+                    android:singleLine="true"
+                    android:ellipsize="end"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="8dp"
+                    android:background="?attr/selectableItemBackground"
+                    android:clickable="true"
+                    android:focusable="true" />
+
+                <!-- Mock History Item 3 -->
+                <TextView
+                    android:id="@+id/historyItem3"
+                    android:layout_width="match_parent"
+                    android:layout_height="38dp"
+                    android:gravity="center_vertical"
+                    android:text="Modern App UI Concept"
+                    android:textColor="#D1D5DB"
+                    android:textSize="13sp"
+                    android:singleLine="true"
+                    android:ellipsize="end"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="8dp"
+                    android:background="?attr/selectableItemBackground"
+                    android:clickable="true"
+                    android:focusable="true" />
+
+                <!-- Mock History Item 4 -->
+                <TextView
+                    android:id="@+id/historyItem4"
+                    android:layout_width="match_parent"
+                    android:layout_height="38dp"
+                    android:gravity="center_vertical"
+                    android:text="Travel Itinerary Ideas"
+                    android:textColor="#D1D5DB"
+                    android:textSize="13sp"
+                    android:singleLine="true"
+                    android:ellipsize="end"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="8dp"
+                    android:background="?attr/selectableItemBackground"
+                    android:clickable="true"
+                    android:focusable="true" />
+
+            </LinearLayout>
+
+        </ScrollView>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#2A2A2A"
+            android:layout_marginBottom="12dp" />
+
+        <!-- ── Pre-Authenticated User Profile & Settings Footer ── -->
+        <LinearLayout
+            android:id="@+id/drawerProfileSection"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@drawable/bg_gpt_chip"
+            android:padding="10dp"
+            android:clickable="true"
+            android:focusable="true">
+
+            <!-- User Initials Avatar -->
+            <FrameLayout
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:background="@drawable/bg_gpt_avatar"
+                android:layout_marginEnd="10dp">
+                <TextView
+                    android:id="@+id/tvUserInitials"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:text="U"
+                    android:textColor="#FFFFFF"
+                    android:textSize="15sp"
+                    android:textStyle="bold"
+                    android:gravity="center" />
+            </FrameLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/tvUserName"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="User Account"
+                    android:textColor="#FFFFFF"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="ChatGPT Plus • Active"
+                    android:textColor="#10A37F"
+                    android:textSize="10sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/btnDrawerSettings"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="⚙️"
+                android:textSize="18sp"
+                android:padding="4dp" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+</androidx.drawerlayout.widget.DrawerLayout>

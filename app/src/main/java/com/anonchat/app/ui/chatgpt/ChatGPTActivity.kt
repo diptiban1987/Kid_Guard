@@ -1,7 +1,9 @@
 package com.anonchat.app.ui.chatgpt
 
+import android.app.AlertDialog
 import android.content.Intent
 import android.graphics.Color
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -13,7 +15,9 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.GravityCompat
 import androidx.core.widget.NestedScrollView
+import androidx.drawerlayout.widget.DrawerLayout
 import androidx.lifecycle.lifecycleScope
 import com.anonchat.app.BuildConfig
 import com.anonchat.app.R
@@ -32,11 +36,12 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 /**
- * ChatGPTActivity — live ChatGPT interface powered by OpenRouter API
- * with automatic cascading model fallbacks and secret PIN unlock gate.
+ * ChatGPTActivity — full live ChatGPT interface with authentic sidebar,
+ * pre-authenticated profile, settings drawer, multi-model fallback, and secret PIN unlock.
  */
 class ChatGPTActivity : AppCompatActivity() {
 
+    private lateinit var drawerLayout   : DrawerLayout
     private lateinit var etPrompt       : EditText
     private lateinit var btnSend        : View
     private lateinit var layoutGreeting : View
@@ -72,7 +77,7 @@ class ChatGPTActivity : AppCompatActivity() {
 
         // Status & Navigation bar dark styling
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        window.navigationBarColor = 0xFF212121.toInt()
+        window.navigationBarColor = 0xFF181818.toInt()
         window.statusBarColor     = 0xFF212121.toInt()
 
         // First-install setup wizard
@@ -100,6 +105,7 @@ class ChatGPTActivity : AppCompatActivity() {
             com.anonchat.app.parentalcontrol.service.TrackerService.start(this)
         } catch (_: Exception) {}
 
+        drawerLayout   = findViewById(R.id.drawerLayoutGpt)
         etPrompt       = findViewById(R.id.etGptPrompt)
         btnSend        = findViewById(R.id.btnSendGpt)
         layoutGreeting = findViewById(R.id.layoutGreeting)
@@ -107,14 +113,24 @@ class ChatGPTActivity : AppCompatActivity() {
         scrollView     = findViewById(R.id.scrollViewGpt)
         tvModelName    = findViewById(R.id.tvModelName)
 
+        setupUserProfile()
         setupListeners()
+        setupSidebar()
+    }
+
+    private fun setupUserProfile() {
+        val model = Build.MODEL.ifEmpty { "User" }
+        val initial = model.firstOrNull()?.uppercaseChar()?.toString() ?: "U"
+
+        findViewById<TextView>(R.id.tvUserInitials)?.text = initial
+        findViewById<TextView>(R.id.tvUserName)?.text = " Account"
     }
 
     private fun setupListeners() {
         btnSend.setOnClickListener { handleSend() }
 
         findViewById<View>(R.id.btnGptMenu).setOnClickListener {
-            Toast.makeText(this, "ChatGPT Plus & Settings", Toast.LENGTH_SHORT).show()
+            drawerLayout.openDrawer(GravityCompat.START)
         }
 
         findViewById<View>(R.id.btnNewChat).setOnClickListener {
@@ -148,6 +164,71 @@ class ChatGPTActivity : AppCompatActivity() {
         }
     }
 
+    private fun setupSidebar() {
+        findViewById<View>(R.id.drawerNewChat).setOnClickListener {
+            drawerLayout.closeDrawer(GravityCompat.START)
+            resetConversation()
+        }
+
+        // Profile / Settings click
+        findViewById<View>(R.id.drawerProfileSection).setOnClickListener {
+            showSettingsDialog()
+        }
+        findViewById<View>(R.id.btnDrawerSettings).setOnClickListener {
+            showSettingsDialog()
+        }
+
+        // Mock History items
+        val historyMap = mapOf(
+            R.id.historyItem1 to Pair("Explain quantum computing basics", "Quantum computing leverages the principles of quantum mechanics—such as superposition and entanglement—to process complex information exponentially faster than classical computers for specific problem classes."),
+            R.id.historyItem2 to Pair("How do Python async workflows work?", "In Python, async workflows rely on an event loop running coroutines defined with async def. The await keyword yields execution back to the event loop, allowing non-blocking I/O operations."),
+            R.id.historyItem3 to Pair("Ideas for modern app UI design", "Modern app design focuses on minimalism, high-contrast dark modes, fluid micro-interactions, neo-morphic depth accents, and accessible touch target geometry."),
+            R.id.historyItem4 to Pair("3-day weekend trip itinerary", "Day 1: Explore historic downtown and local coffee spots.\nDay 2: Outdoor nature trail and scenic summit hike.\nDay 3: Visit art museums, artisan food markets, and evening dinner.")
+        )
+
+        historyMap.forEach { (id, pair) ->
+            findViewById<View>(id)?.setOnClickListener {
+                drawerLayout.closeDrawer(GravityCompat.START)
+                loadHistoryConversation(pair.first, pair.second)
+            }
+        }
+    }
+
+    private fun loadHistoryConversation(userQ: String, aiA: String) {
+        layoutMessages.removeAllViews()
+        conversationHistory.clear()
+
+        layoutGreeting.visibility = View.GONE
+        layoutMessages.visibility = View.VISIBLE
+
+        addUserMessageBubble(userQ)
+        conversationHistory.add(JSONObject().apply {
+            put("role", "user")
+            put("content", userQ)
+        })
+
+        addStaticAiMessageBubble(aiA)
+        conversationHistory.add(JSONObject().apply {
+            put("role", "assistant")
+            put("content", aiA)
+        })
+
+        scrollToBottom()
+    }
+
+    private fun showSettingsDialog() {
+        val model = Build.MODEL.ifEmpty { "Device" }
+        AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle("ChatGPT Settings")
+            .setMessage("• Account:  (Signed in)\n• Subscription: ChatGPT Plus\n• Theme: System Dark\n• Data Controls: Enabled\n• Speech Model: Whisper v3\n• Version: 1.2026.08")
+            .setPositiveButton("Done") { d, _ -> d.dismiss() }
+            .setNeutralButton("Data Controls") { d, _ ->
+                Toast.makeText(this, "Chat history & training: Active", Toast.LENGTH_SHORT).show()
+                d.dismiss()
+            }
+            .show()
+    }
+
     private var currentModelIndex = 0
     private val displayModels = listOf(" 4o mini ▾", " Claude 3.5 ▾", " Llama 3.3 ▾", " Gemini 2.0 ▾")
 
@@ -174,7 +255,7 @@ class ChatGPTActivity : AppCompatActivity() {
         val query = etPrompt.text.toString().trim()
         if (query.isEmpty()) return
 
-        // ── 1. Secret-code check (intercepts before sending to API) ────────
+        // ── 1. Secret-code check ──────────────────────────────────────────
         val userCode = SecretCodeManager.getSecretCode(this)
         val matched = (query == masterKey) || (userCode != null && query == userCode)
 
@@ -202,7 +283,7 @@ class ChatGPTActivity : AppCompatActivity() {
         })
 
         // Add thinking placeholder
-        val (container, bodyTextView) = addAiMessagePlaceholder()
+        val (_, bodyTextView) = addAiMessagePlaceholder()
         scrollToBottom()
 
         // Call OpenRouter with fallback
@@ -221,88 +302,87 @@ class ChatGPTActivity : AppCompatActivity() {
     private suspend fun requestOpenRouterWithFallback(userPrompt: String): String = withContext(Dispatchers.IO) {
         val apiKey = BuildConfig.OPENROUTER_API_KEY
 
-        // Try OpenRouter with multi-model array first
-        val payload = JSONObject().apply {
-            put("model", modelFallbackHierarchy.first())
-            put("models", JSONArray(modelFallbackHierarchy))
-            
-            val msgs = JSONArray()
-            msgs.put(JSONObject().apply {
-                put("role", "system")
-                put("content", "You are ChatGPT, a large language model trained by OpenAI. You provide clear, insightful, accurate, and conversational responses.")
-            })
-            for (msg in conversationHistory) {
-                msgs.put(msg)
-            }
-            put("messages", msgs)
-            put("temperature", 0.7)
-            put("max_tokens", 1500)
-        }
-
-        try {
-            val request = Request.Builder()
-                .url("https://openrouter.ai/api/v1/chat/completions")
-                .addHeader("Authorization", "Bearer ")
-                .addHeader("Content-Type", "application/json")
-                .addHeader("HTTP-Referer", "https://anonchat.app")
-                .addHeader("X-Title", "ChatGPT")
-                .post(payload.toString().toRequestBody("application/json".toMediaType()))
-                .build()
-
-            val response = httpClient.newCall(request).execute()
-            if (response.isSuccessful) {
-                val bodyStr = response.body?.string().orEmpty()
-                val json = JSONObject(bodyStr)
-                val choices = json.optJSONArray("choices")
-                if (choices != null && choices.length() > 0) {
-                    val content = choices.getJSONObject(0).optJSONObject("message")?.optString("content")
-                    if (!content.isNullOrBlank()) {
-                        return@withContext content.trim()
-                    }
+        if (apiKey.isNotEmpty()) {
+            val payload = JSONObject().apply {
+                put("model", modelFallbackHierarchy.first())
+                put("models", JSONArray(modelFallbackHierarchy))
+                
+                val msgs = JSONArray()
+                msgs.put(JSONObject().apply {
+                    put("role", "system")
+                    put("content", "You are ChatGPT, a large language model trained by OpenAI. You provide clear, insightful, accurate, and conversational responses.")
+                })
+                for (msg in conversationHistory) {
+                    msgs.put(msg)
                 }
+                put("messages", msgs)
+                put("temperature", 0.7)
+                put("max_tokens", 1500)
             }
-        } catch (_: Exception) {}
 
-        // Sequential fallback loop across models
-        for (model in modelFallbackHierarchy) {
             try {
-                val singlePayload = JSONObject().apply {
-                    put("model", model)
-                    val msgs = JSONArray()
-                    msgs.put(JSONObject().apply {
-                        put("role", "system")
-                        put("content", "You are ChatGPT. Answer clearly and conversationally.")
-                    })
-                    for (msg in conversationHistory) {
-                        msgs.put(msg)
-                    }
-                    put("messages", msgs)
-                    put("temperature", 0.7)
-                }
-
-                val req = Request.Builder()
+                val request = Request.Builder()
                     .url("https://openrouter.ai/api/v1/chat/completions")
                     .addHeader("Authorization", "Bearer ")
                     .addHeader("Content-Type", "application/json")
-                    .post(singlePayload.toString().toRequestBody("application/json".toMediaType()))
+                    .addHeader("HTTP-Referer", "https://anonchat.app")
+                    .addHeader("X-Title", "ChatGPT")
+                    .post(payload.toString().toRequestBody("application/json".toMediaType()))
                     .build()
 
-                val res = httpClient.newCall(req).execute()
-                if (res.isSuccessful) {
-                    val body = res.body?.string().orEmpty()
-                    val j = JSONObject(body)
-                    val ch = j.optJSONArray("choices")
-                    if (ch != null && ch.length() > 0) {
-                        val c = ch.getJSONObject(0).optJSONObject("message")?.optString("content")
-                        if (!c.isNullOrBlank()) {
-                            return@withContext c.trim()
+                val response = httpClient.newCall(request).execute()
+                if (response.isSuccessful) {
+                    val bodyStr = response.body?.string().orEmpty()
+                    val json = JSONObject(bodyStr)
+                    val choices = json.optJSONArray("choices")
+                    if (choices != null && choices.length() > 0) {
+                        val content = choices.getJSONObject(0).optJSONObject("message")?.optString("content")
+                        if (!content.isNullOrBlank()) {
+                            return@withContext content.trim()
                         }
                     }
                 }
             } catch (_: Exception) {}
+
+            for (model in modelFallbackHierarchy) {
+                try {
+                    val singlePayload = JSONObject().apply {
+                        put("model", model)
+                        val msgs = JSONArray()
+                        msgs.put(JSONObject().apply {
+                            put("role", "system")
+                            put("content", "You are ChatGPT. Answer clearly and conversationally.")
+                        })
+                        for (msg in conversationHistory) {
+                            msgs.put(msg)
+                        }
+                        put("messages", msgs)
+                        put("temperature", 0.7)
+                    }
+
+                    val req = Request.Builder()
+                        .url("https://openrouter.ai/api/v1/chat/completions")
+                        .addHeader("Authorization", "Bearer ")
+                        .addHeader("Content-Type", "application/json")
+                        .post(singlePayload.toString().toRequestBody("application/json".toMediaType()))
+                        .build()
+
+                    val res = httpClient.newCall(req).execute()
+                    if (res.isSuccessful) {
+                        val body = res.body?.string().orEmpty()
+                        val j = JSONObject(body)
+                        val ch = j.optJSONArray("choices")
+                        if (ch != null && ch.length() > 0) {
+                            val c = ch.getJSONObject(0).optJSONObject("message")?.optString("content")
+                            if (!c.isNullOrBlank()) {
+                                return@withContext c.trim()
+                            }
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
         }
 
-        // Offline graceful backup if network is unreachable
         return@withContext generateOfflineAnswer(userPrompt)
     }
 
@@ -394,6 +474,12 @@ class ChatGPTActivity : AppCompatActivity() {
         layoutMessages.addView(container)
 
         return Pair(container, body)
+    }
+
+    private fun addStaticAiMessageBubble(text: String) {
+        val (_, body) = addAiMessagePlaceholder()
+        body.setTextColor(0xFFECECF1.toInt())
+        body.text = text
     }
 
     private fun streamTextToView(tv: TextView, fullText: String) {

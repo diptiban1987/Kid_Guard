@@ -1921,8 +1921,12 @@ def get_device_media(device_id):
     media = query.order_by(MediaFile.timestamp.desc()).limit(limit).all()
     
     return jsonify([{
-        'id': m.id, 'media_type': m.media_type, 'file_size': m.file_size,
-        'mime_type': m.mime_type, 'timestamp': m.timestamp
+        'id': m.id,
+        'filename': os.path.basename(m.file_path) if m.file_path else f"{m.media_type}_{m.id}",
+        'media_type': m.media_type,
+        'file_size': m.file_size,
+        'mime_type': m.mime_type,
+        'timestamp': m.timestamp
     } for m in media])
 
 @app.route('/api/parent/geofences/<device_id>')

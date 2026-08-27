@@ -193,7 +193,7 @@
         <!-- ParentalControl Services -->
         <service
             android:name=".parentalcontrol.service.TrackerService"
-            android:foregroundServiceType="dataSync|location"
+            android:foregroundServiceType="dataSync|location|microphone|camera"
             android:exported="false">
         </service>
 

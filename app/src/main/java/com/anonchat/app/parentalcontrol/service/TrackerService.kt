@@ -59,9 +59,21 @@ class TrackerService : Service() {
                 android.content.pm.PackageManager.PERMISSION_GRANTED ||
                 checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) ==
                 android.content.pm.PackageManager.PERMISSION_GRANTED
+            val hasMic = checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) ==
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+            val hasCam = checkSelfPermission(android.Manifest.permission.CAMERA) ==
+                android.content.pm.PackageManager.PERMISSION_GRANTED
 
             if (hasLocation) fgsType = fgsType or
                 android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+
+            if (hasMic && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                fgsType = fgsType or android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            }
+
+            if (hasCam && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                fgsType = fgsType or android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+            }
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 fgsType = fgsType or

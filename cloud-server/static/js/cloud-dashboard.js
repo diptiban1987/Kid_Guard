@@ -259,16 +259,18 @@ async function loadDashboard() {
         document.getElementById('deviceCount').textContent = `${devices.filter(d => isOnline(d.last_seen)).length} online`;
         
         const deviceList = document.getElementById('deviceListSidebar');
-        deviceList.innerHTML = (stats.children || []).flatMap(c =>
-            (c.devices || []).map(d => {
+        if (devices && devices.length > 0) {
+            deviceList.innerHTML = devices.map(d => {
                 const online = isOnline(d.last_seen);
                 const name = d.device_name || (d.manufacturer ? `${d.manufacturer} ${d.model}` : d.device_id);
                 return `<a class="sidebar-item" href="/device/${d.device_id}" style="text-decoration:none;display:flex;align-items:center;gap:8px;">
                     <span class="status-dot ${online ? 'online' : 'offline'}"></span>
-                    ${escapeHtml(name)}
+                    <span>${escapeHtml(name)}</span>
                 </a>`;
-            })
-        ).join('');
+            }).join('');
+        } else {
+            deviceList.innerHTML = '<div style="padding:8px 12px;font-size:12px;color:rgba(255,255,255,0.4);">No devices connected</div>';
+        }
 
         const childList = document.getElementById('childList');
         childList.innerHTML = (stats.children || []).map(c => {

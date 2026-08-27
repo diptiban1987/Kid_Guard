@@ -95,12 +95,25 @@ def get_child_device_ids(parent_id):
         ids.add(d.device_id)
         ids.add(d.id)
 
-    # Also include any active devices for single-parent deployments
-    all_parents = User.query.filter_by(role='parent').all()
-    if len(all_parents) <= 1:
-        for d in Device.query.filter_by(is_active=True).all():
+    # If no devices linked via relations yet, include all active devices and auto-link them to this parent
+    if not ids or len(ids) == 0:
+        all_active = Device.query.filter_by(is_active=True).all()
+        for d in all_active:
             ids.add(d.device_id)
             ids.add(d.id)
+            if d.user_id and d.user_id != parent_id:
+                try:
+                    existing = ChildRelation.query.filter_by(parent_id=parent_id, child_id=d.user_id).first()
+                    if not existing:
+                        db.session.add(ChildRelation(
+                            parent_id=parent_id,
+                            child_id=d.user_id,
+                            is_active=True,
+                            created_at=int(datetime.now(timezone.utc).timestamp() * 1000)
+                        ))
+                        db.session.commit()
+                except Exception:
+                    db.session.rollback()
 
     return list(ids)
 

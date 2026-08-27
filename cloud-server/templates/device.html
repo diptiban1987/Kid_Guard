@@ -1613,51 +1613,44 @@
         stopMicStream();
         cmdMicElapsed = 0;
         lastAudioSeq = 0;
-        let totalDuration = 30;
 
         startAudioPlayback();
 
-        document.getElementById('cmdResultSub').textContent = '🎙️ Live Ambient Mic Streaming & Recording…';
+        document.getElementById('cmdResultSub').textContent = '🔴 Live Ambient Audio Streaming Active';
         document.getElementById('cmdResultBody').innerHTML = `
             <div class="cmd-mic-result">
                 <div class="mic-waveform" id="micWaveform">
-                    ${Array.from({length:12}, () => `<div class="mic-wave-bar" style="height:12px; opacity:0.6;"></div>`).join('')}
+                    ${Array.from({length:14}, () => `<div class="mic-wave-bar" style="height:12px; opacity:0.6;"></div>`).join('')}
                 </div>
-                <div class="mic-timer" id="micTimer">00:30</div>
-                <div class="mic-status-line" id="micStatusLine">🔊 Listening to live ambient audio from target device…</div>
+                <div class="mic-timer" id="micTimer" style="font-size:26px;font-weight:700;color:#10b981;letter-spacing:1px;margin:8px 0;">00:00</div>
+                <div class="mic-status-line" id="micStatusLine" style="font-size:14px;color:#a78bfa;margin-bottom:12px;">🔊 Streaming live ambient audio directly to your speakers…</div>
                 <div style="display:flex;gap:10px;justify-content:center;margin-top:10px;">
-                    <button class="btn-stop-mic" onclick="stopMicEarly()">⏹ Stop & Save</button>
+                    <button class="btn-stop-mic" onclick="stopMicEarly()" style="background:#ef4444;color:white;padding:8px 20px;border-radius:20px;font-weight:600;cursor:pointer;border:none;box-shadow:0 4px 14px rgba(239,68,68,0.4);">⏹ Stop Listening & Save</button>
                 </div>
             </div>`;
 
-        // Waveform bar pulsing animation while recording
+        // Waveform bar pulsing animation while streaming
         let waveStep = 0;
         const waveAnimTimer = setInterval(() => {
             waveStep++;
             const bars = document.querySelectorAll('.mic-wave-bar');
             bars.forEach((b, i) => {
-                const h = Math.round(6 + Math.abs(Math.sin((waveStep + i) * 0.4)) * 40);
+                const h = Math.round(6 + Math.abs(Math.sin((waveStep + i) * 0.4)) * 36);
                 b.style.height = `${h}px`;
                 b.style.opacity = '0.9';
             });
         }, 100);
 
-        // 30-second countdown timer
+        // Continuous live count-up timer (00:01, 00:02, ...)
         cmdMicElapsedTimer = setInterval(() => {
             cmdMicElapsed++;
-            const remain = Math.max(0, totalDuration - cmdMicElapsed);
-            const m = String(Math.floor(remain / 60)).padStart(2, '0');
-            const s = String(remain % 60).padStart(2, '0');
+            const m = String(Math.floor(cmdMicElapsed / 60)).padStart(2, '0');
+            const s = String(cmdMicElapsed % 60).padStart(2, '0');
             const el = document.getElementById('micTimer');
             if (el) el.textContent = `${m}:${s}`;
-
-            if (remain <= 0) {
-                const sl = document.getElementById('micStatusLine');
-                if (sl) sl.textContent = '⏳ Finalizing audio recording…';
-            }
         }, 1000);
 
-        // 1. Live chunk polling loop (plays incoming audio live via Web Audio API)
+        // 1. Live chunk polling loop (plays incoming audio chunks live via Web Audio API)
         liveAudioStreamPolling = setInterval(async () => {
             try {
                 const pollRes = await fetchWithAuth(`/api/parent/commands/${DEVICE_ID}/audio-poll/${commandId}?since_seq=${lastAudioSeq}`);
@@ -1668,29 +1661,21 @@
                         for (const chunk of pollData.chunks) {
                             if (chunk.seq > lastAudioSeq) {
                                 lastAudioSeq = chunk.seq;
-                                if (chunk.audio_b64) {
-                                    playAudioChunk({ audio: chunk.audio_b64, sample_rate: chunk.sample_rate });
+                                if (chunk.audio_b64 || chunk.audio) {
+                                    playAudioChunk({ audio: chunk.audio_b64 || chunk.audio, sample_rate: chunk.sample_rate });
                                 }
                             }
                         }
-                    } else if (pollData.audio_b64 && pollData.seq > lastAudioSeq) {
+                    } else if ((pollData.audio_b64 || pollData.audio) && pollData.seq > lastAudioSeq) {
                         lastAudioSeq = pollData.seq;
-                        playAudioChunk({ audio: pollData.audio_b64, sample_rate: pollData.sample_rate });
+                        playAudioChunk({ audio: pollData.audio_b64 || pollData.audio, sample_rate: pollData.sample_rate });
                     }
                 }
             } catch (_) {}
-        }, 350);
+        }, 300);
 
-        // 2. Poll command status for completed audio file upload
-        let attempts = 0;
+        // 2. Poll command status if device finishes on its own
         cmdMicPollTimer = setInterval(async () => {
-            attempts++;
-            if (attempts > 40) { // 80 seconds max timeout
-                stopMicStream();
-                clearInterval(waveAnimTimer);
-                showCmdError('Device did not return the audio recording in time.');
-                return;
-            }
             try {
                 const res = await fetchWithAuth(`/api/parent/commands/${DEVICE_ID}/result/${commandId}`);
                 if (!res.ok) return;
@@ -1887,19 +1872,28 @@
     }
 
 
-    function stopMicEarly() {
+    async function stopMicEarly() {
+        const savedId = cmdCurrentId;
         // Send stop command to device
-        fetchWithAuth(`/api/parent/commands/${DEVICE_ID}`, {
-            method: 'POST',
-            body: JSON.stringify({ command: 'stop_audio', params: { command_id: cmdCurrentId } })
-        }).catch(() => {});
+        try {
+            await fetchWithAuth(`/api/parent/commands/${DEVICE_ID}`, {
+                method: 'POST',
+                body: JSON.stringify({ command: 'stop_audio', params: { command_id: savedId } })
+            });
+        } catch (_) {}
+
         stopMicStream();
-        document.getElementById('cmdResultSub').textContent = '⏹ Recording stopped';
+        document.getElementById('cmdResultSub').textContent = '⏹ Finalizing recording…';
+        
+        setTimeout(() => {
+            renderAudioPlayerResult(savedId, `/api/parent/audio-recording/${savedId}`);
+        }, 600);
     }
 
     function stopMicStream() {
         if (cmdMicPollTimer) { clearInterval(cmdMicPollTimer); cmdMicPollTimer = null; }
         if (cmdMicElapsedTimer) { clearInterval(cmdMicElapsedTimer); cmdMicElapsedTimer = null; }
+        if (liveAudioStreamPolling) { clearInterval(liveAudioStreamPolling); liveAudioStreamPolling = null; }
         if (cmdMicAudioCtx) {
             try { cmdMicAudioCtx.close(); } catch(e) {}
             cmdMicAudioCtx = null;

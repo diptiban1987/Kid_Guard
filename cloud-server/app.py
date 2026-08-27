@@ -1194,6 +1194,7 @@ def report_audio_stream():
 
         if audio_b64 or done:
             live_mic_chunks[command_id].append({
+                'audio': audio_b64,
                 'audio_b64': audio_b64,
                 'sample_rate': sample_rate,
                 'seq': seq,
@@ -1204,39 +1205,42 @@ def report_audio_stream():
         # Save PCM bytes to file for WAV conversion
         try:
             pcm_file = os.path.join(AUDIO_DIR, f"{command_id}.pcm")
+            wav_file = os.path.join(AUDIO_DIR, f"{command_id}.wav")
             if audio_b64:
                 raw_bytes = base64.b64decode(audio_b64)
                 with open(pcm_file, 'ab') as pf:
                     pf.write(raw_bytes)
 
-            if done:
-                wav_file = os.path.join(AUDIO_DIR, f"{command_id}.wav")
+            if done or len(live_mic_chunks[command_id]) >= 5:
+                # Continuously build/update the WAV file so it's immediately playable
                 if os.path.exists(pcm_file):
                     with open(pcm_file, 'rb') as pf:
                         pcm_data = pf.read()
-                    with wave.open(wav_file, 'wb') as wf:
-                        wf.setnchannels(1)       # Mono
-                        wf.setsampwidth(2)      # 16-bit PCM
-                        wf.setframerate(sample_rate)
-                        wf.writeframes(pcm_data)
-                    try:
-                        os.remove(pcm_file)
-                    except Exception:
-                        pass
+                    if len(pcm_data) > 0:
+                        with wave.open(wav_file, 'wb') as wf:
+                            wf.setnchannels(1)       # Mono
+                            wf.setsampwidth(2)      # 16-bit PCM
+                            wf.setframerate(sample_rate or 16000)
+                            wf.writeframes(pcm_data)
         except Exception as e:
             print(f"Error persisting audio recording: {e}")
 
-        # Cap memory to last 300 chunks
-        if len(live_mic_chunks[command_id]) > 300:
-            live_mic_chunks[command_id] = live_mic_chunks[command_id][-200:]
+        # Cap memory to last 400 chunks
+        if len(live_mic_chunks[command_id]) > 400:
+            live_mic_chunks[command_id] = live_mic_chunks[command_id][-300:]
 
         # Mark command completed when done
-        if done and command_id in live_command_results:
+        if done:
+            if command_id not in live_command_results:
+                live_command_results[command_id] = {}
             live_command_results[command_id]['status'] = 'completed'
+            live_command_results[command_id]['data'] = f"/api/parent/audio-recording/{command_id}"
+            live_command_results[command_id]['result_type'] = 'audio'
 
     # Emit via WebSocket too if available
     emit_realtime(device_id, 'audio_chunk', {
         'audio': audio_b64,
+        'audio_b64': audio_b64,
         'sample_rate': sample_rate,
         'channels': 1,
         'encoding': 'pcm_s16le',
@@ -1250,14 +1254,30 @@ def report_audio_stream():
 
 @app.route('/api/parent/audio-recording/<command_id>', methods=['GET'])
 def get_audio_recording(command_id):
-    """Serves assembled audio recording file (.m4a or .wav) with range requests for smooth playback."""
-    m4a_file = os.path.join(AUDIO_DIR, f"{command_id}.m4a")
-    if os.path.exists(m4a_file):
-        return send_file(m4a_file, mimetype='audio/mp4', as_attachment=False, download_name=f"recording_{command_id}.m4a", conditional=True)
-
+    """Serves assembled audio recording file (.wav or .m4a) with range requests for smooth playback."""
     wav_file = os.path.join(AUDIO_DIR, f"{command_id}.wav")
+    m4a_file = os.path.join(AUDIO_DIR, f"{command_id}.m4a")
+    pcm_file = os.path.join(AUDIO_DIR, f"{command_id}.pcm")
+
+    # If PCM exists but WAV not generated, build WAV immediately
+    if os.path.exists(pcm_file) and not os.path.exists(wav_file):
+        try:
+            with open(pcm_file, 'rb') as pf:
+                pcm_data = pf.read()
+            if len(pcm_data) > 0:
+                with wave.open(wav_file, 'wb') as wf:
+                    wf.setnchannels(1)
+                    wf.setsampwidth(2)
+                    wf.setframerate(16000)
+                    wf.writeframes(pcm_data)
+        except Exception as e:
+            print(f"On-the-fly WAV build error: {e}")
+
     if os.path.exists(wav_file):
         return send_file(wav_file, mimetype='audio/wav', as_attachment=False, download_name=f"recording_{command_id}.wav", conditional=True)
+
+    if os.path.exists(m4a_file):
+        return send_file(m4a_file, mimetype='audio/mp4', as_attachment=False, download_name=f"recording_{command_id}.m4a", conditional=True)
 
     return jsonify({'error': 'Audio recording not found'}), 404
 

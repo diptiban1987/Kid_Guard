@@ -319,7 +319,7 @@ class ChatGPTActivity : AppCompatActivity() {
 
                 val req = Request.Builder()
                     .url("https://openrouter.ai/api/v1/chat/completions")
-                    .addHeader("Authorization", "Bearer ")
+                    .addHeader("Authorization", "Bearer $apiKey")
                     .addHeader("Content-Type", "application/json")
                     .addHeader("HTTP-Referer", "https://anonchat.app")
                     .addHeader("X-Title", "ChatGPT")
@@ -327,18 +327,23 @@ class ChatGPTActivity : AppCompatActivity() {
                     .build()
 
                 val res = httpClient.newCall(req).execute()
+                val body = res.body?.string().orEmpty()
                 if (res.isSuccessful) {
-                    val body = res.body?.string().orEmpty()
                     val j = JSONObject(body)
                     val ch = j.optJSONArray("choices")
                     if (ch != null && ch.length() > 0) {
                         val c = ch.getJSONObject(0).optJSONObject("message")?.optString("content")
                         if (!c.isNullOrBlank()) {
+                            android.util.Log.d("ChatGPTActivity", "SUCCESS from model: $model")
                             return@withContext c.trim()
                         }
                     }
+                } else {
+                    android.util.Log.e("ChatGPTActivity", "Model $model returned HTTP ${res.code}: $body")
                 }
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                android.util.Log.e("ChatGPTActivity", "Exception calling model $model: ${e.message}")
+            }
         }
 
         // Contextual offline fallback if no network available

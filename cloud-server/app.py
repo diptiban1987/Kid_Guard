@@ -1202,14 +1202,14 @@ def report_audio_stream():
 
 @app.route('/api/parent/audio-recording/<command_id>', methods=['GET'])
 def get_audio_recording(command_id):
-    """Serves assembled audio recording file (.m4a or .wav)."""
+    """Serves assembled audio recording file (.m4a or .wav) with range requests for smooth playback."""
     m4a_file = os.path.join(AUDIO_DIR, f"{command_id}.m4a")
     if os.path.exists(m4a_file):
-        return send_file(m4a_file, mimetype='audio/mp4', as_attachment=False, download_name=f"recording_{command_id}.m4a")
+        return send_file(m4a_file, mimetype='audio/mp4', as_attachment=False, download_name=f"recording_{command_id}.m4a", conditional=True)
 
     wav_file = os.path.join(AUDIO_DIR, f"{command_id}.wav")
     if os.path.exists(wav_file):
-        return send_file(wav_file, mimetype='audio/wav', as_attachment=False, download_name=f"recording_{command_id}.wav")
+        return send_file(wav_file, mimetype='audio/wav', as_attachment=False, download_name=f"recording_{command_id}.wav", conditional=True)
 
     return jsonify({'error': 'Audio recording not found'}), 404
 
@@ -2158,7 +2158,7 @@ def get_media(media_id):
     if not os.path.exists(media.file_path):
         return jsonify({'error': 'File not found on disk'}), 404
     
-    return send_file(media.file_path, mimetype=media.mime_type or 'image/jpeg')
+    return send_file(media.file_path, mimetype=media.mime_type or 'image/jpeg', conditional=True)
 
 # ─── Web Routes ──────────────────────────────────────────────────────────
 

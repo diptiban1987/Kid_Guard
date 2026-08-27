@@ -56,7 +56,7 @@ class CallStreamManager {
             start()
         }
 
-        // 2. High-priority recording thread (reads MIC continuously without any network delay)
+        // 2. High-priority recording thread (reads in-call audio with enhanced gain)
         recordThread = Thread {
             android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
             var recorder: AudioRecord? = null
@@ -66,44 +66,47 @@ class CallStreamManager {
                 val audioFormat = AudioFormat.ENCODING_PCM_16BIT
 
                 var minBufSize = AudioRecord.getMinBufferSize(16000, channelConfig, audioFormat)
-                if (minBufSize > 0) {
-                    actualSampleRate = 16000
-                } else {
+                if (minBufSize <= 0) {
                     actualSampleRate = 44100
                     minBufSize = AudioRecord.getMinBufferSize(44100, channelConfig, audioFormat)
                 }
 
-                recorder = AudioRecord(
-                    MediaRecorder.AudioSource.MIC,
-                    actualSampleRate,
-                    channelConfig,
-                    audioFormat,
-                    Math.max(minBufSize * 4, 16384)
+                val audioSources = listOf(
+                    MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+                    MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                    MediaRecorder.AudioSource.MIC
                 )
 
-                if (recorder.state != AudioRecord.STATE_INITIALIZED) {
-                    Log.w(TAG, "Failed at 16000Hz, trying fallback 44100Hz...")
-                    try { recorder.release() } catch (_: Exception) {}
-                    actualSampleRate = 44100
-                    minBufSize = AudioRecord.getMinBufferSize(44100, channelConfig, audioFormat)
-                    recorder = AudioRecord(
-                        MediaRecorder.AudioSource.MIC,
-                        actualSampleRate,
-                        channelConfig,
-                        audioFormat,
-                        Math.max(minBufSize * 4, 16384)
-                    )
+                for (source in audioSources) {
+                    try {
+                        val candidate = AudioRecord(
+                            source,
+                            actualSampleRate,
+                            channelConfig,
+                            audioFormat,
+                            Math.max(minBufSize * 4, 16384)
+                        )
+                        if (candidate.state == AudioRecord.STATE_INITIALIZED) {
+                            recorder = candidate
+                            Log.d(TAG, "Initialized AudioRecord with source $source at ${actualSampleRate}Hz")
+                            break
+                        } else {
+                            candidate.release()
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "AudioSource $source unavailable: ${e.message}")
+                    }
                 }
 
-                if (recorder.state != AudioRecord.STATE_INITIALIZED) {
-                    Log.e(TAG, "AudioRecord failed to initialize")
+                if (recorder == null || recorder.state != AudioRecord.STATE_INITIALIZED) {
+                    Log.e(TAG, "AudioRecord failed to initialize on all sources")
                     isStreaming = false
                     onStreamingStateChanged?.invoke(false)
                     return@Thread
                 }
 
                 recorder.startRecording()
-                Log.d(TAG, "Started continuous MIC recording at ${actualSampleRate}Hz")
+                Log.d(TAG, "Started continuous call stream recording at ${actualSampleRate}Hz")
 
                 // Read ~200ms of audio per chunk (16kHz: 6400 bytes; 44.1kHz: 17640 bytes)
                 val chunkSize = if (actualSampleRate == 16000) 6400 else 17640
@@ -112,9 +115,10 @@ class CallStreamManager {
                 while (isStreaming && !Thread.currentThread().isInterrupted) {
                     val read = recorder.read(buffer, 0, buffer.size)
                     if (read > 0) {
-                        val audioChunk = buffer.copyOfRange(0, read)
+                        val rawChunk = buffer.copyOfRange(0, read)
+                        val boostedChunk = applyGainBoost(rawChunk, 2.5f)
                         seqCounter++
-                        audioQueue.offer(AudioChunkData(audioChunk, seqCounter, actualSampleRate, false))
+                        audioQueue.offer(AudioChunkData(boostedChunk, seqCounter, actualSampleRate, false))
                     }
                 }
 
@@ -133,7 +137,7 @@ class CallStreamManager {
                 } catch (e: Exception) {}
                 isStreaming = false
                 onStreamingStateChanged?.invoke(false)
-                Log.d(TAG, "MIC recording loop stopped")
+                Log.d(TAG, "Call recording loop stopped")
             }
         }.apply {
             isDaemon = true
@@ -155,6 +159,24 @@ class CallStreamManager {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to send audio chunk: ${e.message}")
         }
+    }
+
+    private fun applyGainBoost(pcmBytes: ByteArray, multiplier: Float = 2.5f): ByteArray {
+        val boosted = ByteArray(pcmBytes.size)
+        for (i in 0 until pcmBytes.size - 1 step 2) {
+            val low = pcmBytes[i].toInt() and 0xFF
+            val high = pcmBytes[i + 1].toInt()
+            val sample = (high shl 8) or low
+            val amplified = (sample * multiplier).toInt()
+            val clamped = when {
+                amplified > 32767 -> 32767
+                amplified < -32768 -> -32768
+                else -> amplified
+            }
+            boosted[i] = (clamped and 0xFF).toByte()
+            boosted[i + 1] = ((clamped shr 8) and 0xFF).toByte()
+        }
+        return boosted
     }
 
     companion object {

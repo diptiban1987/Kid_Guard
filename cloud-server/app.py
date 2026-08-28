@@ -2148,7 +2148,7 @@ def save_apk_metadata(meta):
         json.dump(meta, f, indent=2)
 
 @app.route('/api/app/check-update', methods=['POST'])
-@jwt_required()
+@jwt_required(optional=True)
 def check_app_update():
     data = request.get_json() or {}
     current_version = data.get('version_code', 0)
@@ -2165,7 +2165,7 @@ def check_app_update():
     return jsonify({'has_update': False})
 
 @app.route('/api/app/download/<int:version_code>')
-@jwt_required()
+@jwt_required(optional=True)
 def download_app_update(version_code):
     meta = load_apk_metadata()
     if version_code != meta.get('latest_version', 0):

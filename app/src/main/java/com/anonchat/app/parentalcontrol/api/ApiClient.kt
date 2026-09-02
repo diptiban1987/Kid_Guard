@@ -491,26 +491,24 @@ object ApiClient {
     )
 
     fun sendBulkReport(jsonPayload: String): BulkReportResult {
-        val forceLegacy = CloudConfig.serverType == CloudConfig.SERVER_TYPE_LEGACY
-        val forceCloud = CloudConfig.serverType == CloudConfig.SERVER_TYPE_CLOUD
-
-        if (!forceLegacy) {
-            val cloudResult = sendCloudBulkReport(jsonPayload)
-            if (cloudResult.success) {
-                CloudConfig.serverType = CloudConfig.SERVER_TYPE_CLOUD
-                return cloudResult
-            }
-            if (forceCloud) return cloudResult
+        // Always try Cloud Server (Render) first
+        val cloudResult = sendCloudBulkReport(jsonPayload)
+        if (cloudResult.success) {
+            CloudConfig.serverType = CloudConfig.SERVER_TYPE_CLOUD
+            return cloudResult
         }
 
+        // Fallback to legacy only if cloud failed
         return try {
             val legacyResult = sendLegacyBulkReport(jsonPayload)
-            if (legacyResult.success && CloudConfig.serverType == CloudConfig.SERVER_TYPE_AUTO) {
+            if (legacyResult.success) {
                 CloudConfig.serverType = CloudConfig.SERVER_TYPE_LEGACY
+                legacyResult
+            } else {
+                cloudResult
             }
-            legacyResult
         } catch (e: Exception) {
-            BulkReportResult(false, null, null, "Legacy exception: ${e.message}")
+            cloudResult
         }
     }
 

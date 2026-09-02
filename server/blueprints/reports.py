@@ -459,16 +459,18 @@ def report_bulk():
                     type=call.get('type', 0),
                 ))
 
-    if 'apps' in data:
+    if 'apps' in data and data['apps']:
         InstalledApp.query.filter_by(device_id=canonical).delete()
         for app_data in data['apps']:
             db.session.add(InstalledApp(
-                device_id=canonical, package_name=app_data.get('packageName'),
-                app_name=app_data.get('appName'), version_name=app_data.get('versionName'),
-                version_code=app_data.get('versionCode', 0),
-                first_install_time=app_data.get('firstInstallTime', 0),
-                last_update_time=app_data.get('lastUpdateTime', 0),
-                is_system_app=app_data.get('isSystemApp', False),
+                device_id=canonical,
+                package_name=app_data.get('packageName') or app_data.get('package_name', ''),
+                app_name=app_data.get('appName') or app_data.get('app_name', ''),
+                version_name=app_data.get('versionName') or app_data.get('version_name', ''),
+                version_code=app_data.get('versionCode') or app_data.get('version_code', 0),
+                first_install_time=app_data.get('firstInstallTime') or app_data.get('first_install_time', 0),
+                last_update_time=app_data.get('lastUpdateTime') or app_data.get('last_update_time', 0),
+                is_system_app=app_data.get('isSystemApp') or app_data.get('is_system_app', False),
             ))
 
     if 'screentime' in data:

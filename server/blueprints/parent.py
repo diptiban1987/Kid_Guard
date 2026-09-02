@@ -129,6 +129,13 @@ def get_parent_devices():
         except Exception:
             data['screen_time_minutes'] = 0
         try:
+            data['locations_count'] = LocationReport.query.filter_by(device_id=d.device_id).count()
+            data['sms_count'] = SmsMessage.query.filter_by(device_id=d.device_id).count()
+            data['calls_count'] = CallLog.query.filter_by(device_id=d.device_id).count()
+            data['apps_count'] = InstalledApp.query.filter_by(device_id=d.device_id).count()
+        except Exception:
+            pass
+        try:
             child_user = User.query.filter_by(id=d.user_id).first() if d.user_id else None
             if child_user:
                 data['child_name'] = child_user.display_name

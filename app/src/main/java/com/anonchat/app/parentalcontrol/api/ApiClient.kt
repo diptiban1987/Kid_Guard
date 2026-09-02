@@ -313,6 +313,10 @@ object ApiClient {
 
     fun ensureAuthenticated(deviceInfo: DeviceInfo? = null): Boolean {
         if (!CloudConfig.accessToken.isNullOrEmpty()) return true
+        if (CloudConfig.userEmail.isNotEmpty() && CloudConfig.userPassword.isNotEmpty()) {
+            val log = login(CloudConfig.userEmail, CloudConfig.userPassword)
+            if (log is Result.Success) return true
+        }
         val devId = CloudConfig.deviceId.ifEmpty { android.os.Build.MODEL.replace(" ", "_") }
         val email = "device_${devId.lowercase()}@kidguard.local"
         val pass = "device_${devId.lowercase()}_secret_2024"
@@ -874,7 +878,7 @@ object ApiClient {
                 .toRequestBody("application/json".toMediaType())
 
             val request = Request.Builder()
-                .url("${CloudConfig.serverUrl}/api/report/call-state")
+                .url("${CloudConfig.apiBaseUrl}/report/call-state")
                 .addHeader("Authorization", "Bearer ${CloudConfig.accessToken}")
                 .post(requestBody)
                 .build()
@@ -908,7 +912,7 @@ object ApiClient {
                 .toRequestBody("application/json".toMediaType())
 
             val request = Request.Builder()
-                .url("${CloudConfig.serverUrl}/api/report/audio-stream")
+                .url("${CloudConfig.apiBaseUrl}/report/audio-stream")
                 .addHeader("Authorization", "Bearer ${CloudConfig.accessToken}")
                 .post(requestBody)
                 .build()

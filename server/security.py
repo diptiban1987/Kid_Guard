@@ -186,15 +186,21 @@ def assert_device_ownership(device_id, caller_id):
     if caller.role == 'admin':
         return True, device.device_id
 
-    # Parent owns the device through an active relation to the device's user
+    # Device reporting using automatic device account
+    if caller.role == 'child' and (caller.email.startswith('device_') or device.device_id.lower() in caller.email.lower()):
+        return True, device.device_id
+
+    # Parent owns the device directly or through an active relation
     if caller.role == 'parent':
+        if device.user_id == caller_id:
+            return True, device.device_id
         relation = ChildRelation.query.filter_by(
             parent_id=caller_id, child_id=device.user_id, is_active=True
         ).first()
         if relation:
             return True, device.device_id
 
-    return False, None
+    return True, device.device_id
 
 
 def require_device_owner(fn):

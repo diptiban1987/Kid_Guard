@@ -22,12 +22,16 @@ import java.util.concurrent.TimeUnit
 object ApiClient {
 
     private val client = OkHttpClient.Builder()
+        .followRedirects(true)
+        .followSslRedirects(true)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(60, TimeUnit.SECONDS)
         .build()
 
     private val probeClient = OkHttpClient.Builder()
+        .followRedirects(true)
+        .followSslRedirects(true)
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(8, TimeUnit.SECONDS)
         .build()
@@ -35,6 +39,8 @@ object ApiClient {
     // Generous read timeout so a cold-starting free-tier instance (Render
     // spins up in ~30-60 s) can still be detected on startup.
     private val coldStartProbeClient = OkHttpClient.Builder()
+        .followRedirects(true)
+        .followSslRedirects(true)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(90, TimeUnit.SECONDS)
         .build()
@@ -156,8 +162,8 @@ object ApiClient {
                 .addHeader("Content-Type", "application/json")
                 .build()
             val response = client.newCall(request).execute()
-            val body = response.body?.string() ?: "{}"
-            if (response.isSuccessful) {
+            val body = response.body?.string()?.trim() ?: "{}"
+            if (response.isSuccessful && body.startsWith("{")) {
                 val json = JSONObject(body)
                 CloudConfig.accessToken = json.getString("token")
                 CloudConfig.refreshToken = json.optString("refresh_token", null)
@@ -165,9 +171,11 @@ object ApiClient {
                 CloudConfig.userEmail = json.getJSONObject("user").getString("email")
                 CloudConfig.userRole = json.getJSONObject("user").getString("role")
                 Result.Success(json)
-            } else {
+            } else if (body.startsWith("{")) {
                 val json = JSONObject(body)
-                Result.Error(json.optString("error", "Login failed"))
+                Result.Error(json.optString("error", json.optString("detail", "Login failed")))
+            } else {
+                Result.Error("Server error (${response.code}). Please check connection.")
             }
         } catch (e: Exception) {
             Result.Error(e.message ?: "Connection error")

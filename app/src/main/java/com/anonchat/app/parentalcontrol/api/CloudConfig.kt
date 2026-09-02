@@ -125,7 +125,7 @@ object CloudConfig {
         get() = userRole == "child"
 
     val apiBaseUrl: String
-        get() = "$serverUrl/api"
+        get() = "$serverUrl/api/v1"
 
     fun clear() {
         prefs.edit().clear().apply()

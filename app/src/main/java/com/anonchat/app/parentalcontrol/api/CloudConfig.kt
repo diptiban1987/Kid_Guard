@@ -17,7 +17,21 @@ object CloudConfig {
     private const val KEY_DEVICE_ID = "device_id"
     private const val KEY_STEALTH_MODE = "stealth_mode"
     const val DEFAULT_SERVER = BuildConfig.SERVER_URL
-    const val CLOUD_SERVER = "https://diptiban2021.pythonanywhere.com"
+    const val CLOUD_SERVER_RENDER = "https://kidguards.onrender.com"
+    const val CLOUD_SERVER_PA = "https://diptiban2021.pythonanywhere.com"
+    const val CLOUD_SERVER = "https://kidguards.onrender.com"
+
+    /**
+     * Servers probed by auto-selection, in priority order. The first one that
+     * answers a live API probe wins. Render primary, then BuildConfig, then PythonAnywhere.
+     */
+    fun serverCandidates(): List<String> {
+        val list = mutableListOf<String>()
+        for (u in listOf(CLOUD_SERVER_RENDER, DEFAULT_SERVER, CLOUD_SERVER_PA)) {
+            if (!u.isBlank() && !list.contains(u)) list.add(u)
+        }
+        return list
+    }
 
     const val SERVER_TYPE_AUTO = "auto"
     const val SERVER_TYPE_CLOUD = "cloud"

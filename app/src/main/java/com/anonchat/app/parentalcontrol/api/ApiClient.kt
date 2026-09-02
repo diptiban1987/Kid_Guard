@@ -27,6 +27,67 @@ object ApiClient {
         .writeTimeout(60, TimeUnit.SECONDS)
         .build()
 
+    private val probeClient = OkHttpClient.Builder()
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(8, TimeUnit.SECONDS)
+        .build()
+
+    // Generous read timeout so a cold-starting free-tier instance (Render
+    // spins up in ~30-60 s) can still be detected on startup.
+    private val coldStartProbeClient = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(90, TimeUnit.SECONDS)
+        .build()
+
+    /**
+     * Quick liveness probe: a live cloud server answers /api/v1/auth/me with a
+     * JSON body (401 when unauthenticated still counts). HTML error pages
+     * (dead Render service, parking pages) and timeouts count as down.
+     */
+    fun probeServer(url: String, client: OkHttpClient = probeClient): Boolean {
+        return try {
+            val req = Request.Builder().url("$url/api/v1/auth/me").get().build()
+            client.newCall(req).execute().use { resp ->
+                val body = resp.body?.string()?.trim() ?: ""
+                resp.code in 200..499 && body.startsWith("{")
+            }
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Auto-select the best server: first live candidate in priority order
+     * (Render, then PythonAnywhere). Only switches when a candidate is
+     * confirmed up; if none answer, the current server is kept. Stale tokens
+     * are cleared on a switch because JWT secrets differ per deployment.
+     *
+     * @param initial true on service start: uses the long-timeout probe for
+     * the first candidate so a cold start can still be detected.
+     */
+    suspend fun autoSelectServer(initial: Boolean = false): String {
+        val candidates = CloudConfig.serverCandidates()
+        for (i in candidates.indices) {
+            val url = candidates[i]
+            val alive = if (initial && i == 0) {
+                probeServer(url, coldStartProbeClient)
+            } else {
+                probeServer(url)
+            }
+            if (alive) {
+                if (url != CloudConfig.serverUrl) {
+                    Log.i("ApiClient", "Auto-select: switching server to $url")
+                    CloudConfig.serverUrl = url
+                    CloudConfig.accessToken = null
+                    CloudConfig.refreshToken = null
+                }
+                return url
+            }
+        }
+        Log.w("ApiClient", "Auto-select: no candidate reachable, keeping ${CloudConfig.serverUrl}")
+        return CloudConfig.serverUrl
+    }
+
     private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 
     private fun authHeaders(): Map<String, String> {

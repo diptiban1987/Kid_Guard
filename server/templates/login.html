@@ -304,7 +304,7 @@
             btn.textContent = 'Signing in...';
 
             const customUrl = document.getElementById('serverUrl').value.trim();
-            const apiUrl = customUrl ? customUrl.replace(/\/+$/, '') + '/api' : '/api';
+            const apiUrl = customUrl ? customUrl.replace(/\/+$/, '') + '/api/v1' : '/api/v1';
 
             try {
                 const res = await fetch(`${apiUrl}/auth/login`, {
@@ -341,7 +341,7 @@
             btn.textContent = 'Creating account...';
 
             const customUrl = document.getElementById('serverUrl').value.trim();
-            const apiUrl = customUrl ? customUrl.replace(/\/+$/, '') + '/api' : '/api';
+            const apiUrl = customUrl ? customUrl.replace(/\/+$/, '') + '/api/v1' : '/api/v1';
 
             try {
                 const res = await fetch(`${apiUrl}/auth/register`, {
@@ -381,7 +381,7 @@
             btn.disabled = true; btn.textContent = 'Requesting...';
 
             const customUrl = document.getElementById('serverUrl').value.trim();
-            const apiUrl = customUrl ? customUrl.replace(/\/+$/, '') + '/api' : '/api';
+            const apiUrl = customUrl ? customUrl.replace(/\/+$/, '') + '/api/v1' : '/api/v1';
 
             try {
                 const res = await fetch(`${apiUrl}/auth/forgot-password`, {
@@ -420,7 +420,7 @@
             btn.disabled = true; btn.textContent = 'Updating...';
 
             const customUrl = document.getElementById('serverUrl').value.trim();
-            const apiUrl = customUrl ? customUrl.replace(/\/+$/, '') + '/api' : '/api';
+            const apiUrl = customUrl ? customUrl.replace(/\/+$/, '') + '/api/v1' : '/api/v1';
 
             try {
                 const res = await fetch(`${apiUrl}/auth/reset-password`, {

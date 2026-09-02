@@ -259,25 +259,31 @@ async function loadDashboard() {
         document.getElementById('deviceCount').textContent = `${devices.filter(d => isOnline(d.last_seen)).length} online`;
         
         const deviceList = document.getElementById('deviceListSidebar');
-        deviceList.innerHTML = (stats.children || []).flatMap(c =>
-            (c.devices || []).map(d => {
+        if (devices && devices.length > 0) {
+            deviceList.innerHTML = devices.map(d => {
                 const online = isOnline(d.last_seen);
                 return `<a class="sidebar-item" href="/device/${d.device_id}" style="text-decoration:none;display:flex;align-items:center;gap:8px;">
                     <span class="status-dot ${online ? 'online' : 'offline'}"></span>
                     ${escapeHtml(d.device_name || d.device_id)}
                 </a>`;
-            })
-        ).join('');
+            }).join('');
+        } else {
+            deviceList.innerHTML = `<div style="padding:10px 14px;color:rgba(255,255,255,0.4);font-size:13px;">No devices paired</div>`;
+        }
 
         const childList = document.getElementById('childList');
-        childList.innerHTML = (stats.children || []).map(c => {
-            const child = c.child;
-            const deviceId = c.devices?.[0]?.device_id || '';
-            return `<a class="sidebar-item" href="${deviceId ? '/device/'+deviceId : '#'}" style="text-decoration:none;display:flex;align-items:center;gap:8px;">
-                <span class="status-dot ${isOnline(c.devices?.[0]?.last_seen) ? 'online' : 'offline'}"></span>
-                ${escapeHtml(child.display_name)}
-            </a>`;
-        }).join('');
+        if (stats.children && stats.children.length > 0) {
+            childList.innerHTML = stats.children.map(c => {
+                const child = c.child;
+                const deviceId = c.devices?.[0]?.device_id || '';
+                return `<a class="sidebar-item" href="${deviceId ? '/device/'+deviceId : '#'}" style="text-decoration:none;display:flex;align-items:center;gap:8px;">
+                    <span class="status-dot ${isOnline(c.devices?.[0]?.last_seen) ? 'online' : 'offline'}"></span>
+                    ${escapeHtml(child.display_name)}
+                </a>`;
+            }).join('');
+        } else {
+            childList.innerHTML = `<div style="padding:10px 14px;color:rgba(255,255,255,0.4);font-size:13px;">No child profiles</div>`;
+        }
 
         // Recent activity
         loadRecentActivity('all');

@@ -81,8 +81,13 @@ def get_parent_stats():
         if len(child_devices) > 0 or is_recently_paired:
             children_data.append({
                 'child': child.to_dict() if child else None,
-                'devices': [d.to_dict() for d in child_devices],
-            })
+    if not children_data and devices:
+        parent_user = User.query.get(parent_id)
+        children_data.append({
+            'child': parent_user.to_dict() if parent_user else {'id': parent_id, 'display_name': 'My Family', 'email': ''},
+            'devices': [d.to_dict() for d in devices],
+        })
+
     return jsonify({
         'total_devices': len(devices),
         'online_devices': online,

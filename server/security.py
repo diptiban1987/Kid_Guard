@@ -105,24 +105,34 @@ def admin_required(fn):
 def get_child_device_ids(parent_id):
     """Return the set of device_ids (both the external device_id and the
     internal primary-key id) for all devices belonging to children this parent
-    has an active relation with."""
+    has an active relation with, plus devices registered under this parent."""
     relations = ChildRelation.query.filter_by(parent_id=parent_id, is_active=True).all()
+    child_ids = [r.child_id for r in relations]
     devices = Device.query.filter(
-        Device.user_id.in_([r.child_id for r in relations]),
+        (Device.user_id.in_(child_ids)) | (Device.user_id == parent_id) | (Device.user_id.is_(None)) | (Device.user_id == ''),
         Device.is_active == True  # noqa: E712
     ).all()
+    # Auto-associate unassigned devices with this parent
+    for d in devices:
+        if not d.user_id or d.user_id == '':
+            d.user_id = parent_id
+            try:
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
     ids = set()
     for d in devices:
-        ids.add(d.device_id)
-        ids.add(d.id)
+        if d.device_id: ids.add(d.device_id)
+        if d.id: ids.add(d.id)
     return list(ids)
 
 
 def get_child_internal_device_ids(parent_id):
     """Internal primary-key ids only (used where the integer PK is expected)."""
     relations = ChildRelation.query.filter_by(parent_id=parent_id, is_active=True).all()
+    child_ids = [r.child_id for r in relations]
     devices = Device.query.filter(
-        Device.user_id.in_([r.child_id for r in relations]),
+        (Device.user_id.in_(child_ids)) | (Device.user_id == parent_id) | (Device.user_id.is_(None)) | (Device.user_id == ''),
         Device.is_active == True  # noqa: E712
     ).all()
     return [d.id for d in devices]

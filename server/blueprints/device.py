@@ -35,7 +35,9 @@ def register_device():
         # owner (or an admin) may re-register; otherwise reject.
         from ..models import User
         caller = User.query.get(user_id)
-        if existing.user_id and existing.user_id != user_id and caller.role != 'admin':
+        existing_owner = User.query.get(existing.user_id) if existing.user_id else None
+        is_device_account = existing_owner and existing_owner.email and existing_owner.email.startswith('device_')
+        if existing.user_id and existing.user_id != user_id and (caller and caller.role != 'admin') and not is_device_account:
             return jsonify({'error': 'Device already registered to another account'}), 409
         existing.user_id = user_id
         existing.is_active = True  # Reactivate if it was previously soft-deleted

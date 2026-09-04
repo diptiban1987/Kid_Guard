@@ -191,10 +191,26 @@ async function loadDashboard() {
             fetchWithAuth('/api/parent/stats'),
             fetchWithAuth('/api/parent/devices')
         ]);
-        const stats = await statsRes.json();
-        const devices = await devicesRes.json();
+        // Be defensive against non-JSON bodies (e.g. Cloudflare Turnstile
+        // challenges while the Render free-tier instance is cold, or a
+        // 5xx HTML error page). `response.json()` throws "Unexpected
+        // end of JSON input" on those and previously tore the whole
+        // dashboard down. Fall back to safe defaults so the rest of the
+        // page still renders.
+        const safeJson = async (res, fallback) => {
+            if (!res) return fallback;
+            const ctype = res.headers.get('content-type') || '';
+            if (!ctype.includes('application/json')) {
+                console.warn(`[dashboard] non-JSON response (${res.status}, ${ctype}) — likely a bot challenge or 5xx page`);
+                return fallback;
+            }
+            try { return await res.json(); }
+            catch (e) { console.warn('[dashboard] JSON parse failed:', e); return fallback; }
+        };
+        const stats = await safeJson(statsRes, { children: [], online_devices: 0, total_activities: 0, total_locations: 0 });
+        const devices = await safeJson(devicesRes, []);
 
-        if (!Array.isArray(devices) || statsRes.status === 403) {
+        if (!Array.isArray(devices) || devicesRes.status === 403) {
             localStorage.removeItem('kidguard_token');
             localStorage.removeItem('kidguard_refresh');
             window.location.href = '/';

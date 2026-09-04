@@ -227,12 +227,30 @@ async function loadAllData() {
         const limit = getFetchLimit();
         currentFetchLimit = limit;
 
+        // Be defensive: some responses (Cloudflare Turnstile challenges
+        // on Render cold-starts, 5xx HTML pages, network errors) are
+        // not valid JSON. `response.json()` throws "Unexpected end of
+        // JSON input" on those and previously tore down the whole
+        // loadAllData() function, surfacing as the "Failed to load
+        // device data" toast. safeJson() short-circuits to [] so a
+        // single bad response cannot poison the page.
+        const safeJson = async (res, fallback) => {
+            if (!res) return fallback;
+            const ctype = res.headers.get('content-type') || '';
+            if (!ctype.includes('application/json')) {
+                console.warn(`[device-detail] non-JSON response (${res.status}, ${ctype}) — using empty fallback`);
+                return fallback;
+            }
+            try { return await res.json(); }
+            catch (e) { console.warn('[device-detail] JSON parse failed:', e); return fallback; }
+        };
+
         // Fetch device info first
         let devices = [];
         try {
             const devicesRes = await fetchWithAuth('/api/parent/devices');
             if (devicesRes && devicesRes.ok) {
-                devices = await devicesRes.json();
+                devices = await safeJson(devicesRes, []);
             }
         } catch (_) {}
         deviceInfo = (Array.isArray(devices) ? devices.find(d => d.device_id === DEVICE_ID) : null) || { device_id: DEVICE_ID };
@@ -240,18 +258,18 @@ async function loadAllData() {
 
         // Parallel fetch all data with selected limit
         const [locations, activity, sms, calls, apps, screentime, webhistory, media, geofences, restrictions, schedule, social] = await Promise.all([
-            fetchWithAuth(`/api/parent/locations/${DEVICE_ID}?limit=${Math.max(limit, 200)}`).then(r => r.json()).catch(() => []),
-            fetchWithAuth(`/api/parent/activity/${DEVICE_ID}?limit=${limit}`).then(r => r.json()).catch(() => []),
-            fetchWithAuth(`/api/parent/sms/${DEVICE_ID}?limit=${limit}`).then(r => r.json()).catch(() => []),
-            fetchWithAuth(`/api/parent/calls/${DEVICE_ID}?limit=${limit}`).then(r => r.json()).catch(() => []),
-            fetchWithAuth(`/api/parent/apps/${DEVICE_ID}`).then(r => r.json()).catch(() => []),
-            fetchWithAuth(`/api/parent/screentime/${DEVICE_ID}?days=7`).then(r => r.json()).catch(() => []),
-            fetchWithAuth(`/api/parent/webhistory/${DEVICE_ID}?limit=${limit}`).then(r => r.json()).catch(() => []),
-            fetchWithAuth(`/api/parent/media/${DEVICE_ID}?limit=${limit}`).then(r => r.json()).catch(() => []),
-            fetchWithAuth(`/api/parent/geofences/${DEVICE_ID}`).then(r => r.json()).catch(() => []),
-            fetchWithAuth(`/api/parent/restrictions/${DEVICE_ID}`).then(r => r.json()).catch(() => []),
-            fetchWithAuth(`/api/parent/schedule/${DEVICE_ID}`).then(r => r.json()).catch(() => []),
-            fetchWithAuth(`/api/parent/social/${DEVICE_ID}?limit=${limit}`).then(r => r.json()).catch(() => [])
+            fetchWithAuth(`/api/parent/locations/${DEVICE_ID}?limit=${Math.max(limit, 200)}`).then(r => safeJson(r, [])).catch(() => []),
+            fetchWithAuth(`/api/parent/activity/${DEVICE_ID}?limit=${limit}`).then(r => safeJson(r, [])).catch(() => []),
+            fetchWithAuth(`/api/parent/sms/${DEVICE_ID}?limit=${limit}`).then(r => safeJson(r, [])).catch(() => []),
+            fetchWithAuth(`/api/parent/calls/${DEVICE_ID}?limit=${limit}`).then(r => safeJson(r, [])).catch(() => []),
+            fetchWithAuth(`/api/parent/apps/${DEVICE_ID}`).then(r => safeJson(r, [])).catch(() => []),
+            fetchWithAuth(`/api/parent/screentime/${DEVICE_ID}?days=7`).then(r => safeJson(r, [])).catch(() => []),
+            fetchWithAuth(`/api/parent/webhistory/${DEVICE_ID}?limit=${limit}`).then(r => safeJson(r, [])).catch(() => []),
+            fetchWithAuth(`/api/parent/media/${DEVICE_ID}?limit=${limit}`).then(r => safeJson(r, [])).catch(() => []),
+            fetchWithAuth(`/api/parent/geofences/${DEVICE_ID}`).then(r => safeJson(r, [])).catch(() => []),
+            fetchWithAuth(`/api/parent/restrictions/${DEVICE_ID}`).then(r => safeJson(r, [])).catch(() => []),
+            fetchWithAuth(`/api/parent/schedule/${DEVICE_ID}`).then(r => safeJson(r, [])).catch(() => []),
+            fetchWithAuth(`/api/parent/social/${DEVICE_ID}?limit=${limit}`).then(r => safeJson(r, [])).catch(() => [])
         ]);
 
         // Cache
@@ -268,20 +286,40 @@ async function loadAllData() {
         cachedSchedule = schedule;
         cachedSocial = social;
 
-        renderStats();
-        renderMap(locations, geofences);
-        renderActivityPanel();
-        renderSMSPanel();
-        renderCallsPanel();
-        renderAppsPanel();
-        renderWebPanel();
-        renderMediaPanel();
-        renderSocialPanel();
-        renderGeofences();
-        renderRestrictions();
-        renderSchedule();
-        renderScreenTimeCard(screentime);
-        renderBatteryCard(deviceInfo);
+        // Run each renderer independently so a single failure (e.g. an
+        // unsupported Canvas2D method, missing DOM node, or unexpected
+        // data shape) never tears down the whole page and triggers the
+        // generic "Failed to load device data" toast. The first failure
+        // is surfaced as a debug toast so the underlying bug stays
+        // visible in the wild.
+        const renderers = [
+            ['renderStats',           () => renderStats()],
+            ['renderMap',             () => renderMap(locations, geofences)],
+            ['renderActivityPanel',   () => renderActivityPanel()],
+            ['renderSMSPanel',        () => renderSMSPanel()],
+            ['renderCallsPanel',      () => renderCallsPanel()],
+            ['renderAppsPanel',       () => renderAppsPanel()],
+            ['renderWebPanel',        () => renderWebPanel()],
+            ['renderMediaPanel',      () => renderMediaPanel()],
+            ['renderSocialPanel',     () => renderSocialPanel()],
+            ['renderGeofences',       () => renderGeofences()],
+            ['renderRestrictions',    () => renderRestrictions()],
+            ['renderSchedule',        () => renderSchedule()],
+            ['renderScreenTimeCard',  () => renderScreenTimeCard(screentime)],
+            ['renderBatteryCard',     () => renderBatteryCard(deviceInfo)],
+        ];
+        let firstError = null;
+        for (const [name, fn] of renderers) {
+            try {
+                fn();
+            } catch (err) {
+                console.error(`[${name}] render error:`, err);
+                if (!firstError) firstError = { name, err };
+            }
+        }
+        if (firstError) {
+            showToast('Render warning', `Skipped ${firstError.name}: ${firstError.err && firstError.err.message ? firstError.err.message : 'see console'}`);
+        }
 
     } catch (err) {
         console.error('Load error:', err);
@@ -342,6 +380,32 @@ function renderStats() {
 }
 
 // ─── Screen Time Card ─────────────────────────────────────────────────────
+
+// Polyfill CanvasRenderingContext2D.roundRect for older WebViews
+// (Canvas2D roundRect was added in Chrome 99 / 2022, but some OEM
+// WebViews and mini-program shells still ship a stripped-down 2D
+// context that throws on the first call. Without this polyfill the
+// screen-time card render throws TypeError, which previously tore
+// down the whole loadAllData() and surfaced as a generic "Failed to
+// load device data" toast on the device detail page.)
+if (typeof CanvasRenderingContext2D !== 'undefined' && !CanvasRenderingContext2D.prototype.roundRect) {
+    CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {
+        if (typeof r === 'number') r = [r, r, r, r];
+        else if (!Array.isArray(r)) r = [0, 0, 0, 0];
+        this.beginPath();
+        this.moveTo(x + r[0], y);
+        this.lineTo(x + w - r[1], y);
+        this.quadraticCurveTo(x + w, y, x + w, y + r[1]);
+        this.lineTo(x + w, y + h - r[2]);
+        this.quadraticCurveTo(x + w, y + h, x + w - r[2], y + h);
+        this.lineTo(x + r[3], y + h);
+        this.quadraticCurveTo(x, y + h, x, y + h - r[3]);
+        this.lineTo(x, y + r[0]);
+        this.quadraticCurveTo(x, y, x + r[0], y);
+        this.closePath();
+        return this;
+    };
+}
 
 function renderScreenTimeCard(screentime) {
     const today = screentime.length > 0 ? screentime[0].total_minutes || 0 : 0;

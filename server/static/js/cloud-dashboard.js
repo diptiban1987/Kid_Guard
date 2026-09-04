@@ -185,14 +185,31 @@ function initMap() {
 
 // ─── Dashboard ────────────────────────────────────────────────────────────
 
+// safeJson: short-circuit to a typed fallback when an upstream proxy (Cloudflare
+// Turnstile on Render cold-starts) returns an HTML challenge page or a non-JSON
+// error. Without this, a single bad response tears the whole dashboard down.
+async function safeJson(res, fallback) {
+    try {
+        const ct = (res.headers.get('content-type') || '').toLowerCase();
+        if (!ct.includes('application/json')) {
+            console.warn('[cloud-dashboard] non-JSON response', res.status, ct);
+            return fallback;
+        }
+        return await res.json();
+    } catch (e) {
+        console.warn('[cloud-dashboard] JSON parse failed', res.status, e.message);
+        return fallback;
+    }
+}
+
 async function loadDashboard() {
     try {
         const [statsRes, devicesRes] = await Promise.all([
             fetchWithAuth('/api/parent/stats'),
             fetchWithAuth('/api/parent/devices')
         ]);
-        const stats = await statsRes.json();
-        const devices = await devicesRes.json();
+        const stats = await safeJson(statsRes, { children: [], online_devices: 0, total_activities: 0, total_locations: 0 });
+        const devices = await safeJson(devicesRes, []);
 
         if (!Array.isArray(devices) || statsRes.status === 403) {
             localStorage.removeItem('kidguard_token');

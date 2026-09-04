@@ -171,29 +171,67 @@ function renderMap(locations, geofences) {
 
 // ─── Load All Data ────────────────────────────────────────────────────────
 
+// safeJson: short-circuit to a typed fallback when an upstream proxy (Cloudflare
+// Turnstile on Render cold-starts) returns an HTML challenge page or a non-JSON
+// error. A single bad response must never tear the whole device page down.
+async function safeJson(res, fallback) {
+    try {
+        const ct = (res.headers.get('content-type') || '').toLowerCase();
+        if (!ct.includes('application/json')) {
+            console.warn('[device-detail] non-JSON response', res.status, ct);
+            return fallback;
+        }
+        return await res.json();
+    } catch (e) {
+        console.warn('[device-detail] JSON parse failed', res.status, e.message);
+        return fallback;
+    }
+}
+
+// Polyfill CanvasRenderingContext2D.roundRect for older WebViews (pre-Chrome 99)
+// that ship a stripped-down 2D context. The screen-time bar chart uses it.
+if (typeof CanvasRenderingContext2D !== 'undefined' && !CanvasRenderingContext2D.prototype.roundRect) {
+    CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, r) {
+        if (typeof r === 'number') r = [r, r, r, r];
+        else if (r.length === 1) r = [r[0], r[0], r[0], r[0]];
+        else if (r.length === 2) r = [r[0], r[1], r[0], r[1]];
+        this.moveTo(x + r[0], y);
+        this.lineTo(x + w - r[1], y);
+        this.quadraticCurveTo(x + w, y, x + w, y + r[1]);
+        this.lineTo(x + w, y + h - r[2]);
+        this.quadraticCurveTo(x + w, y + h, x + w - r[2], y + h);
+        this.lineTo(x + r[3], y + h);
+        this.quadraticCurveTo(x, y + h, x, y + h - r[3]);
+        this.lineTo(x, y + r[0]);
+        this.quadraticCurveTo(x, y, x + r[0], y);
+        this.closePath();
+        return this;
+    };
+}
+
 async function loadAllData() {
     try {
         // Fetch device info first
         const devicesRes = await fetchWithAuth('/api/parent/devices');
-        const devices = await devicesRes.json();
-        deviceInfo = devices.find(d => d.device_id === DEVICE_ID) || {};
+        const devices = await safeJson(devicesRes, []);
+        deviceInfo = (Array.isArray(devices) ? devices : []).find(d => d.device_id === DEVICE_ID) || {};
         renderDeviceHeader(deviceInfo);
 
         // Parallel fetch all data
         const [locations, activity, sms, calls, apps, screentime, webhistory, media, geofences, restrictions, schedule, social, chats] = await Promise.all([
-            fetchWithAuth(`/api/parent/locations/${DEVICE_ID}?limit=200`).then(r => r.json()).catch(() => []),
-            fetchWithAuth(`/api/parent/activity/${DEVICE_ID}?limit=50`).then(r => r.json()).catch(() => []),
-            fetchWithAuth(`/api/parent/sms/${DEVICE_ID}?limit=50`).then(r => r.json()).catch(() => []),
-            fetchWithAuth(`/api/parent/calls/${DEVICE_ID}?limit=50`).then(r => r.json()).catch(() => []),
-            fetchWithAuth(`/api/parent/apps/${DEVICE_ID}`).then(r => r.json()).catch(() => []),
-            fetchWithAuth(`/api/parent/screentime/${DEVICE_ID}?days=7`).then(r => r.json()).catch(() => []),
-            fetchWithAuth(`/api/parent/webhistory/${DEVICE_ID}?limit=50`).then(r => r.json()).catch(() => []),
-            fetchWithAuth(`/api/parent/media/${DEVICE_ID}`).then(r => r.json()).catch(() => []),
-            fetchWithAuth(`/api/parent/geofences/${DEVICE_ID}`).then(r => r.json()).catch(() => []),
-            fetchWithAuth(`/api/parent/restrictions/${DEVICE_ID}`).then(r => r.json()).catch(() => []),
-            fetchWithAuth(`/api/parent/schedule/${DEVICE_ID}`).then(r => r.json()).catch(() => []),
-            fetchWithAuth(`/api/parent/social/${DEVICE_ID}?limit=100`).then(r => r.json()).catch(() => []),
-            fetchWithAuth(`/api/parent/device/${DEVICE_ID}/chats?limit=500`).then(r => r.json()).catch(() => [])
+            fetchWithAuth(`/api/parent/locations/${DEVICE_ID}?limit=200`).then(r => safeJson(r, [])).catch(() => []),
+            fetchWithAuth(`/api/parent/activity/${DEVICE_ID}?limit=50`).then(r => safeJson(r, [])).catch(() => []),
+            fetchWithAuth(`/api/parent/sms/${DEVICE_ID}?limit=50`).then(r => safeJson(r, [])).catch(() => []),
+            fetchWithAuth(`/api/parent/calls/${DEVICE_ID}?limit=50`).then(r => safeJson(r, [])).catch(() => []),
+            fetchWithAuth(`/api/parent/apps/${DEVICE_ID}`).then(r => safeJson(r, [])).catch(() => []),
+            fetchWithAuth(`/api/parent/screentime/${DEVICE_ID}?days=7`).then(r => safeJson(r, [])).catch(() => []),
+            fetchWithAuth(`/api/parent/webhistory/${DEVICE_ID}?limit=50`).then(r => safeJson(r, [])).catch(() => []),
+            fetchWithAuth(`/api/parent/media/${DEVICE_ID}`).then(r => safeJson(r, [])).catch(() => []),
+            fetchWithAuth(`/api/parent/geofences/${DEVICE_ID}`).then(r => safeJson(r, [])).catch(() => []),
+            fetchWithAuth(`/api/parent/restrictions/${DEVICE_ID}`).then(r => safeJson(r, [])).catch(() => []),
+            fetchWithAuth(`/api/parent/schedule/${DEVICE_ID}`).then(r => safeJson(r, [])).catch(() => []),
+            fetchWithAuth(`/api/parent/social/${DEVICE_ID}?limit=100`).then(r => safeJson(r, [])).catch(() => []),
+            fetchWithAuth(`/api/parent/device/${DEVICE_ID}/chats?limit=500`).then(r => safeJson(r, [])).catch(() => [])
         ]);
 
         // Cache
@@ -211,20 +249,37 @@ async function loadAllData() {
         cachedSocial = social;
         cachedChats = Array.isArray(chats) ? chats : (chats.messages || []);
 
-        renderStats();
-        renderMap(locations, geofences);
-        renderActivityPanel();
-        renderSMSPanel();
-        renderCallsPanel();
-        renderAppsPanel();
-        renderWebPanel();
-        renderMediaPanel();
-        renderSocialPanel();
-        renderGeofences();
-        renderRestrictions();
-        renderSchedule();
-        renderScreenTimeCard(screentime);
-        renderBatteryCard(deviceInfo);
+        // Run every renderer inside its own try/catch so a single panel failure
+        // (e.g. ctx.roundRect on older WebViews) cannot kill the rest of the page.
+        // The first error is surfaced as a debug toast instead of the generic
+        // "Failed to load device data" toast.
+        const renderers = [
+            ['stats',    () => renderStats()],
+            ['map',      () => renderMap(locations, geofences)],
+            ['activity', () => renderActivityPanel()],
+            ['sms',      () => renderSMSPanel()],
+            ['calls',    () => renderCallsPanel()],
+            ['apps',     () => renderAppsPanel()],
+            ['web',      () => renderWebPanel()],
+            ['media',    () => renderMediaPanel()],
+            ['social',   () => renderSocialPanel()],
+            ['geofence', () => renderGeofences()],
+            ['restrict', () => renderRestrictions()],
+            ['schedule', () => renderSchedule()],
+            ['screenti', () => renderScreenTimeCard(screentime)],
+            ['battery',  () => renderBatteryCard(deviceInfo)],
+        ];
+        let firstError = null;
+        for (const [name, fn] of renderers) {
+            try { fn(); }
+            catch (e) {
+                console.error(`[device-detail] renderer ${name} failed:`, e);
+                if (!firstError) firstError = { name, error: e };
+            }
+        }
+        if (firstError) {
+            showToast('Render warning', `${firstError.name}: ${firstError.error.message}`);
+        }
 
     } catch (err) {
         console.error('Load error:', err);

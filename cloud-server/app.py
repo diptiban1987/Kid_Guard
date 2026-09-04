@@ -2,7 +2,7 @@ import os, json, hashlib, uuid, hmac, base64, time, random
 from datetime import datetime, timezone, timedelta
 from functools import wraps
 
-from flask import Flask, request, jsonify, render_template, redirect, url_for, session, send_file
+from flask import Flask, request, jsonify, render_template, redirect, url_for, session, send_file, make_response
 from flask_cors import CORS
 from flask_jwt_extended import (
     JWTManager, create_access_token, create_refresh_token,
@@ -2259,15 +2259,27 @@ def get_media(media_id):
 
 @app.route('/')
 def index():
-    return render_template('login.html')
+    resp = make_response(render_template('login.html'))
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    resp.headers['Pragma'] = 'no-cache'
+    resp.headers['Expires'] = '0'
+    return resp
 
 @app.route('/dashboard')
 def dashboard_page():
-    return render_template('dashboard.html')
+    resp = make_response(render_template('dashboard.html'))
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    resp.headers['Pragma'] = 'no-cache'
+    resp.headers['Expires'] = '0'
+    return resp
 
 @app.route('/device/<device_id>')
 def device_page(device_id):
-    return render_template('device.html', device_id=device_id, has_socketio=HAS_SOCKETIO)
+    resp = make_response(render_template('device.html', device_id=device_id, has_socketio=HAS_SOCKETIO))
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    resp.headers['Pragma'] = 'no-cache'
+    resp.headers['Expires'] = '0'
+    return resp
 
 # ─── Static file fallback ────────────────────────────────────────────────
 

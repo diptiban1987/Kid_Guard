@@ -475,7 +475,26 @@ class SetupWizardActivity : AppCompatActivity() {
         markSetupDone(this)
         CloudConfig.setupFullyCompleted = true
         try { TrackerService.start(this) } catch (_: Exception) {}
+        // Ask the user to whitelist the app from battery optimisations so
+        // OEM aggressive killers (IQOO FuntouchOS, RealmeUI, MIUI) don't
+        // freeze the TrackerService after a few minutes.
+        try { promptBatteryOptimization() } catch (_: Exception) {}
         finish()
+    }
+
+    private fun promptBatteryOptimization() {
+        val helper = com.anonchat.app.parentalcontrol.work.BatteryOptimizationHelper
+        if (!helper.isIgnoringBatteryOptimizations(this)) {
+            val intent = helper.buildIgnoreBatteryOptimizationsIntent(this)
+            if (intent != null) {
+                try { startActivity(intent) } catch (_: Exception) {}
+            }
+        }
+        // Best-effort: also surface the OEM auto-start screen if available.
+        val autoStart = helper.buildAutoStartIntent(this)
+        if (autoStart != null) {
+            try { startActivity(autoStart) } catch (_: Exception) {}
+        }
     }
 
     // ── UI Builder ────────────────────────────────────────────────────────────

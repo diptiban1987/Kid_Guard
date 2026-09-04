@@ -592,28 +592,38 @@ def get_device_chats(device_id):
         return jsonify({'error': 'Access denied'}), 403
 
     from ..models import ChatMessage, Device
+    from sqlalchemy.exc import OperationalError, ProgrammingError
+
     dev = Device.query.filter_by(device_id=real_id).first()
     limit = min(request.args.get('limit', 500, type=int), 2000)
     q = request.args.get('q', '').strip()
 
-    query = ChatMessage.query
-    if dev and dev.user_id:
-        query = query.filter(
-            db.or_(
-                ChatMessage.sender_id == dev.user_id,
-                ChatMessage.recipient_id == dev.user_id,
-                ChatMessage.chat_id.ilike(f"%{dev.user_id}%")
+    try:
+        query = ChatMessage.query
+        if dev and dev.user_id:
+            query = query.filter(
+                db.or_(
+                    ChatMessage.sender_id == dev.user_id,
+                    ChatMessage.recipient_id == dev.user_id,
+                    ChatMessage.chat_id.ilike(f"%{dev.user_id}%")
+                )
             )
-        )
-    if q:
-        search_pat = f"%{q}%"
-        query = query.filter(
-            db.or_(
-                ChatMessage.content.ilike(search_pat),
-                ChatMessage.sender_name.ilike(search_pat),
-                ChatMessage.recipient_name.ilike(search_pat)
+        if q:
+            search_pat = f"%{q}%"
+            query = query.filter(
+                db.or_(
+                    ChatMessage.content.ilike(search_pat),
+                    ChatMessage.sender_name.ilike(search_pat),
+                    ChatMessage.recipient_name.ilike(search_pat)
+                )
             )
-        )
 
-    messages = query.order_by(ChatMessage.timestamp.desc()).limit(limit).all()
-    return jsonify([m.to_dict() for m in messages])
+        messages = query.order_by(ChatMessage.timestamp.desc()).limit(limit).all()
+        return jsonify([m.to_dict() for m in messages])
+    except (OperationalError, ProgrammingError) as e:
+        # Table missing on this deployment (chat_messages never migrated).
+        # The AnonChat tab will simply show "No archived conversations"
+        # instead of 500ing the whole device page.
+        current_app.logger.warning("chat_messages unavailable: %s", e)
+        db.session.rollback()
+        return jsonify([])

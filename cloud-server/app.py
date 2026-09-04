@@ -2274,7 +2274,13 @@ def device_page(device_id):
 @app.route('/static/<path:filename>')
 def static_files(filename):
     from flask import send_from_directory
-    return send_from_directory('static', filename)
+    response = send_from_directory('static', filename)
+    # Prevent Cloudflare / browser from caching JS/CSS so deploys take effect immediately
+    if filename.endswith('.js') or filename.endswith('.css'):
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+    return response
 
 # ─── Data Retention / Cleanup ─────────────────────────────────────────────
 

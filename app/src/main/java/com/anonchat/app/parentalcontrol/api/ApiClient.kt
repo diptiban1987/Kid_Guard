@@ -313,6 +313,13 @@ object ApiClient {
 
     fun ensureAuthenticated(deviceInfo: DeviceInfo? = null): Boolean {
         if (!CloudConfig.accessToken.isNullOrEmpty()) return true
+        // Prefer refreshing an existing refresh token before creating a new
+        // account. Without this, the first 401 causes the device to register
+        // a brand-new user and the parent loses visibility of it on the
+        // dashboard because the original pairing is gone.
+        if (!CloudConfig.refreshToken.isNullOrEmpty() && refreshToken()) {
+            return true
+        }
         val devId = CloudConfig.deviceId.ifEmpty { android.os.Build.MODEL.replace(" ", "_") }
         val email = "device_${devId.lowercase()}@kidguard.local"
         val pass = "device_${devId.lowercase()}_secret_2024"

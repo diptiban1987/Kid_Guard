@@ -1653,7 +1653,10 @@ def get_parent_stats():
         })
     
     now = int(datetime.now(timezone.utc).timestamp() * 1000)
-    devices = Device.query.filter(Device.device_id.in_(device_ids)).all()
+    devices = Device.query.filter(
+        Device.device_id.in_(device_ids),
+        Device.is_active == True
+    ).all()
     online = sum(1 for d in devices if d.last_seen and (now - d.last_seen) < 600000)
     
     total_activities = ActivityReport.query.filter(
@@ -1698,11 +1701,16 @@ def get_parent_stats():
 def get_parent_devices():
     parent_id = get_jwt_identity()
     device_ids = get_child_device_ids(parent_id)
-    
+
     if not device_ids:
         return jsonify([])
-    
-    devices = Device.query.filter(Device.device_id.in_(device_ids)).order_by(Device.last_seen.desc()).all()
+
+    # Only return devices that are still active. Soft-deleted rows were
+    # excluded here so deleted+repaired devices don't show stale entries.
+    devices = Device.query.filter(
+        Device.device_id.in_(device_ids),
+        Device.is_active == True
+    ).order_by(Device.last_seen.desc()).all()
     result = []
     for d in devices:
         data = d.to_dict()
@@ -1720,11 +1728,14 @@ def get_parent_devices():
             data['battery_level'] = None
             data['is_charging'] = False
         try:
-            # Attach today's screen time
-            today_start = int(datetime.now(timezone.utc).replace(hour=0, minute=0, second=0).timestamp() * 1000)
-            latest_screen = ScreenTimeReport.query.filter_by(device_id=d.device_id)\
-                .filter(ScreenTimeReport.timestamp >= today_start)\
-                .order_by(ScreenTimeReport.id.desc()).first()
+            # Attach today's screen time. ScreenTimeReport has no
+            # `timestamp` column — the canonical day-key is the `date`
+            # string (YYYY-MM-DD). Look up by date and order by updated_at.
+            today_str = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+            latest_screen = ScreenTimeReport.query.filter_by(
+                device_id=d.device_id,
+                date=today_str
+            ).order_by(ScreenTimeReport.updated_at.desc()).first()
             data['screen_time_minutes'] = latest_screen.total_minutes if latest_screen else 0
         except Exception:
             data['screen_time_minutes'] = 0
@@ -2353,6 +2364,43 @@ def init_db():
 
 # Auto-create tables on module load (required for WSGI / PythonAnywhere)
 init_db()
+
+
+# ─── /api/v1 URL aliases ──────────────────────────────────────────────────
+# The Android client posts to /api/v1/... (apiBaseUrl = serverUrl + "/api/v1"
+# in CloudConfig.kt). The legacy server and earlier versions of this cloud
+# server only register /api/... so every bulk report was hitting 404 and the
+# device's last_seen was never updated, making the dashboard show it as
+# "permanently offline" after the 10-minute window. Re-register every /api/...
+# rule under /api/v1/... so both paths work and existing installs recover
+# automatically on their next service start.
+def _register_v1_aliases():
+    try:
+        from flask import Blueprint
+        v1 = Blueprint('api_v1_alias', __name__)
+        registered = 0
+        for rule in app.url_map.iter_rules():
+            if rule.rule.startswith('/api/') and not rule.rule.startswith('/api/v1/'):
+                if rule.endpoint == 'static':
+                    continue
+                view = app.view_functions.get(rule.endpoint)
+                if view is None:
+                    continue
+                new_rule = '/api/v1' + rule.rule[len('/api'):]
+                methods = rule.methods - {'HEAD', 'OPTIONS'}
+                if not methods:
+                    methods = {'GET'}
+                v1.add_url_rule(new_rule, endpoint=f'v1_{rule.endpoint}',
+                                view_func=view, methods=list(methods))
+                registered += 1
+        if registered:
+            app.register_blueprint(v1)
+            print(f"[api-v1] Aliased {registered} /api/... routes under /api/v1/...")
+    except Exception as e:
+        print(f"[api-v1] Alias registration failed: {e}")
+
+
+_register_v1_aliases()
 
 if __name__ == '__main__':
     debug = os.environ.get('FLASK_DEBUG', '0') == '1'

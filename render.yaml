@@ -38,3 +38,4 @@ databases:
     plan: free
     databaseName: kidguard
     user: kidguard
+# trigger redeploy 2026-09-04 23:00:01

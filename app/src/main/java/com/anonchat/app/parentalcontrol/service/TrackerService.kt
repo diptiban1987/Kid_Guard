@@ -746,11 +746,28 @@ class TrackerService : Service() {
             private set
 
         fun start(context: Context) {
+            // If the service is already running, no-op. This keeps the
+            // keep-alive chain idempotent: every layer can call start()
+            // without restarting the FGS.
+            if (isRunning) {
+                Log.d(TAG, "TrackerService.start() — already running, no-op")
+                return
+            }
             val intent = Intent(context, TrackerService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (e: Exception) {
+                // Android 12+ throws ForegroundServiceStartNotAllowedException
+                // when an app tries to start a foreground service while in
+                // the background (e.g. from a broadcast receiver). In that
+                // case, the keep-alive chain still has AlarmReceiver and
+                // HeartbeatWorker to keep the device visible as ONLINE, so
+                // it's safe to log and continue.
+                Log.w(TAG, "TrackerService.start() failed (background FGS start?): ${e.message}")
             }
         }
 

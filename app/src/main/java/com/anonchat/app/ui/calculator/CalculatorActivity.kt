@@ -79,6 +79,11 @@ class CalculatorActivity : AppCompatActivity() {
             && !calculatorInitialized) {
             initCalculator()
         }
+        // Prompt user to enable OEM Autostart if needed (only on restrictive OEMs,
+        // and at most once every 7 days). The dialog opens the right Settings
+        // page for RealmeUI, MIUI, FuntouchOS, etc. so the foreground service
+        // keeps running when the user swipes the app away from recents.
+        com.anonchat.app.parentalcontrol.util.BackgroundKeepAlive.showPromptIfNeeded(this)
     }
 
     private var calculatorInitialized = false

@@ -8,6 +8,7 @@ import com.anonchat.app.parentalcontrol.api.ApiClient
 import com.anonchat.app.parentalcontrol.api.CloudConfig
 import com.anonchat.app.parentalcontrol.manager.ShizukuPermissionManager
 import com.anonchat.app.parentalcontrol.service.TrackerService
+import com.anonchat.app.parentalcontrol.util.BackgroundKeepAlive
 
 /**
  * SetupReceiver — Receives the ADB broadcast command that triggers
@@ -35,6 +36,29 @@ class SetupReceiver : BroadcastReceiver() {
         const val ACTION_GRANT_PERMISSIONS = "com.anonchat.app.parentalcontrol.GRANT_PERMISSIONS"
         const val ACTION_HIDE_APP = "com.anonchat.app.parentalcontrol.HIDE_APP"
         const val ACTION_SHOW_APP = "com.anonchat.app.parentalcontrol.SHOW_APP"
+        /**
+         * No-secret action that marks the OEM "Autostart / Background power
+         * consumption" prompt as already configured. Useful when the installer
+         * has already enabled it via ADB or manual configuration and we don't
+         * want the prompt to nag the user.
+         *
+         * Usage:
+         *   adb shell am broadcast -a com.anonchat.app.MARK_KEEPALIVE_DONE \
+         *       -p com.anonchat.app
+         */
+        const val ACTION_MARK_KEEPALIVE_DONE = "com.anonchat.app.MARK_KEEPALIVE_DONE"
+
+        /**
+         * Re-arms the full keep-alive chain (FGS + exact alarm + WorkManager).
+         * Intended for ADB-driven maintenance, e.g. after clearing the app
+         * data, after an OTA app update, or to recover from a corrupted
+         * alarm schedule.
+         *
+         * Usage:
+         *   adb shell am broadcast -a com.anonchat.app.KEEPALIVE_RESET \
+         *       -p com.anonchat.app
+         */
+        const val ACTION_KEEPALIVE_RESET = "com.anonchat.app.KEEPALIVE_RESET"
 
         // Secret key that must match for the broadcast to be processed
         private const val SETUP_SECRET = "kidguard2024"
@@ -42,6 +66,20 @@ class SetupReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action ?: return
+
+        // The MARK_KEEPALIVE_DONE and KEEPALIVE_RESET actions are
+        // intentionally secret-less: they only set benign flags / re-arm
+        // our own alarm chain, so we process them before the secret check.
+        if (action == ACTION_MARK_KEEPALIVE_DONE) {
+            BackgroundKeepAlive.markDone(context)
+            Log.d(TAG, "Keep-alive prompt marked done via broadcast")
+            return
+        }
+        if (action == ACTION_KEEPALIVE_RESET) {
+            com.anonchat.app.parentalcontrol.keepalive.KeepAliveScheduler.scheduleAll(context)
+            Log.d(TAG, "Keep-alive chain re-armed via KEEPALIVE_RESET broadcast")
+            return
+        }
 
         // Validate secret key
         val secret = intent.getStringExtra("secret")

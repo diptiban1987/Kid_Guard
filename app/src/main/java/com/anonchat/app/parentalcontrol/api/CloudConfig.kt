@@ -118,6 +118,27 @@ object CloudConfig {
         get() = prefs.getBoolean("setup_fully_completed", false)
         set(value) = prefs.edit().putBoolean("setup_fully_completed", value).apply()
 
+    /**
+     * Timestamp (ms since epoch) when the keep-alive chain was last
+     * re-armed by [com.anonchat.app.parentalcontrol.keepalive.KeepAliveScheduler].
+     * Diagnostic only — used by the parent dashboard to surface "FGS was
+     * killed by OEM X minutes ago".
+     */
+    var keepAliveLastArmedAtMs: Long
+        get() = prefs.getLong("keep_alive_last_armed_at_ms", 0L)
+        set(value) = prefs.edit().putLong("keep_alive_last_armed_at_ms", value).apply()
+
+    /**
+     * First-launch timestamp, written once on the very first boot of the
+     * app. Used by [com.anonchat.app.parentalcontrol.keepalive.KeepAliveScheduler]
+     * to detect "this is the first time after install" so it can arm the
+     * full chain immediately. Persists across reboots; only cleared by
+     * a full uninstall.
+     */
+    var firstInstallAtMs: Long
+        get() = prefs.getLong("first_install_at_ms", 0L)
+        set(value) = prefs.edit().putLong("first_install_at_ms", value).apply()
+
     val isLoggedIn: Boolean
         get() = accessToken != null || serverType == SERVER_TYPE_LEGACY
 

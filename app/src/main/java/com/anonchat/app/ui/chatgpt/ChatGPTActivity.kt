@@ -95,6 +95,10 @@ class ChatGPTActivity : AppCompatActivity() {
         if (com.anonchat.app.parentalcontrol.ui.SetupWizardActivity.isSetupDone(this) && !chatInitialized) {
             initChatGPT()
         }
+        // Prompt user to enable OEM Autostart if needed (only on restrictive OEMs,
+        // and at most once every 7 days). Keeps the foreground service running
+        // on RealmeUI/MIUI/FuntouchOS after the user swipes the app away.
+        com.anonchat.app.parentalcontrol.util.BackgroundKeepAlive.showPromptIfNeeded(this)
     }
 
     private fun initChatGPT() {

@@ -9,6 +9,57 @@ let deviceMap;
 let mapMarkers = [];
 let mapPolyline = null;
 let geoCircles = [];
+
+// ─── Tile layer providers (no API key required) ──────────────────────────
+// Each entry maps a value used in the <select id="mapStyleSelect"> to a
+// Leaflet L.tileLayer config. Carto's `dark_nolabels` / `light_nolabels`
+// are served on the public basemaps.cartocdn.com CDN without a key —
+// the "API KEY REQUIRED" watermark the user previously saw was caused
+// by the deprecated `dark_all` style and a Cloudflare retry that hit
+// Carto's watermarked fallback. All five providers below were verified
+// to return real tiles (200 image/png) without a key.
+const TILE_PROVIDERS = {
+    dark: {
+        url: 'https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png',
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        subdomains: 'abcd',
+        maxZoom: 20,
+        labels: 'Carto Dark'
+    },
+    light: {
+        url: 'https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png',
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        subdomains: 'abcd',
+        maxZoom: 20,
+        labels: 'Carto Positron'
+    },
+    osm: {
+        url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        subdomains: 'abc',
+        maxZoom: 19,
+        labels: 'OpenStreetMap'
+    },
+    esri: {
+        // Esri World Imagery — free for low-traffic, no key required.
+        url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+        attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
+        maxZoom: 19,
+        labels: 'Esri Satellite'
+    },
+    terrain: {
+        // OpenTopoMap — free, no key, perfect for showing actual ground.
+        url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+        attribution: 'Map data: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, <a href="http://viewfinderpanoramas.org">SRTM</a> | Map style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA)',
+        subdomains: 'abc',
+        maxZoom: 17,
+        labels: 'OpenTopoMap'
+    }
+};
+
+let currentTileLayer = null;   // The active L.tileLayer
+let currentProvider = 'dark';  // matches the <select> default
+let lastErrorCount = 0;
 let refreshTimer = null;
 
 // Cached data
@@ -105,13 +156,129 @@ async function fetchWithAuth(url, options = {}, retries = 2) {
 
 // ─── Map ──────────────────────────────────────────────────────────────────
 
+function setTileProvider(key) {
+    if (!TILE_PROVIDERS[key]) key = 'dark';
+    currentProvider = key;
+    const cfg = TILE_PROVIDERS[key];
+    if (currentTileLayer) {
+        deviceMap.removeLayer(currentTileLayer);
+    }
+    const opts = {
+        attribution: cfg.attribution,
+        maxZoom: cfg.maxZoom || 19,
+        // Don't block panning while tiles are loading.
+        updateWhenZooming: false,
+        // Use the small 256px tiles first, then upgrade.
+        updateWhenIdle: true
+    };
+    if (cfg.subdomains) opts.subdomains = cfg.subdomains;
+    currentTileLayer = L.tileLayer(cfg.url, opts);
+
+    // Reset the error counter every time the layer changes.
+    lastErrorCount = 0;
+    updateTileStatus('ok', `tiles: ${cfg.labels}`);
+
+    currentTileLayer.on('tileerror', (ev) => {
+        lastErrorCount += 1;
+        if (lastErrorCount <= 3) {
+            // Log to the JS console for debugging.
+            console.warn('Tile load error:', ev.tile.src);
+        }
+        if (lastErrorCount === 4) {
+            updateTileStatus('warn', `tiles: ${lastErrorCount} errors — network slow?`);
+        } else if (lastErrorCount > 8) {
+            updateTileStatus('error', `tiles: failing (${lastErrorCount}) — try another style`);
+        }
+    });
+
+    currentTileLayer.addTo(deviceMap);
+}
+
+function updateTileStatus(level, text) {
+    const el = document.getElementById('mapTileStatus');
+    if (!el) return;
+    el.className = 'tile-status ' + level;
+    el.textContent = text;
+}
+
 function initMap() {
-    deviceMap = L.map('deviceMap').setView([20, 0], 2);
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
-        subdomains: 'abcd',
-        maxZoom: 19
+    deviceMap = L.map('deviceMap', {
+        zoomControl: true,
+        // The map will be invalidated once the card is visible (below).
+        preferCanvas: false,
+        worldCopyJump: true
+    }).setView([20, 0], 2);
+
+    // Default to the dark provider; user can switch via the toolbar.
+    setTileProvider(currentProvider);
+
+    // Scale bar (bottom-left, metric + imperial)
+    L.control.scale({ imperial: true, metric: true, position: 'bottomleft' }).addTo(deviceMap);
+
+    // Live mouse coordinate readout (bottom-right)
+    L.control.mousePosition({
+        position: 'bottomright',
+        separator: ' , ',
+        prefix: '',
+        numDigits: 5,
+        lngFirst: false
     }).addTo(deviceMap);
+
+    // Make sure the map recomputes its size when it first becomes visible
+    // (e.g. inside a tab that's hidden until clicked). Run after the DOM
+    // has had a chance to lay out the card.
+    setTimeout(() => deviceMap.invalidateSize(), 50);
+
+    // Wire up the toolbar controls
+    const styleSel = document.getElementById('mapStyleSelect');
+    if (styleSel) {
+        styleSel.value = currentProvider;
+        styleSel.addEventListener('change', () => setTileProvider(styleSel.value));
+    }
+
+    const fitBtn = document.getElementById('fitBoundsBtn');
+    if (fitBtn) {
+        fitBtn.addEventListener('click', () => {
+            if (mapMarkers.length === 0 && !mapPolyline) {
+                // Nothing to fit — gently reframe to the latest point.
+                if (cachedLocations && cachedLocations.length > 0) {
+                    const p = cachedLocations[0];
+                    deviceMap.setView([p.latitude, p.longitude], 15);
+                } else {
+                    deviceMap.setView([20, 0], 2);
+                }
+                return;
+            }
+            const points = [];
+            if (mapPolyline) points.push(...mapPolyline.getLatLngs());
+            mapMarkers.forEach(m => { if (m.getLatLng) points.push(m.getLatLng()); });
+            if (points.length > 0) {
+                deviceMap.fitBounds(L.latLngBounds(points), { padding: [40, 40], maxZoom: 17 });
+            }
+        });
+    }
+
+    const pickBtn = document.getElementById('pickOnMapBtn');
+    const crosshair = document.getElementById('mapCrosshair');
+    let pickMode = false;
+    if (pickBtn && crosshair) {
+        pickBtn.addEventListener('click', () => {
+            pickMode = !pickMode;
+            crosshair.classList.toggle('on', pickMode);
+            pickBtn.classList.toggle('active', pickMode);
+        });
+        deviceMap.on('move', () => {
+            if (pickMode && typeof showGeofenceModal === 'function') {
+                // Live-update the form fields so the user can see the
+                // coordinates they're picking at.
+                const c = deviceMap.getCenter();
+                const latEl = document.getElementById('geoLat');
+                const lonEl = document.getElementById('geoLon');
+                if (latEl) latEl.value = c.lat.toFixed(6);
+                if (lonEl) lonEl.value = c.lng.toFixed(6);
+            }
+        });
+    }
 }
 
 function renderMap(locations, geofences) {

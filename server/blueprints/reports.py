@@ -523,7 +523,19 @@ def report_bulk():
                     timestamp=msg.get('timestamp', _now_ms())
                 ))
 
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception as e:
+        # Temporary diagnostic for the Vivo I2018 device: report/bulk has been
+        # returning HTTP 500 with no detail. Surface the actual exception
+        # class+message so we can pinpoint which sub-report is failing.
+        current_app.logger.exception("report_bulk commit failed: %s", e)
+        db.session.rollback()
+        return jsonify({
+            'error': 'Internal server error',
+            'detail': f'{type(e).__name__}: {str(e)[:200]}',
+            'hint': 'check which sub-report (sms/calls/apps/battery) raised this'
+        }), 500
     _emit(canonical, 'heartbeat', {'timestamp': _now_ms()})
 
     commands = RemoteCommand.query.filter_by(device_id=canonical, status='pending').all()

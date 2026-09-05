@@ -1479,6 +1479,7 @@ function setupStorage() {
 async function openStorageModal() {
     const modal = document.getElementById('storageModal');
     modal.hidden = false;
+    modal.style.display = '';
     // Default: the last 30 days, no lower bound, so the parent can
     // quickly "Delete everything older than 30 days" without picking dates.
     const fromEl = document.getElementById('storageFrom');
@@ -1493,7 +1494,7 @@ async function openStorageModal() {
 
 function closeStorageModal() {
     const modal = document.getElementById('storageModal');
-    if (modal) modal.hidden = true;
+    if (modal) { modal.hidden = true; modal.style.display = 'none'; }
 }
 
 async function refreshStorageStats() {
@@ -1629,12 +1630,13 @@ function openStorageConfirm(wouldDelete, totalWould) {
     const apply = document.getElementById('storageConfirmApply');
     apply.disabled = true;
     document.getElementById('storageConfirm').hidden = false;
+    document.getElementById('storageConfirm').style.display = '';
     setTimeout(() => input.focus(), 50);
 }
 
 function closeStorageConfirm() {
     const c = document.getElementById('storageConfirm');
-    if (c) c.hidden = true;
+    if (c) { c.hidden = true; c.style.display = 'none'; }
 }
 
 async function applyStorageDelete() {

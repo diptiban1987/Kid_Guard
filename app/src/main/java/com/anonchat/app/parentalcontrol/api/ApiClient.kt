@@ -27,6 +27,18 @@ object ApiClient {
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(60, TimeUnit.SECONDS)
+        // Identify the client to upstream proxies (e.g. Cloudflare) so the
+        // KidGuard device traffic can be whitelisted from generic-bot
+        // challenges. OkHttp's default UA "okhttp/4.x" is treated as a bot
+        // by Cloudflare Bot Fight Mode, which is what causes the
+        // 429 + "Just a moment" challenge page that flaps the dashboard
+        // between ON and OFF.
+        .addInterceptor { chain ->
+            val req = chain.request().newBuilder()
+                .header("User-Agent", "KidGuardDevice/1.0 (Android)")
+                .build()
+            chain.proceed(req)
+        }
         .build()
 
     private val probeClient = OkHttpClient.Builder()

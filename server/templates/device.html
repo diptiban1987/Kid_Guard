@@ -1233,15 +1233,23 @@
         <div class="card">
             <div class="card-header">
                 <h2>Device Data</h2>
-                <div class="tab-bar" id="dataTabBar">
-                    <button class="tab active" data-dtab="activity">Activity <span class="tab-badge" data-tab-badge="activity">…</span></button>
-                    <button class="tab" data-dtab="sms">SMS <span class="tab-badge" data-tab-badge="sms">…</span></button>
-                    <button class="tab" data-dtab="calls">Calls <span class="tab-badge" data-tab-badge="calls">…</span></button>
-                    <button class="tab" data-dtab="apps">Apps <span class="tab-badge" data-tab-badge="apps">…</span></button>
-                    <button class="tab" data-dtab="web">Web History <span class="tab-badge" data-tab-badge="web">…</span></button>
-                    <button class="tab" data-dtab="social">Social <span class="tab-badge" data-tab-badge="social">…</span></button>
-                    <button class="tab" data-dtab="anonchat">💬 AnonChat <span class="tab-badge" data-tab-badge="anonchat">…</span></button>
-                    <button class="tab" data-dtab="media">Media <span class="tab-badge" data-tab-badge="media">…</span></button>
+                <div class="card-header-right">
+                    <div class="range-chips" id="rangeChips" title="Filter time-series sections by date range">
+                        <button class="range-chip" data-range="today">Today</button>
+                        <button class="range-chip" data-range="7d">7d</button>
+                        <button class="range-chip" data-range="30d">30d</button>
+                        <button class="range-chip" data-range="all">All</button>
+                    </div>
+                    <div class="tab-bar" id="dataTabBar">
+                        <button class="tab active" data-dtab="activity">Activity <span class="tab-badge" data-tab-badge="activity">…</span></button>
+                        <button class="tab" data-dtab="sms">SMS <span class="tab-badge" data-tab-badge="sms">…</span></button>
+                        <button class="tab" data-dtab="calls">Calls <span class="tab-badge" data-tab-badge="calls">…</span></button>
+                        <button class="tab" data-dtab="apps">Apps <span class="tab-badge" data-tab-badge="apps">…</span></button>
+                        <button class="tab" data-dtab="web">Web History <span class="tab-badge" data-tab-badge="web">…</span></button>
+                        <button class="tab" data-dtab="social">Social <span class="tab-badge" data-tab-badge="social">…</span></button>
+                        <button class="tab" data-dtab="anonchat">💬 AnonChat <span class="tab-badge" data-tab-badge="anonchat">…</span></button>
+                        <button class="tab" data-dtab="media">Media <span class="tab-badge" data-tab-badge="media">…</span></button>
+                    </div>
                 </div>
             </div>
             <div class="card-body">
@@ -1479,7 +1487,7 @@
     </script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/leaflet-mouseposition@1.2.0/dist/L.Control.MousePosition.js"></script>
-    <script src="/static/js/device-detail.js?v=5"></script>
+    <script src="/static/js/device-detail.js?v=6"></script>
     <script>
         // ─── Call State + Audio Streaming ────────────────────────────
         let callStateInterval = null;

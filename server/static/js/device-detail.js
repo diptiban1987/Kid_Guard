@@ -120,25 +120,11 @@ function sleep(ms) {
 
 // ─── Map ──────────────────────────────────────────────────────────────────
 
-// Carto's `rastertiles/voyager` style was discontinued and now returns
-// 404s — that's why the live page used to flash "API KEY REQUIRED".
-// `dark_nolabels` is the free, no-key replacement. We also expose
-// several other key-free providers so the user can switch styles.
+// OSM is the default. Carto's `dark_all` / `light_all` are now key-gated
+// (we used to flash "API KEY REQUIRED" on every tile), so they are
+// intentionally not offered. `dark_nolabels` / `light_nolabels` were the
+// key-free Carto fallback but the parent has asked to drop Carto entirely.
 const TILE_PROVIDERS = {
-    dark: {
-        url: 'https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png',
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-        subdomains: 'abcd',
-        maxZoom: 20,
-        labels: 'Carto Dark'
-    },
-    light: {
-        url: 'https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png',
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-        subdomains: 'abcd',
-        maxZoom: 20,
-        labels: 'Carto Positron'
-    },
     osm: {
         url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> contributors',
@@ -160,6 +146,8 @@ const TILE_PROVIDERS = {
         labels: 'OpenTopoMap'
     }
 };
+const DEFAULT_TILE_PROVIDER = 'osm';
+let currentTileProvider = DEFAULT_TILE_PROVIDER;
 let currentTileLayer = null;
 let tileErrorCount = 0;
 
@@ -173,7 +161,7 @@ function updateTileStatus(level, text) {
 }
 
 function setTileProvider(key) {
-    if (!TILE_PROVIDERS[key]) key = 'dark';
+    if (!TILE_PROVIDERS[key]) key = DEFAULT_TILE_PROVIDER;
     const cfg = TILE_PROVIDERS[key];
     if (currentTileLayer) {
         deviceMap.removeLayer(currentTileLayer);
@@ -192,19 +180,49 @@ function setTileProvider(key) {
             if (tileErrorCount === 0) updateTileStatus('ok', 'Tiles loading');
         }
     });
+    currentTileProvider = key;
+    // Update dropdown label + selection state if the dropdown exists.
+    const label = document.getElementById('mapStyleLabel');
+    if (label) label.textContent = cfg.labels;
+    document.querySelectorAll('#mapStyleMenu .map-dropdown-item').forEach(li => {
+        li.classList.toggle('selected', li.dataset.value === key);
+    });
 }
 
 let pickMode = false;
 let pickMarker = null;
+// Once the user pans/zooms the map themselves we stop auto-fitting on
+// every data refresh, otherwise every 60 s the view would snap back and
+// the user's chosen zoom/center is lost. The Fit-to-points button and
+// the first auto-fit on the very first data load still work.
+let userHasPanned = false;
 
 function fitBoundsToPoints() {
-    if (!deviceMap) return;
-    if (mapMarkers.length === 0 && !mapPolyline) return;
+    if (!deviceMap) {
+        console.warn('[map] fitBoundsToPoints: deviceMap not ready');
+        return;
+    }
     const layers = [];
     mapMarkers.forEach(m => layers.push(m));
     if (mapPolyline) layers.push(mapPolyline);
+    geoCircles.forEach(c => layers.push(c));
+    if (layers.length === 0) {
+        console.warn('[map] fitBoundsToPoints: no points to fit');
+        return;
+    }
     const group = L.featureGroup(layers);
-    try { deviceMap.fitBounds(group.getBounds().pad(0.1)); } catch (e) { /* ignore */ }
+    try {
+        const b = group.getBounds();
+        if (!b.isValid()) {
+            console.warn('[map] fitBoundsToPoints: invalid bounds');
+            return;
+        }
+        deviceMap.fitBounds(b.pad(0.1));
+        userHasPanned = false; // next refresh will re-fit only if no further interaction
+        console.log('[map] fitBoundsToPoints: fit', layers.length, 'layers');
+    } catch (e) {
+        console.warn('[map] fitBoundsToPoints failed', e);
+    }
 }
 
 function togglePickMode() {
@@ -218,9 +236,44 @@ function togglePickMode() {
     }
 }
 
+function setupMapStyleDropdown() {
+    const btn = document.getElementById('mapStyleBtn');
+    const menu = document.getElementById('mapStyleMenu');
+    if (!btn || !menu) return;
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const open = !menu.hidden;
+        menu.hidden = open;
+        btn.setAttribute('aria-expanded', String(!open));
+    });
+    menu.querySelectorAll('.map-dropdown-item').forEach(li => {
+        li.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const value = li.dataset.value;
+            setTileProvider(value);
+            menu.hidden = true;
+            btn.setAttribute('aria-expanded', 'false');
+        });
+    });
+    // Click anywhere else closes the menu.
+    document.addEventListener('click', () => {
+        if (!menu.hidden) {
+            menu.hidden = true;
+            btn.setAttribute('aria-expanded', 'false');
+        }
+    });
+    // Esc closes the menu.
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !menu.hidden) {
+            menu.hidden = true;
+            btn.setAttribute('aria-expanded', 'false');
+        }
+    });
+}
+
 function initMap() {
     deviceMap = L.map('deviceMap', { worldCopyJump: true }).setView([20, 0], 2);
-    setTileProvider('dark');
+    setTileProvider(DEFAULT_TILE_PROVIDER);
     L.control.scale({ imperial: true, metric: true, position: 'bottomleft' }).addTo(deviceMap);
     if (L.control && L.control.mousePosition) {
         L.control.mousePosition({
@@ -234,11 +287,7 @@ function initMap() {
     // Re-fit if a tab was hidden when the map first loaded.
     setTimeout(() => deviceMap.invalidateSize(), 600);
 
-    const styleSel = document.getElementById('mapStyleSelect');
-    if (styleSel) {
-        styleSel.value = 'dark';
-        styleSel.addEventListener('change', () => setTileProvider(styleSel.value));
-    }
+    setupMapStyleDropdown();
     const fitBtn = document.getElementById('fitBoundsBtn');
     if (fitBtn) fitBtn.addEventListener('click', fitBoundsToPoints);
     const pickBtn = document.getElementById('pickOnMapBtn');
@@ -249,6 +298,10 @@ function initMap() {
         pickMarker = L.marker(e.latlng).addTo(deviceMap)
             .bindPopup(`Picked: ${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}`).openPopup();
         togglePickMode();
+    });
+    // Track user pan/zoom so the next renderMap() doesn't override their view.
+    deviceMap.on('dragstart zoomstart movestart', () => {
+        userHasPanned = true;
     });
     updateTileStatus('ok', 'Tiles loading');
 }
@@ -272,7 +325,7 @@ function renderMap(locations, geofences) {
             smoothFactor: 1
         }).addTo(deviceMap);
 
-        // Latest position marker (special)
+        // Latest position marker (special, larger)
         const latest = locations[0];
         const latestMarker = L.circleMarker([latest.latitude, latest.longitude], {
             radius: 9,
@@ -284,9 +337,13 @@ function renderMap(locations, geofences) {
             .bindPopup(`<b>Latest</b><br>${latest.latitude.toFixed(5)}, ${latest.longitude.toFixed(5)}<br>${formatTime(latest.timestamp)}`);
         mapMarkers.push(latestMarker);
 
-        // Intermediate markers (show a few along the trail)
-        const step = Math.max(1, Math.floor(locations.length / 12));
-        for (let i = step; i < locations.length; i += step) {
+        // Trail-point markers (cap at ~80 so very large datasets stay light).
+        // The polyline below still draws the full trail visually.
+        const maxMarkers = 80;
+        const step = locations.length > maxMarkers
+            ? Math.ceil(locations.length / maxMarkers)
+            : 1;
+        for (let i = 1; i < locations.length; i += step) {
             const loc = locations[i];
             const marker = L.circleMarker([loc.latitude, loc.longitude], {
                 radius: 4,
@@ -299,7 +356,14 @@ function renderMap(locations, geofences) {
             mapMarkers.push(marker);
         }
 
-        deviceMap.fitBounds(L.polyline(points).getBounds(), { padding: [40, 40] });
+        // Only auto-fit the very first time we get data. After the user
+        // pans/zooms, leave the view alone. They can hit "Fit to points"
+        // to re-fit on demand. (The polyline.getBounds() already spans
+        // every point on the trail, so it covers all 180+ locations
+        // without us adding a marker for each one.)
+        if (!userHasPanned) {
+            deviceMap.fitBounds(mapPolyline.getBounds(), { padding: [40, 40] });
+        }
     }
 
     // Draw geofence circles

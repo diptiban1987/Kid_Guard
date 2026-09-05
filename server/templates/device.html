@@ -223,7 +223,6 @@
             letter-spacing: 1px;
             font-size: 10px;
         }
-        .map-toolbar select,
         .map-toolbar button {
             background: rgba(255,255,255,0.06);
             color: white;
@@ -234,7 +233,6 @@
             cursor: pointer;
             font-family: inherit;
         }
-        .map-toolbar select:hover,
         .map-toolbar button:hover {
             background: rgba(255,255,255,0.10);
             border-color: rgba(255,255,255,0.18);
@@ -244,6 +242,67 @@
             border-color: rgba(102,126,234,0.55);
             color: #c5cae9;
         }
+        /* Custom map-style dropdown (replaces native <select> so the popup is
+           reliably readable on dark backgrounds) */
+        .map-dropdown { position: relative; }
+        .map-dropdown-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            min-width: 170px;
+            justify-content: space-between;
+        }
+        .map-dropdown-btn .caret {
+            font-size: 10px;
+            color: rgba(255,255,255,0.6);
+            transition: transform 0.15s ease;
+        }
+        .map-dropdown-btn[aria-expanded="true"] .caret { transform: rotate(180deg); }
+        .map-dropdown-menu {
+            position: absolute;
+            top: calc(100% + 4px);
+            left: 0;
+            min-width: 100%;
+            list-style: none;
+            margin: 0;
+            padding: 4px;
+            background: #1a1d24;
+            border: 1px solid rgba(255,255,255,0.14);
+            border-radius: 8px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.55);
+            z-index: 1100;
+            max-height: 260px;
+            overflow-y: auto;
+        }
+        .map-dropdown-menu[hidden] { display: none; }
+        .map-dropdown-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 12px;
+            color: #f5f5f5;
+            user-select: none;
+        }
+        .map-dropdown-item:hover {
+            background: rgba(102,126,234,0.18);
+            color: #ffffff;
+        }
+        .map-dropdown-item.selected {
+            background: rgba(102,126,234,0.28);
+            color: #ffffff;
+        }
+        .map-dropdown-item .item-swatch {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border-radius: 3px;
+            border: 1px solid rgba(255,255,255,0.2);
+            flex-shrink: 0;
+        }
+        .map-dropdown-item .item-label { white-space: nowrap; }
         .map-toolbar .spacer { flex: 1; }
         .map-toolbar .tile-status {
             font-size: 14px;
@@ -1079,13 +1138,27 @@
             </div>
             <div class="map-toolbar">
                 <span class="map-title">Map style:</span>
-                <select id="mapStyleSelect" aria-label="Map style">
-                    <option value="dark">Carto Dark</option>
-                    <option value="light">Carto Light</option>
-                    <option value="osm">OpenStreetMap</option>
-                    <option value="esri">Esri Satellite</option>
-                    <option value="terrain">OpenTopoMap</option>
-                </select>
+                <div class="map-dropdown" id="mapStyleDropdown">
+                    <button type="button" id="mapStyleBtn" class="map-dropdown-btn"
+                            aria-haspopup="listbox" aria-expanded="false">
+                        <span id="mapStyleLabel">OpenStreetMap</span>
+                        <span class="caret" aria-hidden="true">▾</span>
+                    </button>
+                    <ul class="map-dropdown-menu" id="mapStyleMenu" role="listbox" hidden>
+                        <li role="option" data-value="osm" class="map-dropdown-item selected">
+                            <span class="item-swatch" style="background:#aad3df"></span>
+                            <span class="item-label">OpenStreetMap</span>
+                        </li>
+                        <li role="option" data-value="esri" class="map-dropdown-item">
+                            <span class="item-swatch" style="background:#2c3e50"></span>
+                            <span class="item-label">Esri Satellite</span>
+                        </li>
+                        <li role="option" data-value="terrain" class="map-dropdown-item">
+                            <span class="item-swatch" style="background:#8b6b3d"></span>
+                            <span class="item-label">OpenTopoMap</span>
+                        </li>
+                    </ul>
+                </div>
                 <button type="button" id="fitBoundsBtn" title="Fit view to all points">Fit to points</button>
                 <button type="button" id="pickOnMapBtn" title="Click the map to set a temporary marker">Pick on map</button>
                 <span class="spacer"></span>
@@ -1406,7 +1479,7 @@
     </script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/leaflet-mouseposition@1.2.0/dist/L.Control.MousePosition.js"></script>
-    <script src="/static/js/device-detail.js?v=3"></script>
+    <script src="/static/js/device-detail.js?v=4"></script>
     <script>
         // ─── Call State + Audio Streaming ────────────────────────────
         let callStateInterval = null;

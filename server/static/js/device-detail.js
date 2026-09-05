@@ -27,6 +27,14 @@ let cachedSocial = [];
 let cachedChats = [];
 let deviceInfo = {};
 
+// Active date-range preset for the time-series sections. One of 'today' | '7d'
+// | '30d' | 'all'. Default 'all' so the parent sees the entire history on
+// first load (matches the request "add filters … all time from installed to
+// the till now"). Persisted in localStorage so the choice survives reloads.
+const RANGE_KEY = 'kidguard_device_range';
+let activeRange = localStorage.getItem(RANGE_KEY) || 'all';
+const RANGE_PRESETS = ['today', '7d', '30d', 'all'];
+
 // ─── Init ─────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -38,6 +46,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initMap();
     loadAllData();
     setupTabs();
+    setupRangeChips();
     startAutoRefresh();
 });
 
@@ -435,20 +444,23 @@ async function loadAllData() {
         // the previously rendered header so the badge doesn't flicker between
         // ONLINE and OFFLINE on every poll while a challenge is in progress.
 
-        // Parallel fetch all data
+        // Parallel fetch all data. Time-series endpoints get the active
+        // date-range filter; static ones (apps/geofences/restrictions/
+        // schedule/chats) are unaffected.
+        const range = activeRange;
         const [locations, activity, sms, calls, apps, screentime, webhistory, media, geofences, restrictions, schedule, social, chats] = await Promise.all([
-            fetchWithAuth(`/api/parent/locations/${DEVICE_ID}?limit=200`).then(r => safeJson(r, [])).catch(() => []),
-            fetchWithAuth(`/api/parent/activity/${DEVICE_ID}?limit=50`).then(r => safeJson(r, [])).catch(() => []),
-            fetchWithAuth(`/api/parent/sms/${DEVICE_ID}?limit=50`).then(r => safeJson(r, [])).catch(() => []),
-            fetchWithAuth(`/api/parent/calls/${DEVICE_ID}?limit=50`).then(r => safeJson(r, [])).catch(() => []),
+            fetchWithAuth(`/api/parent/locations/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, [])).catch(() => []),
+            fetchWithAuth(`/api/parent/activity/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, [])).catch(() => []),
+            fetchWithAuth(`/api/parent/sms/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, [])).catch(() => []),
+            fetchWithAuth(`/api/parent/calls/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, [])).catch(() => []),
             fetchWithAuth(`/api/parent/apps/${DEVICE_ID}`).then(r => safeJson(r, [])).catch(() => []),
             fetchWithAuth(`/api/parent/screentime/${DEVICE_ID}?days=7`).then(r => safeJson(r, [])).catch(() => []),
-            fetchWithAuth(`/api/parent/webhistory/${DEVICE_ID}?limit=50`).then(r => safeJson(r, [])).catch(() => []),
-            fetchWithAuth(`/api/parent/media/${DEVICE_ID}`).then(r => safeJson(r, [])).catch(() => []),
+            fetchWithAuth(`/api/parent/webhistory/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, [])).catch(() => []),
+            fetchWithAuth(`/api/parent/media/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, [])).catch(() => []),
             fetchWithAuth(`/api/parent/geofences/${DEVICE_ID}`).then(r => safeJson(r, [])).catch(() => []),
             fetchWithAuth(`/api/parent/restrictions/${DEVICE_ID}`).then(r => safeJson(r, [])).catch(() => []),
             fetchWithAuth(`/api/parent/schedule/${DEVICE_ID}`).then(r => safeJson(r, [])).catch(() => []),
-            fetchWithAuth(`/api/parent/social/${DEVICE_ID}?limit=100`).then(r => safeJson(r, [])).catch(() => []),
+            fetchWithAuth(`/api/parent/social/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, [])).catch(() => []),
             fetchWithAuth(`/api/parent/device/${DEVICE_ID}/chats?limit=500`).then(r => safeJson(r, [])).catch(() => [])
         ]);
 
@@ -667,6 +679,37 @@ const TAB_COUNT_SOURCES = {
     anonchat: () => cachedChats.length,
     media:    () => cachedMedia.length,
 };
+
+// ─── Date-range chips ──────────────────────────────────────────────────────
+//
+// A row of chips (Today / 7d / 30d / All) above the tabs controls the
+// time-series sections. The choice is persisted in localStorage so the
+// parent's preference sticks across reloads. Picking a chip triggers a
+// re-fetch of just the time-series endpoints (not apps/geofences/etc).
+
+const RANGE_LABELS = { today: 'Today', '7d': '7d', '30d': '30d', all: 'All' };
+
+function applyRangeChipsSelection() {
+    document.querySelectorAll('.range-chip').forEach(chip => {
+        const r = chip.dataset.range;
+        chip.classList.toggle('active', r === activeRange);
+    });
+}
+
+async function setRange(newRange) {
+    if (!RANGE_PRESETS.includes(newRange) || newRange === activeRange) return;
+    activeRange = newRange;
+    localStorage.setItem(RANGE_KEY, newRange);
+    applyRangeChipsSelection();
+    await loadAllData();
+}
+
+function setupRangeChips() {
+    applyRangeChipsSelection();
+    document.querySelectorAll('.range-chip').forEach(chip => {
+        chip.addEventListener('click', () => setRange(chip.dataset.range));
+    });
+}
 
 // Show count on each tab. Tabs whose data is missing are hidden entirely
 // (per the user request "If not show the menus then add numbers to the newly

@@ -172,16 +172,83 @@ def _resolve_or_403(device_id):
     return real_id, None
 
 
+# ─── Date-range filter helper ─────────────────────────────────────────────
+#
+# Supports two ways to filter list endpoints by date:
+#   1. ?range=<preset>   one of: today, 7d, 30d, all
+#   2. ?from=<ms>&to=<ms> explicit ms-since-epoch window
+#
+# Returns ``(from_ms, to_ms, effective_limit)`` where any field may be ``None``
+# meaning "no constraint". ``all`` (default) means no constraint and lifts the
+# default LIMIT to a much higher cap so the parent can see the entire history.
+#
+# Why ms-since-epoch? The Android device sends timestamps as ms-since-epoch
+# (SmsMessage.date, CallLog.date, ActivityReport.timestamp, etc.), so the same
+# numeric range works across every column.
+def _parse_range(default_limit: int = 50, all_time_limit: int = 10000):
+    """Parse ?range=today|7d|30d|all or ?from=&to= and return (from, to, limit)."""
+    now_ms = _now_ms()
+    rng = (request.args.get('range') or 'all').lower().strip()
+    from_ms = None
+    to_ms = None
+    limit = default_limit
+
+    if rng == 'today':
+        # Local-day start would be better, but UTC midnight is a good
+        # approximation for the dashboard. Parents will still see "today"
+        # for the same device, modulo a few hours of edge cases.
+        day_start = int(
+            datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).timestamp() * 1000
+        )
+        from_ms = day_start
+        to_ms = now_ms
+        limit = 500  # Today is small; one day of activity fits comfortably.
+    elif rng == '7d':
+        from_ms = now_ms - 7 * 24 * 60 * 60 * 1000
+        to_ms = now_ms
+        limit = 1000
+    elif rng == '30d':
+        from_ms = now_ms - 30 * 24 * 60 * 60 * 1000
+        to_ms = now_ms
+        limit = 2000
+    elif rng == 'all':
+        from_ms = None
+        to_ms = None
+        # All-time = much higher cap. The hard cap (10k) prevents a malicious
+        # or buggy client from forcing a giant scan; legitimate parents
+        # typically have <5k items per device per category.
+        limit = all_time_limit
+
+    # Explicit ?from=&to= overrides the preset.
+    raw_from = request.args.get('from', type=int)
+    raw_to = request.args.get('to', type=int)
+    if raw_from is not None:
+        from_ms = raw_from
+    if raw_to is not None:
+        to_ms = raw_to
+
+    # ?limit= always wins (caller can ask for a different cap).
+    raw_limit = request.args.get('limit', type=int)
+    if raw_limit is not None and raw_limit > 0:
+        limit = min(raw_limit, 50000)
+
+    return from_ms, to_ms, limit
+
+
 @bp.route('/parent/activity/<device_id>')
 @parent_required
 def get_device_activity(device_id):
     real_id, err = _resolve_or_403(device_id)
     if err:
         return err
-    limit = request.args.get('limit', 100, type=int)
+    from_ms, to_ms, limit = _parse_range(default_limit=100, all_time_limit=10000)
     offset = request.args.get('offset', 0, type=int)
     activity_type = request.args.get('type')
     query = ActivityReport.query.filter_by(device_id=real_id)
+    if from_ms is not None:
+        query = query.filter(ActivityReport.timestamp >= from_ms)
+    if to_ms is not None:
+        query = query.filter(ActivityReport.timestamp <= to_ms)
     if activity_type:
         query = query.filter_by(activity_type=activity_type)
     activities = query.order_by(ActivityReport.timestamp.desc()).offset(offset).limit(limit).all()
@@ -198,9 +265,13 @@ def get_device_locations(device_id):
     real_id, err = _resolve_or_403(device_id)
     if err:
         return err
-    limit = request.args.get('limit', 200, type=int)
-    locations = LocationReport.query.filter_by(device_id=real_id)\
-        .order_by(LocationReport.timestamp.desc()).limit(limit).all()
+    from_ms, to_ms, limit = _parse_range(default_limit=200, all_time_limit=10000)
+    query = LocationReport.query.filter_by(device_id=real_id)
+    if from_ms is not None:
+        query = query.filter(LocationReport.timestamp >= from_ms)
+    if to_ms is not None:
+        query = query.filter(LocationReport.timestamp <= to_ms)
+    locations = query.order_by(LocationReport.timestamp.desc()).limit(limit).all()
     return jsonify([{
         'latitude': l.latitude, 'longitude': l.longitude,
         'accuracy': l.accuracy, 'provider': l.provider, 'timestamp': l.timestamp,
@@ -213,9 +284,13 @@ def get_device_sms(device_id):
     real_id, err = _resolve_or_403(device_id)
     if err:
         return err
-    limit = request.args.get('limit', 50, type=int)
-    messages = SmsMessage.query.filter_by(device_id=real_id)\
-        .order_by(SmsMessage.date.desc()).limit(limit).all()
+    from_ms, to_ms, limit = _parse_range(default_limit=50, all_time_limit=10000)
+    query = SmsMessage.query.filter_by(device_id=real_id)
+    if from_ms is not None:
+        query = query.filter(SmsMessage.date >= from_ms)
+    if to_ms is not None:
+        query = query.filter(SmsMessage.date <= to_ms)
+    messages = query.order_by(SmsMessage.date.desc()).limit(limit).all()
     return jsonify([{
         'id': m.id, 'address': m.address, 'body': m.body,
         'date': m.date, 'type': m.type,
@@ -228,9 +303,13 @@ def get_device_calls(device_id):
     real_id, err = _resolve_or_403(device_id)
     if err:
         return err
-    limit = request.args.get('limit', 50, type=int)
-    calls = CallLog.query.filter_by(device_id=real_id)\
-        .order_by(CallLog.date.desc()).limit(limit).all()
+    from_ms, to_ms, limit = _parse_range(default_limit=50, all_time_limit=10000)
+    query = CallLog.query.filter_by(device_id=real_id)
+    if from_ms is not None:
+        query = query.filter(CallLog.date >= from_ms)
+    if to_ms is not None:
+        query = query.filter(CallLog.date <= to_ms)
+    calls = query.order_by(CallLog.date.desc()).limit(limit).all()
     return jsonify([{
         'id': c.id, 'number': c.number, 'name': c.name,
         'duration': c.duration, 'date': c.date, 'type': c.type,
@@ -243,9 +322,13 @@ def get_device_social(device_id):
     real_id, err = _resolve_or_403(device_id)
     if err:
         return err
-    limit = request.args.get('limit', 100, type=int)
-    notifications = SocialNotification.query.filter_by(device_id=real_id)\
-        .order_by(SocialNotification.timestamp.desc()).limit(limit).all()
+    from_ms, to_ms, limit = _parse_range(default_limit=100, all_time_limit=10000)
+    query = SocialNotification.query.filter_by(device_id=real_id)
+    if from_ms is not None:
+        query = query.filter(SocialNotification.timestamp >= from_ms)
+    if to_ms is not None:
+        query = query.filter(SocialNotification.timestamp <= to_ms)
+    notifications = query.order_by(SocialNotification.timestamp.desc()).limit(limit).all()
     return jsonify([{
         'id': n.id, 'package_name': n.package_name, 'app_name': n.app_name,
         'sender': n.sender, 'content': n.content, 'message_type': n.message_type,
@@ -290,9 +373,13 @@ def get_device_webhistory(device_id):
     real_id, err = _resolve_or_403(device_id)
     if err:
         return err
-    limit = request.args.get('limit', 100, type=int)
-    history = WebHistory.query.filter_by(device_id=real_id)\
-        .order_by(WebHistory.timestamp.desc()).limit(limit).all()
+    from_ms, to_ms, limit = _parse_range(default_limit=100, all_time_limit=10000)
+    query = WebHistory.query.filter_by(device_id=real_id)
+    if from_ms is not None:
+        query = query.filter(WebHistory.timestamp >= from_ms)
+    if to_ms is not None:
+        query = query.filter(WebHistory.timestamp <= to_ms)
+    history = query.order_by(WebHistory.timestamp.desc()).limit(limit).all()
     return jsonify([{
         'url': h.url, 'title': h.title, 'browser': h.browser,
         'visit_count': h.visit_count, 'timestamp': h.timestamp,
@@ -305,9 +392,13 @@ def get_device_media(device_id):
     real_id, err = _resolve_or_403(device_id)
     if err:
         return err
-    limit = request.args.get('limit', 50, type=int)
+    from_ms, to_ms, limit = _parse_range(default_limit=50, all_time_limit=10000)
     media_type = request.args.get('type')
     query = MediaFile.query.filter_by(device_id=real_id)
+    if from_ms is not None:
+        query = query.filter(MediaFile.timestamp >= from_ms)
+    if to_ms is not None:
+        query = query.filter(MediaFile.timestamp <= to_ms)
     if media_type:
         query = query.filter_by(media_type=media_type)
     media = query.order_by(MediaFile.timestamp.desc()).limit(limit).all()

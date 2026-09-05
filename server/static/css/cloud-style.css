@@ -248,6 +248,47 @@ body {
     color: rgba(255,255,255,0.35);
 }
 
+/* ─── Range chips (Today / 7d / 30d / All) ─── */
+.card-header-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+.range-chips {
+    display: inline-flex;
+    gap: 4px;
+    background: rgba(255,255,255,0.04);
+    padding: 4px;
+    border-radius: 8px;
+    flex-wrap: wrap;
+}
+.range-chip {
+    padding: 5px 12px;
+    border: none;
+    background: transparent;
+    border-radius: 6px;
+    font-size: 11px;
+    color: rgba(255,255,255,0.55);
+    cursor: pointer;
+    transition: all 0.18s;
+    font-family: inherit;
+    font-weight: 500;
+    white-space: nowrap;
+}
+.range-chip:hover {
+    color: white;
+    background: rgba(255,255,255,0.06);
+}
+.range-chip.active {
+    background: #6366f1;
+    color: white;
+}
+@media (max-width: 720px) {
+    .card-header-right { width: 100%; justify-content: flex-start; }
+}
+
 /* ─── Badge ─── */
 .badge {
     padding: 4px 10px;

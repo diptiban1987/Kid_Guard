@@ -15,7 +15,7 @@ from ..models import (
     User, ChildRelation, Device, LocationReport, ActivityReport, BatteryReport,
     ScreenTimeReport, SmsMessage, CallLog, InstalledApp, MediaFile, WebHistory,
     Geofence, GeofenceEvent, RemoteCommand, AppRestriction, ScheduleRule,
-    SocialNotification,
+    SocialNotification, ChatMessage,
 )
 from ..extensions import live_call_state, live_audio_streams, live_command_results, live_mic_chunks
 from ..security import (
@@ -406,6 +406,286 @@ def get_device_media(device_id):
         'id': m.id, 'media_type': m.media_type, 'file_size': m.file_size,
         'mime_type': m.mime_type, 'timestamp': m.timestamp,
     } for m in media])
+
+
+# ─── Storage capacity + delete-by-date-range ─────────────────────────────
+#
+# Two endpoints:
+#   GET  /api/parent/storage/<device_id>
+#     -> { db_bytes, firebase_bytes, sections: [{key,label,count,bytes}], earliest, latest }
+#   POST /api/parent/storage/<device_id>/delete
+#     -> body { from_ms, to_ms, sections: ['all'|<key>...]}
+#     -> { deleted: { <key>: count } }
+#
+# Size estimates:
+#   * DB size: row count × per-row constant (varies by table). Good enough
+#     for the dashboard — exact pg_total_relation_size is only meaningful on
+#     Postgres and isn't worth the SQL-noise for a UI meter.
+#   * "Firebase" size: sum of media_files.file_size for the device. The
+#     device uploaded the actual bytes to Firebase Storage; we record the
+#     size in the row so the parent can see the true storage cost.
+
+# Approximate bytes per row, calibrated against a representative
+# production row (covers Postgres + JSON columns + indexes). The numbers
+# are conservative over-estimates so the meter never under-reports.
+_DB_ROW_BYTES = {
+    'activity':  600,    # activity_type + package_name + app_name + data(json)
+    'locations': 80,     # lat/lon/accuracy/provider/timestamp
+    'sms':       350,    # address + body(text) + date + type
+    'calls':     180,    # number + name + duration + date + type
+    'web':       400,    # url(text) + title + browser + counts + ts
+    'social':    500,    # package + app + sender + content + msg_type
+    'chats':     450,    # chat_id + 2 senders + content(text) + image_url + ts
+    'restrictions': 200,
+    'schedule':  150,
+    'geofences': 250,
+    'apps':      180,    # package + name + version
+    'screentime': 2000,  # per-day row with app_usage json map
+    'battery':   60,     # tiny
+}
+
+_SECTION_LABELS = {
+    'activity':   'Activity',
+    'locations':  'Locations',
+    'sms':        'SMS',
+    'calls':      'Calls',
+    'web':        'Web History',
+    'media':      'Media (Firebase)',
+    'social':     'Social',
+    'chats':      'AnonChat',
+    'restrictions': 'Restrictions',
+    'schedule':   'Schedule',
+    'geofences':  'Geofences',
+    'apps':       'Apps',
+    'screentime': 'Screen time',
+    'battery':    'Battery',
+}
+
+# Map section key -> (model, timestamp-or-date-column-name).
+# Used by both the stats endpoint (count + bytes) and the delete endpoint
+# (build the date filter).
+_SECTION_MODELS = {
+    'activity':   (ActivityReport, 'timestamp'),
+    'locations':  (LocationReport, 'timestamp'),
+    'sms':        (SmsMessage, 'date'),
+    'calls':      (CallLog, 'date'),
+    'web':        (WebHistory, 'timestamp'),
+    'media':      (MediaFile, 'timestamp'),
+    'social':     (SocialNotification, 'timestamp'),
+    'chats':      (ChatMessage, 'timestamp'),
+    'restrictions': (AppRestriction, 'id'),     # not a time series; by id only
+    'schedule':   (ScheduleRule, 'id'),
+    'geofences':  (Geofence, 'created_at'),
+    'apps':       (InstalledApp, 'id'),
+    'screentime': (ScreenTimeReport, 'date'),
+    'battery':    (BatteryReport, 'received_at'),
+}
+
+
+@bp.route('/parent/storage/<device_id>')
+@parent_required
+def get_device_storage(device_id):
+    real_id, err = _resolve_or_403(device_id)
+    if err:
+        return err
+
+    # ChatMessage has no device_id column — it's scoped to a user via
+    # sender_id / recipient_id. We need the device's owning user_id to
+    # build a filter for the chats section.
+    chats_user_id = None
+    try:
+        dev = Device.query.filter_by(device_id=real_id).first()
+        if dev:
+            chats_user_id = dev.user_id
+    except Exception:
+        pass
+
+    sections = []
+    db_total = 0
+    firebase_total = 0
+    earliest = None
+    latest = None
+
+    for key, (model, ts_col) in _SECTION_MODELS.items():
+        try:
+            if key == 'chats':
+                # No device_id on ChatMessage — scope by owning user.
+                if not chats_user_id:
+                    count = 0
+                else:
+                    count = ChatMessage.query.filter(
+                        db.or_(
+                            ChatMessage.sender_id == chats_user_id,
+                            ChatMessage.recipient_id == chats_user_id,
+                            ChatMessage.chat_id.ilike(f'%{chats_user_id}%'),
+                        )
+                    ).count()
+            else:
+                count = model.query.filter_by(device_id=real_id).count()
+        except Exception:
+            count = 0
+
+        # For media, firebase_bytes = SUM(file_size) and the row-count
+        # estimate uses file_size, not the per-row average (because
+        # media_bytes dwarfs the metadata).
+        if key == 'media':
+            try:
+                size_sum = db.session.query(db.func.coalesce(db.func.sum(MediaFile.file_size), 0))\
+                    .filter(MediaFile.device_id == real_id).scalar() or 0
+            except Exception:
+                size_sum = 0
+            firebase_total += int(size_sum)
+            section_bytes = int(size_sum)
+        else:
+            section_bytes = count * _DB_ROW_BYTES.get(key, 200)
+            db_total += section_bytes
+
+        # Earliest / latest from this section.
+        if count > 0 and ts_col in ('timestamp', 'date', 'received_at', 'created_at'):
+            col = getattr(model, ts_col, None)
+            if col is not None:
+                try:
+                    if key == 'chats':
+                        if not chats_user_id:
+                            mn = mx = None
+                        else:
+                            mn = db.session.query(db.func.min(col)).filter(
+                                db.or_(
+                                    ChatMessage.sender_id == chats_user_id,
+                                    ChatMessage.recipient_id == chats_user_id,
+                                    ChatMessage.chat_id.ilike(f'%{chats_user_id}%'),
+                                )).scalar()
+                            mx = db.session.query(db.func.max(col)).filter(
+                                db.or_(
+                                    ChatMessage.sender_id == chats_user_id,
+                                    ChatMessage.recipient_id == chats_user_id,
+                                    ChatMessage.chat_id.ilike(f'%{chats_user_id}%'),
+                                )).scalar()
+                    else:
+                        mn = db.session.query(db.func.min(col)).filter(model.device_id == real_id).scalar()
+                        mx = db.session.query(db.func.max(col)).filter(model.device_id == real_id).scalar()
+                    if mn is not None:
+                        earliest = mn if earliest is None else min(earliest, mn)
+                    if mx is not None:
+                        latest = mx if latest is None else max(latest, mx)
+                except Exception:
+                    pass
+
+        sections.append({
+            'key': key,
+            'label': _SECTION_LABELS.get(key, key.title()),
+            'count': count,
+            'bytes': section_bytes,
+        })
+
+    # Sort biggest first so the meter is meaningful at a glance.
+    sections.sort(key=lambda s: s['bytes'], reverse=True)
+
+    return jsonify({
+        'db_bytes': db_total,
+        'firebase_bytes': firebase_total,
+        'total_bytes': db_total + firebase_total,
+        'sections': sections,
+        'earliest': earliest,
+        'latest': latest,
+    })
+
+
+@bp.route('/parent/storage/<device_id>/delete', methods=['POST'])
+@parent_required
+def delete_device_storage(device_id):
+    real_id, err = _resolve_or_403(device_id)
+    if err:
+        return err
+
+    body = request.get_json(silent=True) or {}
+    from_ms = body.get('from_ms')
+    to_ms = body.get('to_ms')
+    raw_sections = body.get('sections') or ['all']
+    dry_run = bool(body.get('dry_run'))
+
+    if from_ms is not None and not isinstance(from_ms, int):
+        return jsonify({'error': 'from_ms must be ms epoch'}), 400
+    if to_ms is not None and not isinstance(to_ms, int):
+        return jsonify({'error': 'to_ms must be ms epoch'}), 400
+    if from_ms is not None and to_ms is not None and from_ms > to_ms:
+        return jsonify({'error': 'from_ms must be <= to_ms'}), 400
+
+    # Validate every requested section exists; reject unknown keys.
+    unknown = [s for s in raw_sections if s not in ('all',) and s not in _SECTION_MODELS]
+    if unknown:
+        return jsonify({'error': f'unknown sections: {unknown}'}), 400
+
+    # Resolve 'all' to every section that has a time-series column.
+    if 'all' in raw_sections:
+        target_sections = [k for k, (_, col) in _SECTION_MODELS.items()
+                           if col in ('timestamp', 'date', 'received_at', 'created_at')]
+    else:
+        target_sections = [s for s in raw_sections if s in _SECTION_MODELS]
+
+    # Chats aren't keyed on device_id — they live on the user.
+    chats_user_id = None
+    if 'chats' in target_sections:
+        try:
+            dev = Device.query.filter_by(device_id=real_id).first()
+            chats_user_id = dev.user_id if dev else None
+        except Exception:
+            chats_user_id = None
+
+    deleted = {}
+    would_delete = {}
+
+    for key in target_sections:
+        model, ts_col = _SECTION_MODELS[key]
+        if ts_col not in ('timestamp', 'date', 'received_at', 'created_at'):
+            # Non-time-series sections (apps, geofences, restrictions, schedule)
+            # aren't eligible for date-range delete; skip silently.
+            continue
+
+        if key == 'chats':
+            if not chats_user_id:
+                would_delete[key] = 0
+                continue
+            col = getattr(model, ts_col)
+            query = ChatMessage.query.filter(
+                db.or_(
+                    ChatMessage.sender_id == chats_user_id,
+                    ChatMessage.recipient_id == chats_user_id,
+                    ChatMessage.chat_id.ilike(f'%{chats_user_id}%'),
+                )
+            )
+        else:
+            col = getattr(model, ts_col)
+            query = model.query.filter(model.device_id == real_id)
+
+        if from_ms is not None:
+            query = query.filter(col >= from_ms)
+        if to_ms is not None:
+            query = query.filter(col <= to_ms)
+        count = query.count()
+        would_delete[key] = count
+        if not dry_run and count > 0:
+            query.delete(synchronize_session=False)
+            deleted[key] = count
+
+    if not dry_run:
+        try:
+            db.session.commit()
+            audit_log(_caller_id(), 'storage_delete', target_type='device', target_id=real_id,
+                      metadata={'from_ms': from_ms, 'to_ms': to_ms,
+                                'sections': target_sections, 'deleted': deleted})
+        except Exception as e:
+            db.session.rollback()
+            current_app.logger.exception('storage_delete commit failed')
+            return jsonify({'error': 'delete failed', 'detail': str(e)}), 500
+
+    return jsonify({
+        'dry_run': dry_run,
+        'from_ms': from_ms,
+        'to_ms': to_ms,
+        'would_delete': would_delete,
+        'deleted': deleted,
+    })
 
 
 # ─── Geofences ───────────────────────────────────────────────────────────

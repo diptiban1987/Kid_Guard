@@ -6,7 +6,7 @@
     <title>KidGuard - Device Detail</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet-mouseposition@1.2.0/dist/L.Control.MousePosition.css" />
-    <link rel="stylesheet" href="/static/css/cloud-style.css?v=2">
+    <link rel="stylesheet" href="/static/css/cloud-style.css?v=3">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Socket.IO removed: PythonAnywhere WSGI does not support WebSockets.
          Call-state updates are handled by HTTP polling (checkCallState). -->
@@ -1076,6 +1076,89 @@
                     <span id="metaLastSeen">Last seen: —</span>
                 </div>
             </div>
+            <!-- Storage capacity: opens the storage modal -->
+            <button type="button" class="storage-btn" id="openStorageBtn" title="View and manage storage used by this device">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <ellipse cx="12" cy="6" rx="8" ry="3" stroke="currentColor" stroke-width="2"/>
+                    <path d="M4 6v6c0 1.66 3.58 3 8 3s8-1.34 8-3V6" stroke="currentColor" stroke-width="2"/>
+                    <path d="M4 12v6c0 1.66 3.58 3 8 3s8-1.34 8-3v-6" stroke="currentColor" stroke-width="2"/>
+                </svg>
+                <span>Storage</span>
+            </button>
+        </div>
+
+        <!-- Storage Modal -->
+        <div class="storage-modal-overlay" id="storageModal" hidden>
+            <div class="storage-modal" role="dialog" aria-modal="true" aria-labelledby="storageModalTitle">
+                <button type="button" class="storage-modal-close" id="storageModalClose" aria-label="Close">&times;</button>
+                <h2 id="storageModalTitle">Storage capacity</h2>
+                <p class="storage-modal-sub">How much of your database + Firebase Storage is used by this device, and which records you can delete to free up space.</p>
+
+                <div class="storage-summary">
+                    <div class="storage-summary-row">
+                        <span class="storage-summary-label">Total</span>
+                        <span class="storage-summary-value" id="storageTotal">—</span>
+                    </div>
+                    <div class="storage-summary-row">
+                        <span class="storage-summary-label">Database</span>
+                        <span class="storage-summary-value" id="storageDb">—</span>
+                    </div>
+                    <div class="storage-summary-row">
+                        <span class="storage-summary-label">Firebase Storage (media)</span>
+                        <span class="storage-summary-value" id="storageFirebase">—</span>
+                    </div>
+                    <div class="storage-summary-row" id="storageRangeRow" hidden>
+                        <span class="storage-summary-label">Records in selected range</span>
+                        <span class="storage-summary-value" id="storageRange">—</span>
+                    </div>
+                </div>
+
+                <h3 class="storage-section-title">By section</h3>
+                <div class="storage-section-list" id="storageSectionList">
+                    <div class="storage-loading">Loading…</div>
+                </div>
+
+                <h3 class="storage-section-title">Delete records</h3>
+                <form class="storage-form" id="storageDeleteForm">
+                    <div class="storage-form-row">
+                        <label>
+                            From
+                            <input type="date" id="storageFrom" required>
+                        </label>
+                        <label>
+                            To
+                            <input type="date" id="storageTo" required>
+                        </label>
+                    </div>
+                    <div class="storage-form-actions">
+                        <button type="button" class="storage-secondary-btn" id="storageOlder30Btn">Delete everything older than 30 days</button>
+                    </div>
+                    <div class="storage-sections-grid" id="storageSectionsGrid">
+                        <!-- section checkboxes injected by JS -->
+                    </div>
+                    <div class="storage-form-footer">
+                        <button type="button" class="storage-secondary-btn" id="storageClearAllBtn">Uncheck all</button>
+                        <button type="submit" class="storage-danger-btn" id="storageApplyBtn">Delete selected</button>
+                    </div>
+                </form>
+
+                <p class="storage-footnote">Deleting is permanent. The child device re-uploads fresh data on its next sync, but the prior history is gone for good.</p>
+            </div>
+        </div>
+
+        <!-- Storage confirm sub-modal (shown after the user clicks Delete selected) -->
+        <div class="storage-modal-overlay storage-confirm-overlay" id="storageConfirm" hidden>
+            <div class="storage-modal storage-confirm" role="dialog" aria-modal="true" aria-labelledby="storageConfirmTitle">
+                <button type="button" class="storage-modal-close" id="storageConfirmClose" aria-label="Close">&times;</button>
+                <h2 id="storageConfirmTitle">Are you sure?</h2>
+                <p class="storage-confirm-text" id="storageConfirmText">This will permanently delete the selected records.</p>
+                <p class="storage-confirm-hint">Type the device name <strong id="storageConfirmName">…</strong> to confirm.</p>
+                <input type="text" id="storageConfirmInput" class="storage-confirm-input" placeholder="Device name" autocomplete="off">
+                <div class="storage-form-footer">
+                    <button type="button" class="storage-secondary-btn" id="storageConfirmCancel">Cancel</button>
+                    <button type="button" class="storage-danger-btn" id="storageConfirmApply" disabled>Delete permanently</button>
+                </div>
+            </div>
         </div>
 
         <!-- Stats Row -->
@@ -1487,7 +1570,7 @@
     </script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/leaflet-mouseposition@1.2.0/dist/L.Control.MousePosition.js"></script>
-    <script src="/static/js/device-detail.js?v=6"></script>
+    <script src="/static/js/device-detail.js?v=7"></script>
     <script>
         // ─── Call State + Audio Streaming ────────────────────────────
         let callStateInterval = null;

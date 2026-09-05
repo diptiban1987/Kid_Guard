@@ -47,6 +47,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadAllData();
     setupTabs();
     setupRangeChips();
+    setupStorage();
     startAutoRefresh();
 });
 
@@ -1349,6 +1350,349 @@ function escHtml(str) {
 function escAttr(str) {
     if (!str) return '';
     return String(str).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// ─── Storage capacity modal ───────────────────────────────────────────────
+//
+// Lets the parent see how much of the database + Firebase Storage the
+// device is using, and delete records by date range or "older than 30 days"
+// to free up space. Backed by two endpoints on the server:
+//   GET  /api/parent/storage/<id>
+//   POST /api/parent/storage/<id>/delete
+//
+// UX notes:
+//  - One summary card with total / db / firebase bytes (human-readable).
+//  - A bar per section (Activity, Locations, …) sorted biggest first.
+//  - A delete form with from/to date inputs, per-section checkboxes,
+//    a quick "older than 30 days" action, and a confirm sub-modal where
+//    the parent has to type the device name to proceed.
+
+const STORAGE_DELETEABLE = [
+    // Only sections that support date-range delete. Order = display order.
+    { key: 'activity',  label: 'Activity' },
+    { key: 'locations', label: 'Locations' },
+    { key: 'sms',       label: 'SMS' },
+    { key: 'calls',     label: 'Calls' },
+    { key: 'web',       label: 'Web history' },
+    { key: 'media',     label: 'Media (Firebase)' },
+    { key: 'social',    label: 'Social' },
+    { key: 'chats',     label: 'AnonChat' },
+];
+let storageStats = null;   // last fetched GET response
+let storagePendingSections = [];   // what the parent is about to delete
+
+function humanBytes(n) {
+    n = Number(n) || 0;
+    if (n < 1024) return `${n} B`;
+    const units = ['KB', 'MB', 'GB', 'TB'];
+    let i = -1;
+    let v = n;
+    do { v /= 1024; i++; } while (v >= 1024 && i < units.length - 1);
+    return `${v.toFixed(v < 10 ? 2 : v < 100 ? 1 : 0)} ${units[i]}`;
+}
+
+function dateInputValue(ms) {
+    if (!ms) return '';
+    const d = new Date(ms);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+}
+
+function dateInputToMsStart(value) {
+    // YYYY-MM-DD -> ms epoch at local midnight (start of day)
+    if (!value) return null;
+    const [y, m, d] = value.split('-').map(Number);
+    return new Date(y, m - 1, d, 0, 0, 0, 0).getTime();
+}
+function dateInputToMsEnd(value) {
+    if (!value) return null;
+    const [y, m, d] = value.split('-').map(Number);
+    return new Date(y, m - 1, d, 23, 59, 59, 999).getTime();
+}
+
+function setupStorage() {
+    const openBtn = document.getElementById('openStorageBtn');
+    if (!openBtn) return;
+    openBtn.addEventListener('click', openStorageModal);
+
+    const closeBtn = document.getElementById('storageModalClose');
+    if (closeBtn) closeBtn.addEventListener('click', closeStorageModal);
+
+    const overlay = document.getElementById('storageModal');
+    if (overlay) {
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) closeStorageModal();
+        });
+    }
+
+    const confirmClose = document.getElementById('storageConfirmClose');
+    if (confirmClose) confirmClose.addEventListener('click', closeStorageConfirm);
+
+    const confirmCancel = document.getElementById('storageConfirmCancel');
+    if (confirmCancel) confirmCancel.addEventListener('click', closeStorageConfirm);
+
+    const confirmInput = document.getElementById('storageConfirmInput');
+    if (confirmInput) {
+        confirmInput.addEventListener('input', () => {
+            const target = document.getElementById('storageConfirmApply');
+            const expected = (document.getElementById('storageConfirmName')?.textContent || '').trim();
+            target.disabled = confirmInput.value.trim() !== expected;
+        });
+    }
+
+    const confirmApply = document.getElementById('storageConfirmApply');
+    if (confirmApply) confirmApply.addEventListener('click', applyStorageDelete);
+
+    const older30 = document.getElementById('storageOlder30Btn');
+    if (older30) older30.addEventListener('click', applyStorageOlder30);
+
+    const clearAll = document.getElementById('storageClearAllBtn');
+    if (clearAll) clearAll.addEventListener('click', () => {
+        document.querySelectorAll('#storageSectionsGrid input[type=checkbox]').forEach(cb => {
+            cb.checked = false;
+        });
+    });
+
+    const form = document.getElementById('storageDeleteForm');
+    if (form) {
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            requestStorageDelete();
+        });
+    }
+
+    // Escape closes either modal.
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            const confirm = document.getElementById('storageConfirm');
+            if (confirm && !confirm.hidden) closeStorageConfirm();
+            else {
+                const m = document.getElementById('storageModal');
+                if (m && !m.hidden) closeStorageModal();
+            }
+        }
+    });
+}
+
+async function openStorageModal() {
+    const modal = document.getElementById('storageModal');
+    modal.hidden = false;
+    // Default: the last 30 days, no lower bound, so the parent can
+    // quickly "Delete everything older than 30 days" without picking dates.
+    const fromEl = document.getElementById('storageFrom');
+    const toEl = document.getElementById('storageTo');
+    const today = new Date();
+    const thirtyAgo = new Date();
+    thirtyAgo.setDate(today.getDate() - 30);
+    if (fromEl && !fromEl.value) fromEl.value = dateInputValue(thirtyAgo.getTime());
+    if (toEl && !toEl.value) toEl.value = dateInputValue(today.getTime());
+    await refreshStorageStats();
+}
+
+function closeStorageModal() {
+    const modal = document.getElementById('storageModal');
+    if (modal) modal.hidden = true;
+}
+
+async function refreshStorageStats() {
+    const list = document.getElementById('storageSectionList');
+    if (list) list.innerHTML = '<div class="storage-loading">Loading…</div>';
+
+    try {
+        const res = await fetchWithAuth(`/api/parent/storage/${DEVICE_ID}`);
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || `HTTP ${res.status}`);
+        }
+        storageStats = await res.json();
+        renderStorageStats(storageStats);
+    } catch (e) {
+        console.error('storage stats failed', e);
+        if (list) list.innerHTML = `<div class="storage-error">Could not load storage: ${escHtml(e.message)}</div>`;
+        document.getElementById('storageTotal').textContent = '—';
+        document.getElementById('storageDb').textContent = '—';
+        document.getElementById('storageFirebase').textContent = '—';
+    }
+}
+
+function renderStorageStats(stats) {
+    document.getElementById('storageTotal').textContent = humanBytes(stats.total_bytes);
+    document.getElementById('storageDb').textContent = humanBytes(stats.db_bytes);
+    document.getElementById('storageFirebase').textContent = humanBytes(stats.firebase_bytes);
+
+    const rangeRow = document.getElementById('storageRangeRow');
+    if (rangeRow) rangeRow.hidden = true;
+
+    // Section list with bars
+    const list = document.getElementById('storageSectionList');
+    const totalForBar = Math.max(1, stats.total_bytes);
+    list.innerHTML = '';
+    const visible = stats.sections.filter(s => s.count > 0);
+    if (visible.length === 0) {
+        list.innerHTML = '<div class="storage-empty">No records yet — nothing to show.</div>';
+    } else {
+        for (const s of visible) {
+            const pct = Math.max(2, Math.round((s.bytes / totalForBar) * 100));
+            const row = document.createElement('div');
+            row.className = 'storage-section-row';
+            row.innerHTML = `
+                <div class="storage-section-label">
+                    <span>${escHtml(s.label)}</span>
+                    <span class="storage-section-count">${s.count.toLocaleString()}</span>
+                </div>
+                <div class="storage-bar">
+                    <div class="storage-bar-fill" style="width:${pct}%;"></div>
+                </div>
+                <div class="storage-section-bytes">${humanBytes(s.bytes)}</div>
+            `;
+            list.appendChild(row);
+        }
+    }
+
+    // Delete form: rebuild section checkboxes
+    const grid = document.getElementById('storageSectionsGrid');
+    grid.innerHTML = '';
+    for (const sec of STORAGE_DELETEABLE) {
+        const hasRows = (stats.sections.find(s => s.key === sec.key)?.count || 0) > 0;
+        const wrap = document.createElement('label');
+        wrap.className = 'storage-section-toggle';
+        wrap.innerHTML = `
+            <input type="checkbox" value="${escAttr(sec.key)}" ${hasRows ? '' : 'disabled'}>
+            <span>${escHtml(sec.label)}</span>
+        `;
+        grid.appendChild(wrap);
+    }
+}
+
+function getSelectedSections() {
+    const checked = Array.from(document.querySelectorAll('#storageSectionsGrid input[type=checkbox]:checked'))
+        .map(cb => cb.value);
+    return checked;
+}
+
+async function requestStorageDelete() {
+    const fromEl = document.getElementById('storageFrom');
+    const toEl = document.getElementById('storageTo');
+    const sections = getSelectedSections();
+    if (sections.length === 0) {
+        showToast('Pick a section', 'Tick at least one section to delete.');
+        return;
+    }
+    const from_ms = dateInputToMsStart(fromEl.value);
+    const to_ms = dateInputToMsEnd(toEl.value);
+    if (from_ms !== null && to_ms !== null && from_ms > to_ms) {
+        showToast('Bad range', '"From" must be on or before "To".');
+        return;
+    }
+    storagePendingSections = sections;
+
+    // First: ask the server how many rows this would affect (dry-run),
+    // so the confirm modal can show a meaningful summary. Then show the
+    // confirm modal where the parent must type the device name.
+    try {
+        const res = await fetchWithAuth(`/api/parent/storage/${DEVICE_ID}/delete`, {
+            method: 'POST',
+            body: JSON.stringify({
+                sections, from_ms, to_ms, dry_run: true,
+            }),
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || `HTTP ${res.status}`);
+        }
+        const dry = await res.json();
+        const totalWould = Object.values(dry.would_delete || {}).reduce((a, b) => a + b, 0);
+        if (totalWould === 0) {
+            showToast('Nothing to delete', 'No records match this date range + section combination.');
+            return;
+        }
+        openStorageConfirm(dry.would_delete, totalWould);
+    } catch (e) {
+        console.error('storage dry-run failed', e);
+        showToast('Error', e.message || 'Could not start delete');
+    }
+}
+
+function openStorageConfirm(wouldDelete, totalWould) {
+    const devName = (document.getElementById('deviceName')?.textContent || '').trim() || 'this device';
+    const list = STORAGE_DELETEABLE
+        .filter(s => (wouldDelete[s.key] || 0) > 0)
+        .map(s => `${escHtml(s.label)}: <strong>${wouldDelete[s.key].toLocaleString()}</strong>`)
+        .join('<br>');
+    document.getElementById('storageConfirmText').innerHTML =
+        `You are about to permanently delete <strong>${totalWould.toLocaleString()}</strong> record(s) from <strong>${escHtml(devName)}</strong>:<br><br>${list || '<em>None</em>'}`;
+    document.getElementById('storageConfirmName').textContent = devName;
+    const input = document.getElementById('storageConfirmInput');
+    input.value = '';
+    const apply = document.getElementById('storageConfirmApply');
+    apply.disabled = true;
+    document.getElementById('storageConfirm').hidden = false;
+    setTimeout(() => input.focus(), 50);
+}
+
+function closeStorageConfirm() {
+    const c = document.getElementById('storageConfirm');
+    if (c) c.hidden = true;
+}
+
+async function applyStorageDelete() {
+    const apply = document.getElementById('storageConfirmApply');
+    const cancel = document.getElementById('storageConfirmCancel');
+    apply.disabled = true;
+    cancel.disabled = true;
+    apply.textContent = 'Deleting…';
+
+    const fromEl = document.getElementById('storageFrom');
+    const toEl = document.getElementById('storageTo');
+    const from_ms = dateInputToMsStart(fromEl.value);
+    const to_ms = dateInputToMsEnd(toEl.value);
+    const sections = storagePendingSections;
+
+    try {
+        const res = await fetchWithAuth(`/api/parent/storage/${DEVICE_ID}/delete`, {
+            method: 'POST',
+            body: JSON.stringify({ sections, from_ms, to_ms, dry_run: false }),
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || `HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        const total = Object.values(data.deleted || {}).reduce((a, b) => a + b, 0);
+        closeStorageConfirm();
+        showToast('Records deleted', `${total.toLocaleString()} record(s) removed.`);
+        // Refresh the page data so every tab reflects the new counts.
+        await Promise.all([
+            refreshStorageStats(),
+            loadAllData(),
+        ]);
+    } catch (e) {
+        console.error('storage delete failed', e);
+        showToast('Error', e.message || 'Delete failed');
+    } finally {
+        apply.disabled = false;
+        cancel.disabled = false;
+        apply.textContent = 'Delete permanently';
+    }
+}
+
+async function applyStorageOlder30() {
+    const today = new Date();
+    const thirtyAgo = new Date();
+    thirtyAgo.setDate(today.getDate() - 30);
+    // Older-than-30-days: from = epoch 0, to = 30 days ago (inclusive end-of-day)
+    document.getElementById('storageFrom').value = '1970-01-01';
+    document.getElementById('storageTo').value = dateInputValue(thirtyAgo.getTime());
+    // Tick all sections with data.
+    if (storageStats) {
+        const has = new Set(storageStats.sections.filter(s => s.count > 0).map(s => s.key));
+        document.querySelectorAll('#storageSectionsGrid input[type=checkbox]').forEach(cb => {
+            cb.checked = has.has(cb.value);
+        });
+    }
+    showToast('Ready', 'Click "Delete selected" to confirm the older-than-30-days purge.');
 }
 
 // ─── Delete Device ────────────────────────────────────────────────────────

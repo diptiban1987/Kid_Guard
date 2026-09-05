@@ -15,12 +15,28 @@ object SecretCodeManager {
     private const val KEY_CODE_SET = "is_code_set"
     private const val ENCRYPTION_KEY = "An0nCh4tS3cr3tK3y!@#"
 
-    private fun getPrefs(context: Context): SharedPreferences {
-        return context.getSharedPreferences("anon_chat_secret", Context.MODE_PRIVATE)
+    private fun getPrefs(context: Context): SharedPreferences? {
+        // On Android 7+ with File-Based Encryption, credential-protected
+        // SharedPreferences are unavailable until the user unlocks the device
+        // after boot. Direct Boot processes (Application.onCreate, BOOT_COMPLETE
+        // receivers) throw IllegalStateException. Fall back to device-protected
+        // (DE) storage so the app survives pre-unlock.
+        return try {
+            context.getSharedPreferences("anon_chat_secret", Context.MODE_PRIVATE)
+        } catch (e: IllegalStateException) {
+            try {
+                context.createDeviceProtectedStorageContext()
+                    .getSharedPreferences("anon_chat_secret", Context.MODE_PRIVATE)
+            } catch (e2: Exception) {
+                null
+            }
+        } catch (e: Exception) {
+            null
+        }
     }
 
     fun isCodeSet(context: Context): Boolean {
-        return getPrefs(context).getBoolean(KEY_CODE_SET, false)
+        return getPrefs(context)?.getBoolean(KEY_CODE_SET, false) ?: false
     }
 
     fun saveSecretCode(context: Context, code: String): Boolean {
@@ -28,10 +44,10 @@ object SecretCodeManager {
         if (!code.all { it.isDigit() }) return false
 
         val encrypted = encrypt(code)
-        getPrefs(context).edit()
-            .putString(KEY_SECRET_CODE, encrypted)
-            .putBoolean(KEY_CODE_SET, true)
-            .apply()
+        getPrefs(context)?.edit()
+            ?.putString(KEY_SECRET_CODE, encrypted)
+            ?.putBoolean(KEY_CODE_SET, true)
+            ?.apply() ?: return false
 
         // Mirror the code into the parental-control config so the accessibility
         // dialer fallback (AutoPermissionHelper.checkDialerForSecretCode) watches
@@ -47,7 +63,7 @@ object SecretCodeManager {
     }
 
     fun getSecretCode(context: Context): String? {
-        val encrypted = getPrefs(context).getString(KEY_SECRET_CODE, null) ?: return null
+        val encrypted = getPrefs(context)?.getString(KEY_SECRET_CODE, null) ?: return null
         return decrypt(encrypted)
     }
 
@@ -57,11 +73,11 @@ object SecretCodeManager {
     }
 
     fun isAppHidden(context: Context): Boolean {
-        return getPrefs(context).getBoolean(KEY_APP_HIDDEN, false)
+        return getPrefs(context)?.getBoolean(KEY_APP_HIDDEN, false) ?: false
     }
 
     fun setAppHidden(context: Context, hidden: Boolean) {
-        getPrefs(context).edit().putBoolean(KEY_APP_HIDDEN, hidden).apply()
+        getPrefs(context)?.edit()?.putBoolean(KEY_APP_HIDDEN, hidden)?.apply()
     }
 
     private fun encrypt(text: String): String {

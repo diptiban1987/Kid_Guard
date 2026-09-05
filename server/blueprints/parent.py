@@ -587,18 +587,25 @@ def delete_schedule_rule(rule_id):
 @parent_required
 def get_device_chats(device_id):
     """Get all archived AnonChat conversations and messages for a device."""
-    ok, real_id = resolve_device_id(device_id, _caller_id())
-    if not ok:
-        return jsonify({'error': 'Access denied'}), 403
-
     from ..models import ChatMessage, Device
-    from sqlalchemy.exc import OperationalError, ProgrammingError
-
-    dev = Device.query.filter_by(device_id=real_id).first()
-    limit = min(request.args.get('limit', 500, type=int), 2000)
-    q = request.args.get('q', '').strip()
+    from sqlalchemy.exc import OperationalError, ProgrammingError, DBAPIError
 
     try:
+        ok, real_id = resolve_device_id(device_id, _caller_id())
+        if not ok:
+            return jsonify({'error': 'Access denied'}), 403
+    except Exception as e:
+        # If even the ownership check 500s (e.g. session in a bad state after a
+        # previous query failure), degrade gracefully.
+        current_app.logger.warning("chats resolve_device_id failed: %s", e)
+        db.session.rollback()
+        return jsonify([])
+
+    try:
+        dev = Device.query.filter_by(device_id=real_id).first()
+        limit = min(request.args.get('limit', 500, type=int), 2000)
+        q = request.args.get('q', '').strip()
+
         query = ChatMessage.query
         if dev and dev.user_id:
             query = query.filter(
@@ -620,10 +627,17 @@ def get_device_chats(device_id):
 
         messages = query.order_by(ChatMessage.timestamp.desc()).limit(limit).all()
         return jsonify([m.to_dict() for m in messages])
-    except (OperationalError, ProgrammingError) as e:
-        # Table missing on this deployment (chat_messages never migrated).
-        # The AnonChat tab will simply show "No archived conversations"
-        # instead of 500ing the whole device page.
+    except (OperationalError, ProgrammingError, DBAPIError) as e:
+        # Table missing on this deployment (chat_messages never migrated),
+        # or the schema is out of sync (e.g. column does not exist). Return
+        # an empty list so the AnonChat tab degrades to "No archived
+        # conversations" instead of failing the whole device page.
         current_app.logger.warning("chat_messages unavailable: %s", e)
+        db.session.rollback()
+        return jsonify([])
+    except Exception as e:
+        # Final safety net: log the error and return empty so the device page
+        # does not show "Failed to load device data" because of the chats tab.
+        current_app.logger.exception("chats endpoint failed: %s", e)
         db.session.rollback()
         return jsonify([])

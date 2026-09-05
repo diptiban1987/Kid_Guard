@@ -1515,6 +1515,10 @@ async function refreshStorageStats() {
         document.getElementById('storageTotal').textContent = '—';
         document.getElementById('storageDb').textContent = '—';
         document.getElementById('storageFirebase').textContent = '—';
+        const planRow = document.getElementById('storagePlanRow');
+        const planBar = document.getElementById('storagePlanBarWrap');
+        if (planRow) planRow.hidden = true;
+        if (planBar) planBar.hidden = true;
     }
 }
 
@@ -1522,6 +1526,29 @@ function renderStorageStats(stats) {
     document.getElementById('storageTotal').textContent = humanBytes(stats.total_bytes);
     document.getElementById('storageDb').textContent = humanBytes(stats.db_bytes);
     document.getElementById('storageFirebase').textContent = humanBytes(stats.firebase_bytes);
+
+    // Plan-level DB usage (only set on Render / Postgres).
+    const planRow = document.getElementById('storagePlanRow');
+    const planBar = document.getElementById('storagePlanBarWrap');
+    const limit = Number(stats.db_limit_bytes) || 0;
+    const usedGlobal = Number(stats.db_bytes_global);
+    if (planRow && planBar && limit > 0 && Number.isFinite(usedGlobal) && usedGlobal > 0) {
+        const label = stats.db_plan_label || 'Plan';
+        document.getElementById('storagePlan').textContent =
+            `${humanBytes(usedGlobal)} of ${humanBytes(limit)} used · ${label}`;
+        planRow.hidden = false;
+        planBar.hidden = false;
+        const pct = Math.min(100, (usedGlobal / limit) * 100);
+        const fill = document.getElementById('storagePlanBarFill');
+        fill.style.width = pct.toFixed(2) + '%';
+        fill.classList.toggle('storage-plan-bar-warn', pct >= 70 && pct < 90);
+        fill.classList.toggle('storage-plan-bar-danger', pct >= 90);
+        document.getElementById('storagePlanBarLegend').textContent =
+            `${pct.toFixed(1)}% of plan used`;
+    } else {
+        planRow.hidden = true;
+        planBar.hidden = true;
+    }
 
     const rangeRow = document.getElementById('storageRangeRow');
     if (rangeRow) rangeRow.hidden = true;

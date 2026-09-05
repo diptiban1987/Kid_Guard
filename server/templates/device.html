@@ -6,7 +6,7 @@
     <title>KidGuard - Device Detail</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet-mouseposition@1.2.0/dist/L.Control.MousePosition.css" />
-    <link rel="stylesheet" href="/static/css/cloud-style.css?v=4">
+    <link rel="stylesheet" href="/static/css/cloud-style.css?v=5">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Socket.IO removed: PythonAnywhere WSGI does not support WebSockets.
          Call-state updates are handled by HTTP polling (checkCallState). -->
@@ -1107,6 +1107,16 @@
                         <span class="storage-summary-label">Firebase Storage (media)</span>
                         <span class="storage-summary-value" id="storageFirebase">—</span>
                     </div>
+                    <div class="storage-summary-row" id="storagePlanRow" hidden>
+                        <span class="storage-summary-label">Database plan</span>
+                        <span class="storage-summary-value" id="storagePlan">—</span>
+                    </div>
+                    <div class="storage-plan-bar" id="storagePlanBarWrap" hidden>
+                        <div class="storage-plan-bar-track">
+                            <div class="storage-plan-bar-fill" id="storagePlanBarFill"></div>
+                        </div>
+                        <div class="storage-plan-bar-legend" id="storagePlanBarLegend">—</div>
+                    </div>
                     <div class="storage-summary-row" id="storageRangeRow" hidden>
                         <span class="storage-summary-label">Records in selected range</span>
                         <span class="storage-summary-value" id="storageRange">—</span>
@@ -1570,7 +1580,7 @@
     </script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/leaflet-mouseposition@1.2.0/dist/L.Control.MousePosition.js"></script>
-    <script src="/static/js/device-detail.js?v=8"></script>
+    <script src="/static/js/device-detail.js?v=9"></script>
     <script>
         // ─── Call State + Audio Streaming ────────────────────────────
         let callStateInterval = null;

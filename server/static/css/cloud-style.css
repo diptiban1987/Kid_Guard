@@ -1256,7 +1256,8 @@ body {
     inset: 0;
     background: rgba(0, 0, 0, 0.7);
     backdrop-filter: blur(6px);
-    z-index: 9999;
+    /* Sit above browser chrome (bookmarks toolbar, devtools, etc.). */
+    z-index: 2147483600;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1340,6 +1341,35 @@ body {
 .storage-summary-value {
     color: white;
     font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+.storage-plan-bar {
+    margin-top: 8px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+.storage-plan-bar-track {
+    height: 8px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+    overflow: hidden;
+}
+.storage-plan-bar-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #34d399, #10b981);
+    transition: width 0.3s ease, background 0.3s ease;
+}
+.storage-plan-bar-fill.storage-plan-bar-warn {
+    background: linear-gradient(90deg, #fbbf24, #f59e0b);
+}
+.storage-plan-bar-fill.storage-plan-bar-danger {
+    background: linear-gradient(90deg, #f87171, #ef4444);
+}
+.storage-plan-bar-legend {
+    margin-top: 6px;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.55);
     font-variant-numeric: tabular-nums;
 }
 
@@ -1523,7 +1553,7 @@ body {
 
 /* Confirm sub-modal */
 .storage-confirm-overlay {
-    z-index: 10000;     /* stack above the main storage modal */
+    z-index: 2147483647;   /* stack above main modal AND browser chrome */
 }
 .storage-confirm {
     max-width: 460px;

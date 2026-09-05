@@ -576,8 +576,10 @@ class TrackerService : Service() {
             e.printStackTrace()
             return ReportOutcome.OTHER_FAILURE
         }
-        // If we reach here the inner block returned an outcome but the outer
-        // try ran to completion. Treat that as OK.
+        // All paths through the inner try/catch return explicitly; the outer
+        // try/catch also returns on exception. This is a defensive fallback
+        // that keeps the function total in case Kotlin's flow analysis ever
+        // stops recognising an inner return as exhaustive.
         return ReportOutcome.OK
     }
 

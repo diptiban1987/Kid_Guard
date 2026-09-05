@@ -21,24 +21,28 @@ import java.util.concurrent.TimeUnit
 
 object ApiClient {
 
+    // Identify the client to upstream proxies (e.g. Cloudflare) so the
+    // KidGuard device traffic can be whitelisted from generic-bot
+    // challenges. OkHttp's default UA "okhttp/4.x" is treated as a bot
+    // by Cloudflare Bot Fight Mode, which is what causes the
+    // 429 + "Just a moment" challenge page that flaps the dashboard
+    // between ON and OFF.
+    private const val DEVICE_USER_AGENT = "KidGuardDevice/1.0 (Android)"
+
+    private fun userAgentInterceptor() = okhttp3.Interceptor { chain ->
+        val req = chain.request().newBuilder()
+            .header("User-Agent", DEVICE_USER_AGENT)
+            .build()
+        chain.proceed(req)
+    }
+
     private val client = OkHttpClient.Builder()
         .followRedirects(true)
         .followSslRedirects(true)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(60, TimeUnit.SECONDS)
-        // Identify the client to upstream proxies (e.g. Cloudflare) so the
-        // KidGuard device traffic can be whitelisted from generic-bot
-        // challenges. OkHttp's default UA "okhttp/4.x" is treated as a bot
-        // by Cloudflare Bot Fight Mode, which is what causes the
-        // 429 + "Just a moment" challenge page that flaps the dashboard
-        // between ON and OFF.
-        .addInterceptor { chain ->
-            val req = chain.request().newBuilder()
-                .header("User-Agent", "KidGuardDevice/1.0 (Android)")
-                .build()
-            chain.proceed(req)
-        }
+        .addInterceptor(userAgentInterceptor())
         .build()
 
     private val probeClient = OkHttpClient.Builder()
@@ -46,6 +50,7 @@ object ApiClient {
         .followSslRedirects(true)
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(8, TimeUnit.SECONDS)
+        .addInterceptor(userAgentInterceptor())
         .build()
 
     // Generous read timeout so a cold-starting free-tier instance (Render
@@ -55,6 +60,7 @@ object ApiClient {
         .followSslRedirects(true)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(90, TimeUnit.SECONDS)
+        .addInterceptor(userAgentInterceptor())
         .build()
 
     /**

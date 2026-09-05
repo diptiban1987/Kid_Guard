@@ -1334,7 +1334,15 @@
         function startCallStatePolling() {
             if (callStateInterval) return;
             checkCallState();
-            callStateInterval = setInterval(checkCallState, 3000);
+            // Cloudflare Bot Fight Mode flags high-frequency, identical-shape
+            // XHRs from a single browser session as bot traffic. The previous
+            // 3-second interval was aggressive enough that each open dashboard
+            // tab tripped the rate limit and served 429 challenges, which made
+            // the page flicker between "OFFLINE" (default state) and the
+            // populated data view. 15 seconds is fast enough that the live
+            // call banner still appears in near-real time, and keeps the
+            // request rate well under any reasonable WAF threshold.
+            callStateInterval = setInterval(checkCallState, 15000);
         }
 
         function stopCallStatePolling() {

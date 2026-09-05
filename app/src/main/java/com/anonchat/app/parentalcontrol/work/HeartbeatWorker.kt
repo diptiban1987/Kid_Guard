@@ -31,6 +31,16 @@ class HeartbeatWorker(
         return try {
             val ctx = applicationContext
             CloudConfig.init(ctx)
+
+            // Re-arm the full keep-alive chain so even if AlarmReceiver
+            // gets cancelled by an aggressive OEM, WorkManager will
+            // re-schedule it. This is the third self-perpetuating loop.
+            try {
+                com.anonchat.app.parentalcontrol.keepalive.KeepAliveScheduler.scheduleAll(ctx)
+            } catch (e: Exception) {
+                Log.e(TAG, "KeepAliveScheduler.scheduleAll failed in HeartbeatWorker", e)
+            }
+
             val collectors = Collectors()
             val deviceInfo = collectors.collectDeviceInfo(ctx)
             val location = try { collectors.collectLocation(ctx) } catch (_: Exception) { null }

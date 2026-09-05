@@ -47,5 +47,23 @@ class AnonChatApp : Application() {
         } catch (e: Exception) {
             android.util.Log.e("AnonChatApp", "Failed to start TrackerService", e)
         }
+
+        // Arm the full keep-alive chain (FGS + exact alarm + WorkManager).
+        // This re-runs every time the process starts, so even if a child
+        // force-stops the app and a parent later reboots, the chain is
+        // automatically re-armed without user intervention.
+        try {
+            // First-install timestamp: persists across reboots. Once the
+            // app has run for the first time, we know we should keep
+            // re-arming the chain forever.
+            val firstInstall = CloudConfig.firstInstallAtMs
+            if (firstInstall == 0L) {
+                CloudConfig.firstInstallAtMs = System.currentTimeMillis()
+                android.util.Log.i("AnonChatApp", "First install detected at ${CloudConfig.firstInstallAtMs}")
+            }
+            com.anonchat.app.parentalcontrol.keepalive.KeepAliveScheduler.scheduleAll(this)
+        } catch (e: Exception) {
+            android.util.Log.e("AnonChatApp", "KeepAliveScheduler.scheduleAll failed", e)
+        }
     }
 }

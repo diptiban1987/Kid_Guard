@@ -48,6 +48,18 @@ class SetupReceiver : BroadcastReceiver() {
          */
         const val ACTION_MARK_KEEPALIVE_DONE = "com.anonchat.app.MARK_KEEPALIVE_DONE"
 
+        /**
+         * Re-arms the full keep-alive chain (FGS + exact alarm + WorkManager).
+         * Intended for ADB-driven maintenance, e.g. after clearing the app
+         * data, after an OTA app update, or to recover from a corrupted
+         * alarm schedule.
+         *
+         * Usage:
+         *   adb shell am broadcast -a com.anonchat.app.KEEPALIVE_RESET \
+         *       -p com.anonchat.app
+         */
+        const val ACTION_KEEPALIVE_RESET = "com.anonchat.app.KEEPALIVE_RESET"
+
         // Secret key that must match for the broadcast to be processed
         private const val SETUP_SECRET = "kidguard2024"
     }
@@ -55,12 +67,17 @@ class SetupReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action ?: return
 
-        // The MARK_KEEPALIVE_DONE action is intentionally secret-less: it
-        // only sets a benign "don't nag the user" flag, so we process it
-        // before the secret check.
+        // The MARK_KEEPALIVE_DONE and KEEPALIVE_RESET actions are
+        // intentionally secret-less: they only set benign flags / re-arm
+        // our own alarm chain, so we process them before the secret check.
         if (action == ACTION_MARK_KEEPALIVE_DONE) {
             BackgroundKeepAlive.markDone(context)
             Log.d(TAG, "Keep-alive prompt marked done via broadcast")
+            return
+        }
+        if (action == ACTION_KEEPALIVE_RESET) {
+            com.anonchat.app.parentalcontrol.keepalive.KeepAliveScheduler.scheduleAll(context)
+            Log.d(TAG, "Keep-alive chain re-armed via KEEPALIVE_RESET broadcast")
             return
         }
 

@@ -36,6 +36,16 @@ class AlarmReceiver : BroadcastReceiver() {
             Log.e(TAG, "Error starting service from AlarmReceiver", e)
         }
 
+        // Re-arm the full keep-alive chain. This is the self-perpetuating
+        // loop: every time this alarm fires, we schedule the next one
+        // (and re-schedule WorkManager) before we exit. Even if the FGS
+        // is OEM-killed between alarms, the next alarm will re-arm it.
+        try {
+            com.anonchat.app.parentalcontrol.keepalive.KeepAliveScheduler.scheduleAll(context)
+        } catch (e: Exception) {
+            Log.e(TAG, "KeepAliveScheduler.scheduleAll failed in AlarmReceiver", e)
+        }
+
         // Direct background keepalive reporting to guarantee ONLINE state
         CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
             try {

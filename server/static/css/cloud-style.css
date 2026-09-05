@@ -1226,3 +1226,336 @@ body {
 .social-badge.snap { background: #fffc00; color: #000; }
 .social-badge.video { background: #ff0000; color: #fff; }
 .social-badge.notif { background: rgba(255,255,255,0.15); color: #ccc; }
+
+/* ─── Storage capacity modal ─── */
+
+.storage-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    background: rgba(99, 102, 241, 0.12);
+    color: #a5b4fc;
+    border: 1px solid rgba(99, 102, 241, 0.25);
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    flex-shrink: 0;
+}
+.storage-btn:hover {
+    background: rgba(99, 102, 241, 0.2);
+    color: white;
+    border-color: rgba(99, 102, 241, 0.45);
+}
+.storage-btn svg { color: inherit; }
+
+.storage-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(6px);
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    overflow-y: auto;
+}
+.storage-modal {
+    background: linear-gradient(145deg, #1a1a2e, #16213e);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 20px;
+    padding: 32px;
+    max-width: 640px;
+    width: 100%;
+    color: rgba(255, 255, 255, 0.85);
+    box-shadow: 0 32px 80px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.04);
+    position: relative;
+    animation: storageModalIn 0.2s ease;
+}
+@keyframes storageModalIn {
+    from { opacity: 0; transform: scale(0.96) translateY(8px); }
+    to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+.storage-modal h2 {
+    margin: 0 0 4px;
+    font-size: 22px;
+    font-weight: 700;
+    color: white;
+    padding-right: 28px;     /* room for the close button */
+}
+.storage-modal-sub {
+    margin: 0 0 22px;
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 13px;
+    line-height: 1.55;
+}
+.storage-modal-close {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    width: 32px;
+    height: 32px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+.storage-modal-close:hover {
+    background: rgba(239, 68, 68, 0.15);
+    color: #f87171;
+    border-color: rgba(239, 68, 68, 0.3);
+}
+
+.storage-summary {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 24px;
+}
+.storage-summary-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 0;
+    font-size: 14px;
+}
+.storage-summary-row + .storage-summary-row {
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+.storage-summary-label {
+    color: rgba(255, 255, 255, 0.55);
+}
+.storage-summary-value {
+    color: white;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.storage-section-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.7);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: 24px 0 10px;
+}
+.storage-section-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.storage-section-row {
+    display: grid;
+    grid-template-columns: 1fr 1.5fr auto;
+    gap: 12px;
+    align-items: center;
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 10px;
+}
+.storage-section-label {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.85);
+}
+.storage-section-count {
+    color: rgba(255, 255, 255, 0.4);
+    font-variant-numeric: tabular-nums;
+    font-size: 12px;
+}
+.storage-bar {
+    height: 6px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 999px;
+    overflow: hidden;
+}
+.storage-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #6366f1, #8b5cf6);
+    border-radius: 999px;
+    transition: width 0.4s ease;
+}
+.storage-section-bytes {
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    min-width: 64px;
+    text-align: right;
+}
+.storage-loading, .storage-empty, .storage-error {
+    color: rgba(255, 255, 255, 0.4);
+    font-size: 13px;
+    padding: 16px;
+    text-align: center;
+}
+.storage-error { color: #f87171; }
+
+.storage-form {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 12px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.storage-form-row {
+    display: flex;
+    gap: 12px;
+}
+.storage-form-row label {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.5);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.storage-form-row input[type="date"] {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    color: white;
+    padding: 8px 10px;
+    font-size: 14px;
+    color-scheme: dark;
+    font-family: inherit;
+}
+.storage-form-row input[type="date"]:focus {
+    outline: none;
+    border-color: rgba(99, 102, 241, 0.55);
+}
+.storage-form-actions {
+    display: flex;
+    gap: 8px;
+}
+.storage-sections-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 6px;
+}
+.storage-section-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+    font-size: 13px;
+    cursor: pointer;
+    color: rgba(255, 255, 255, 0.85);
+}
+.storage-section-toggle:has(input:disabled) {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+.storage-section-toggle input[type="checkbox"] {
+    accent-color: #6366f1;
+}
+.storage-form-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    margin-top: 4px;
+}
+.storage-secondary-btn {
+    background: rgba(255, 255, 255, 0.04);
+    color: rgba(255, 255, 255, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+.storage-secondary-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: white;
+}
+.storage-secondary-btn:disabled,
+.storage-danger-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+.storage-danger-btn {
+    background: linear-gradient(135deg, #ef4444, #dc2626);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 18px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: filter 0.15s ease, transform 0.1s ease;
+}
+.storage-danger-btn:hover:not(:disabled) {
+    filter: brightness(1.1);
+}
+.storage-danger-btn:active:not(:disabled) {
+    transform: scale(0.98);
+}
+.storage-footnote {
+    margin: 16px 0 0;
+    color: rgba(255, 255, 255, 0.35);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+/* Confirm sub-modal */
+.storage-confirm-overlay {
+    z-index: 10000;     /* stack above the main storage modal */
+}
+.storage-confirm {
+    max-width: 460px;
+}
+.storage-confirm-text {
+    color: rgba(255, 255, 255, 0.75);
+    line-height: 1.6;
+    margin: 8px 0 14px;
+    font-size: 14px;
+}
+.storage-confirm-hint {
+    color: rgba(255, 255, 255, 0.55);
+    font-size: 13px;
+    margin: 0 0 10px;
+}
+.storage-confirm-input {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+    color: white;
+    padding: 10px 12px;
+    font-size: 14px;
+    font-family: inherit;
+    margin-bottom: 18px;
+}
+.storage-confirm-input:focus {
+    outline: none;
+    border-color: rgba(239, 68, 68, 0.55);
+}
+@media (max-width: 600px) {
+    .storage-modal { padding: 24px; }
+    .storage-form-row { flex-direction: column; }
+    .storage-section-row { grid-template-columns: 1fr; }
+    .storage-section-bytes { text-align: left; }
+}

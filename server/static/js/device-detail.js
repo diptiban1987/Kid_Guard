@@ -122,7 +122,8 @@ function sleep(ms) {
 
 // Carto's `rastertiles/voyager` style was discontinued and now returns
 // 404s — that's why the live page used to flash "API KEY REQUIRED".
-// `dark_nolabels` is the free, no-key replacement.
+// `dark_nolabels` is the free, no-key replacement. We also expose
+// several other key-free providers so the user can switch styles.
 const TILE_PROVIDERS = {
     dark: {
         url: 'https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png',
@@ -144,9 +145,32 @@ const TILE_PROVIDERS = {
         subdomains: 'abc',
         maxZoom: 19,
         labels: 'OpenStreetMap'
+    },
+    esri: {
+        url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+        attribution: 'Tiles &copy; Esri',
+        maxZoom: 19,
+        labels: 'Esri Satellite'
+    },
+    terrain: {
+        url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+        attribution: 'Map data: &copy; OSM, SRTM | OpenTopoMap',
+        subdomains: 'abc',
+        maxZoom: 17,
+        labels: 'OpenTopoMap'
     }
 };
 let currentTileLayer = null;
+let tileErrorCount = 0;
+
+function updateTileStatus(level, text) {
+    const el = document.getElementById('mapTileStatus');
+    if (!el) return;
+    el.classList.remove('warn', 'error');
+    if (level === 'warn') el.classList.add('warn');
+    if (level === 'error') el.classList.add('error');
+    el.title = text || '';
+}
 
 function setTileProvider(key) {
     if (!TILE_PROVIDERS[key]) key = 'dark';
@@ -157,19 +181,76 @@ function setTileProvider(key) {
     const opts = { attribution: cfg.attribution, maxZoom: cfg.maxZoom || 19 };
     if (cfg.subdomains) opts.subdomains = cfg.subdomains;
     currentTileLayer = L.tileLayer(cfg.url, opts).addTo(deviceMap);
+    currentTileLayer.on('tileerror', () => {
+        tileErrorCount += 1;
+        if (tileErrorCount > 30) updateTileStatus('error', 'Many tile errors - try another style');
+        else if (tileErrorCount > 5) updateTileStatus('warn', `${tileErrorCount} tile errors`);
+    });
+    currentTileLayer.on('tileload', () => {
+        if (tileErrorCount > 0) {
+            tileErrorCount = Math.max(0, tileErrorCount - 1);
+            if (tileErrorCount === 0) updateTileStatus('ok', 'Tiles loading');
+        }
+    });
+}
+
+let pickMode = false;
+let pickMarker = null;
+
+function fitBoundsToPoints() {
+    if (!deviceMap) return;
+    if (mapMarkers.length === 0 && !mapPolyline) return;
+    const layers = [];
+    mapMarkers.forEach(m => layers.push(m));
+    if (mapPolyline) layers.push(mapPolyline);
+    const group = L.featureGroup(layers);
+    try { deviceMap.fitBounds(group.getBounds().pad(0.1)); } catch (e) { /* ignore */ }
+}
+
+function togglePickMode() {
+    pickMode = !pickMode;
+    const btn = document.getElementById('pickOnMapBtn');
+    const cross = document.getElementById('mapCrosshair');
+    if (btn) btn.classList.toggle('active', pickMode);
+    if (cross) cross.style.display = pickMode ? 'block' : 'none';
+    if (deviceMap && deviceMap.getContainer) {
+        deviceMap.getContainer().style.cursor = pickMode ? 'crosshair' : '';
+    }
 }
 
 function initMap() {
     deviceMap = L.map('deviceMap', { worldCopyJump: true }).setView([20, 0], 2);
     setTileProvider('dark');
     L.control.scale({ imperial: true, metric: true, position: 'bottomleft' }).addTo(deviceMap);
+    if (L.control && L.control.mousePosition) {
+        L.control.mousePosition({
+            position: 'bottomright',
+            prefix: 'lat,lng:',
+            separator: ' , ',
+            numDigits: 5
+        }).addTo(deviceMap);
+    }
     setTimeout(() => deviceMap.invalidateSize(), 50);
+    // Re-fit if a tab was hidden when the map first loaded.
+    setTimeout(() => deviceMap.invalidateSize(), 600);
 
     const styleSel = document.getElementById('mapStyleSelect');
     if (styleSel) {
         styleSel.value = 'dark';
         styleSel.addEventListener('change', () => setTileProvider(styleSel.value));
     }
+    const fitBtn = document.getElementById('fitBoundsBtn');
+    if (fitBtn) fitBtn.addEventListener('click', fitBoundsToPoints);
+    const pickBtn = document.getElementById('pickOnMapBtn');
+    if (pickBtn) pickBtn.addEventListener('click', togglePickMode);
+    deviceMap.on('click', (e) => {
+        if (!pickMode) return;
+        if (pickMarker) deviceMap.removeLayer(pickMarker);
+        pickMarker = L.marker(e.latlng).addTo(deviceMap)
+            .bindPopup(`Picked: ${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}`).openPopup();
+        togglePickMode();
+    });
+    updateTileStatus('ok', 'Tiles loading');
 }
 
 function renderMap(locations, geofences) {

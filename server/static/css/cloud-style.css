@@ -1263,6 +1263,7 @@ body {
     padding: 24px;
     overflow-y: auto;
 }
+.storage-modal-overlay[hidden] { display: none !important; }
 .storage-modal {
     background: linear-gradient(145deg, #1a1a2e, #16213e);
     border: 1px solid rgba(255, 255, 255, 0.1);

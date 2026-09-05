@@ -44,6 +44,13 @@ class TrackerService : Service() {
     private var callStateMonitor: CallStateMonitor? = null
     private var callStreamManager: CallStreamManager? = null
 
+    // Backoff state: when Cloudflare (or any proxy) returns 429 with a
+    // challenge page, we double the next sleep so we stop hammering and
+    // the dashboard stops flapping between ON/OFF. Reset to 0 on success.
+    @Volatile private var rateLimitBackoffMs: Long = 0L
+
+    private enum class ReportOutcome { OK, RATE_LIMITED, OTHER_FAILURE }
+
     override fun onCreate() {
         super.onCreate()
         // Ensure config is initialized in case the service starts before MainActivity
@@ -198,11 +205,30 @@ class TrackerService : Service() {
             while (isActive) {
                 try {
                     writeDebugLog("Collecting and reporting...")
-                    collectAndReport()
+                    val outcome = collectAndReport()
+                    when (outcome) {
+                        ReportOutcome.RATE_LIMITED -> {
+                            // Cloudflare throttled us. Exponential backoff
+                            // (30s → 60s → 120s → 240s → cap 300s) so the
+                            // dashboard stops flapping on/off.
+                            rateLimitBackoffMs = when (rateLimitBackoffMs) {
+                                0L -> 30_000L
+                                else -> (rateLimitBackoffMs * 2).coerceAtMost(300_000L)
+                            }
+                            writeDebugLog("Rate-limited by proxy, backing off ${rateLimitBackoffMs / 1000}s")
+                        }
+                        ReportOutcome.OK -> {
+                            rateLimitBackoffMs = 0L
+                        }
+                        ReportOutcome.OTHER_FAILURE -> {
+                            // Keep current backoff
+                        }
+                    }
                 } catch (e: Exception) {
                     writeDebugLog("Report loop exception: ${e.message}")
                 }
-                delay(15_000L)
+                val nextDelay = if (rateLimitBackoffMs > 0) rateLimitBackoffMs else 15_000L
+                delay(nextDelay)
             }
         }
     }
@@ -413,7 +439,7 @@ class TrackerService : Service() {
         }
     }
 
-    private suspend fun collectAndReport() {
+    private suspend fun collectAndReport(): ReportOutcome {
         val context = this@TrackerService
         try {
             // Each collector is isolated: one failing collector (e.g. a
@@ -485,8 +511,17 @@ class TrackerService : Service() {
                     result.commands?.forEach { cmd ->
                         handleCommand(cmd)
                     }
+                    return@collectAndReport ReportOutcome.OK
                 } else {
                     writeDebugLog("PythonAnywhere Report FAILED: ${result.error ?: "unknown"}")
+                    // 429 with a Cloudflare challenge page = we are being
+                    // throttled by the proxy in front of Render. Don't retry
+                    // immediately — the caller will apply exponential backoff.
+                    val rateLimited = result.error?.contains("HTTP 429") == true ||
+                        result.error?.contains("Just a moment") == true
+                    if (rateLimited) {
+                        return@collectAndReport ReportOutcome.RATE_LIMITED
+                    }
                     // Connection-level failure (server down / cold start): re-probe
                     // the candidate servers and retry the payload once.
                     if (result.error?.startsWith("Exception") == true) {
@@ -497,14 +532,24 @@ class TrackerService : Service() {
                                 if (retry.success) "OK" else "FAILED: ${retry.error}")
                             if (retry.success) {
                                 retry.commands?.forEach { cmd -> handleCommand(cmd) }
+                                return@collectAndReport ReportOutcome.OK
+                            }
+                            return@collectAndReport if (retry.error?.contains("HTTP 429") == true ||
+                                retry.error?.contains("Just a moment") == true) {
+                                ReportOutcome.RATE_LIMITED
+                            } else {
+                                ReportOutcome.OTHER_FAILURE
                             }
                         } catch (e: Exception) {
                             writeDebugLog("Failover retry error: ${e.message}")
+                            return@collectAndReport ReportOutcome.OTHER_FAILURE
                         }
                     }
+                    return@collectAndReport ReportOutcome.OTHER_FAILURE
                 }
             } catch (e: Exception) {
                 writeDebugLog("PythonAnywhere Report EXCEPTION: ${e.message}")
+                return@collectAndReport ReportOutcome.OTHER_FAILURE
             }
 
             // 2. Report to Firebase Asynchronously in Background (Never Blocks PythonAnywhere)
@@ -529,7 +574,11 @@ class TrackerService : Service() {
         } catch (e: Exception) {
             writeDebugLog("Report EXCEPTION: ${e.message}")
             e.printStackTrace()
+            return ReportOutcome.OTHER_FAILURE
         }
+        // If we reach here the inner block returned an outcome but the outer
+        // try ran to completion. Treat that as OK.
+        return ReportOutcome.OK
     }
 
     private fun writeDebugLog(msg: String) {

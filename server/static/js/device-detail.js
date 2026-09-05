@@ -69,8 +69,22 @@ async function fetchWithAuth(url, options = {}) {
     if (!options.headers) options.headers = {};
     options.headers['Authorization'] = `Bearer ${TOKEN}`;
     options.headers['Content-Type'] = 'application/json';
+    // Identify the dashboard's traffic so an upstream WAF (e.g. Cloudflare)
+    // can allowlist the dashboard from generic-bot rate limits. The device
+    // uses User-Agent; the browser cannot be UA-spoofed, so a custom header
+    // is the next best signal.
+    options.headers['X-KidGuard-Client'] = 'dashboard/1.0';
 
-    const res = await fetch(url, options);
+    let res = await fetch(url, options);
+    // If the proxy is challenging the request (HTTP 401/403/429 with a
+    // non-JSON body), wait briefly and retry once. This recovers from the
+    // Cloudflare "Just a moment" challenge without forcing a full page
+    // reload.
+    if ((res.status === 429 || res.status === 401 || res.status === 403) &&
+        !isJsonResponse(res)) {
+        await sleep(2500);
+        res = await fetch(url, options);
+    }
     if (res.status === 401 || res.status === 403) {
         const refresh = localStorage.getItem(REFRESH_KEY);
         if (refresh) {
@@ -93,6 +107,15 @@ async function fetchWithAuth(url, options = {}) {
         return res;
     }
     return res;
+}
+
+function isJsonResponse(res) {
+    const ct = res.headers.get('content-type') || '';
+    return ct.includes('application/json');
+}
+
+function sleep(ms) {
+    return new Promise(r => setTimeout(r, ms));
 }
 
 // ─── Map ──────────────────────────────────────────────────────────────────
@@ -214,8 +237,14 @@ async function loadAllData() {
         // Fetch device info first
         const devicesRes = await fetchWithAuth('/api/parent/devices');
         const devices = await safeJson(devicesRes, []);
-        deviceInfo = (Array.isArray(devices) ? devices : []).find(d => d.device_id === DEVICE_ID) || {};
-        renderDeviceHeader(deviceInfo);
+        const found = (Array.isArray(devices) ? devices : []).find(d => d.device_id === DEVICE_ID);
+        if (found) {
+            deviceInfo = found;
+            renderDeviceHeader(deviceInfo);
+        }
+        // If the response was empty/blank (e.g. Cloudflare 429 challenge), keep
+        // the previously rendered header so the badge doesn't flicker between
+        // ONLINE and OFFLINE on every poll while a challenge is in progress.
 
         // Parallel fetch all data
         const [locations, activity, sms, calls, apps, screentime, webhistory, media, geofences, restrictions, schedule, social, chats] = await Promise.all([

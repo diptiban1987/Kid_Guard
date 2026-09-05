@@ -224,6 +224,29 @@ body {
     color: white;
 }
 .tab:hover { color: white; }
+.tab.hidden { display: none; }
+.tab-badge {
+    display: inline-block;
+    min-width: 18px;
+    padding: 1px 6px;
+    margin-left: 6px;
+    border-radius: 9px;
+    background: #6366f1;
+    color: white;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 14px;
+    text-align: center;
+    vertical-align: middle;
+}
+.tab-badge.zero {
+    background: rgba(255,255,255,0.12);
+    color: rgba(255,255,255,0.5);
+}
+.tab-badge.loading {
+    background: rgba(255,255,255,0.08);
+    color: rgba(255,255,255,0.35);
+}
 
 /* ─── Badge ─── */
 .badge {

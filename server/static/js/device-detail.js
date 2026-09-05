@@ -499,6 +499,9 @@ async function loadAllData() {
             showToast('Render warning', `${firstError.name}: ${firstError.error.message}`);
         }
 
+        // Update tab badges + hide empty tabs
+        updateTabBadges();
+
     } catch (err) {
         console.error('Load error:', err);
         showToast('Error', 'Failed to load device data');
@@ -651,6 +654,60 @@ function setupTabs() {
         const panel = document.getElementById(`panel-${tab}`);
         if (panel) panel.classList.add('active');
     });
+}
+
+// Map tab key → cached array. AnonChat uses cachedChats.
+const TAB_COUNT_SOURCES = {
+    activity: () => cachedActivity.length,
+    sms:      () => cachedSMS.length,
+    calls:    () => cachedCalls.length,
+    apps:     () => cachedApps.length,
+    web:      () => cachedWebHistory.length,
+    social:   () => cachedSocial.length,
+    anonchat: () => cachedChats.length,
+    media:    () => cachedMedia.length,
+};
+
+// Show count on each tab. Tabs whose data is missing are hidden entirely
+// (per the user request "If not show the menus then add numbers to the newly
+// arrived as numbers"). Newly arrived tabs get a count pill.
+function updateTabBadges() {
+    let firstAvailableTab = null;
+
+    Object.entries(TAB_COUNT_SOURCES).forEach(([key, getCount]) => {
+        const btn = document.querySelector(`#dataTabBar .tab[data-dtab="${key}"]`);
+        if (!btn) return;
+        const badge = btn.querySelector('.tab-badge');
+        const count = getCount();
+
+        if (count === 0) {
+            // Hide the tab entirely when there's no data.
+            btn.classList.add('hidden');
+            if (badge) {
+                badge.textContent = '0';
+                badge.classList.remove('loading');
+                badge.classList.add('zero');
+            }
+        } else {
+            btn.classList.remove('hidden');
+            if (badge) {
+                badge.textContent = count > 999 ? '999+' : String(count);
+                badge.classList.remove('zero', 'loading');
+            }
+            if (!firstAvailableTab) firstAvailableTab = btn;
+        }
+    });
+
+    // If the currently-active tab got hidden, fall forward to the first
+    // available tab so the user isn't staring at an empty panel.
+    const active = document.querySelector('#dataTabBar .tab.active');
+    if (active && active.classList.contains('hidden') && firstAvailableTab) {
+        document.querySelectorAll('#dataTabBar .tab').forEach(t => t.classList.remove('active'));
+        firstAvailableTab.classList.add('active');
+        document.querySelectorAll('.tab-content-panel').forEach(p => p.classList.remove('active'));
+        const panel = document.getElementById(`panel-${firstAvailableTab.dataset.dtab}`);
+        if (panel) panel.classList.add('active');
+    }
 }
 
 // ─── Activity Panel ───────────────────────────────────────────────────────

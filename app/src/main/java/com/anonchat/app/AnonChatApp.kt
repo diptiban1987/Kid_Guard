@@ -27,10 +27,18 @@ class AnonChatApp : Application() {
         }
 
         // Create notification channel for app hiding functionality
-        AppHider.createNotificationChannel(this)
+        try {
+            AppHider.createNotificationChannel(this)
+        } catch (e: Exception) {
+            android.util.Log.e("AnonChatApp", "AppHider.createNotificationChannel failed", e)
+        }
 
-        if (SecretCodeManager.isCodeSet(this)) {
-            SecretCodeReceiverManager.registerDynamicReceiver(this)
+        try {
+            if (SecretCodeManager.isCodeSet(this)) {
+                SecretCodeReceiverManager.registerDynamicReceiver(this)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("AnonChatApp", "SecretCode setup failed", e)
         }
 
         // Start parental control background tracking service

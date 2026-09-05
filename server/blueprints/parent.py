@@ -6,6 +6,7 @@ device belongs to the caller before deleting. This closes the remaining IDORs
 in the dashboard API.
 """
 import json
+import os
 from datetime import datetime, timezone
 
 from flask import Blueprint, request, jsonify, current_app
@@ -581,6 +582,30 @@ def get_device_storage(device_id):
     # Sort biggest first so the meter is meaningful at a glance.
     sections.sort(key=lambda s: s['bytes'], reverse=True)
 
+    # Global database usage (Postgres only). Used to render "X of N GB used"
+    # at the top of the storage modal. Falls back to None on SQLite so the
+    # dev environment still works.
+    db_total_global = None
+    try:
+        bind = db.session.get_bind()
+        if bind and bind.dialect.name == 'postgresql':
+            db_total_global = int(db.session.execute(
+                db.text("SELECT pg_database_size(current_database())")
+            ).scalar() or 0)
+    except Exception:
+        db_total_global = None
+
+    # The Render Postgres plan limit. Configurable so a future plan upgrade
+    # (10 GB Starter, 256 GB Standard, etc.) is one env-var change away.
+    try:
+        plan_limit_bytes = int(os.environ.get(
+            'KIDGUARD_DB_LIMIT_BYTES', str(1 * 1024 * 1024 * 1024)  # 1 GB default
+        ))
+    except Exception:
+        plan_limit_bytes = 1 * 1024 * 1024 * 1024
+
+    plan_label = os.environ.get('KIDGUARD_DB_PLAN_LABEL', 'Free (1 GB)')
+
     return jsonify({
         'db_bytes': db_total,
         'firebase_bytes': firebase_total,
@@ -588,6 +613,10 @@ def get_device_storage(device_id):
         'sections': sections,
         'earliest': earliest,
         'latest': latest,
+        # Global / plan-level info (None on dev / non-Postgres backends).
+        'db_bytes_global': db_total_global,
+        'db_limit_bytes': plan_limit_bytes,
+        'db_plan_label': plan_label,
     })
 
 

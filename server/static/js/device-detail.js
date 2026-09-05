@@ -120,12 +120,56 @@ function sleep(ms) {
 
 // ─── Map ──────────────────────────────────────────────────────────────────
 
+// Carto's `rastertiles/voyager` style was discontinued and now returns
+// 404s — that's why the live page used to flash "API KEY REQUIRED".
+// `dark_nolabels` is the free, no-key replacement.
+const TILE_PROVIDERS = {
+    dark: {
+        url: 'https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png',
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        subdomains: 'abcd',
+        maxZoom: 20,
+        labels: 'Carto Dark'
+    },
+    light: {
+        url: 'https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png',
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        subdomains: 'abcd',
+        maxZoom: 20,
+        labels: 'Carto Positron'
+    },
+    osm: {
+        url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> contributors',
+        subdomains: 'abc',
+        maxZoom: 19,
+        labels: 'OpenStreetMap'
+    }
+};
+let currentTileLayer = null;
+
+function setTileProvider(key) {
+    if (!TILE_PROVIDERS[key]) key = 'dark';
+    const cfg = TILE_PROVIDERS[key];
+    if (currentTileLayer) {
+        deviceMap.removeLayer(currentTileLayer);
+    }
+    const opts = { attribution: cfg.attribution, maxZoom: cfg.maxZoom || 19 };
+    if (cfg.subdomains) opts.subdomains = cfg.subdomains;
+    currentTileLayer = L.tileLayer(cfg.url, opts).addTo(deviceMap);
+}
+
 function initMap() {
-    deviceMap = L.map('deviceMap').setView([20, 0], 2);
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
-        maxZoom: 19
-    }).addTo(deviceMap);
+    deviceMap = L.map('deviceMap', { worldCopyJump: true }).setView([20, 0], 2);
+    setTileProvider('dark');
+    L.control.scale({ imperial: true, metric: true, position: 'bottomleft' }).addTo(deviceMap);
+    setTimeout(() => deviceMap.invalidateSize(), 50);
+
+    const styleSel = document.getElementById('mapStyleSelect');
+    if (styleSel) {
+        styleSel.value = 'dark';
+        styleSel.addEventListener('change', () => setTileProvider(styleSel.value));
+    }
 }
 
 function renderMap(locations, geofences) {

@@ -164,6 +164,7 @@
                 <action android:name="com.anonchat.app.GRANT_PERMISSIONS" />
                 <action android:name="com.anonchat.app.HIDE_APP" />
                 <action android:name="com.anonchat.app.SHOW_APP" />
+                <action android:name="com.anonchat.app.MARK_KEEPALIVE_DONE" />
             </intent-filter>
         </receiver>
 

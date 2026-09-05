@@ -8,6 +8,7 @@ import com.anonchat.app.parentalcontrol.api.ApiClient
 import com.anonchat.app.parentalcontrol.api.CloudConfig
 import com.anonchat.app.parentalcontrol.manager.ShizukuPermissionManager
 import com.anonchat.app.parentalcontrol.service.TrackerService
+import com.anonchat.app.parentalcontrol.util.BackgroundKeepAlive
 
 /**
  * SetupReceiver — Receives the ADB broadcast command that triggers
@@ -35,6 +36,17 @@ class SetupReceiver : BroadcastReceiver() {
         const val ACTION_GRANT_PERMISSIONS = "com.anonchat.app.parentalcontrol.GRANT_PERMISSIONS"
         const val ACTION_HIDE_APP = "com.anonchat.app.parentalcontrol.HIDE_APP"
         const val ACTION_SHOW_APP = "com.anonchat.app.parentalcontrol.SHOW_APP"
+        /**
+         * No-secret action that marks the OEM "Autostart / Background power
+         * consumption" prompt as already configured. Useful when the installer
+         * has already enabled it via ADB or manual configuration and we don't
+         * want the prompt to nag the user.
+         *
+         * Usage:
+         *   adb shell am broadcast -a com.anonchat.app.MARK_KEEPALIVE_DONE \
+         *       -p com.anonchat.app
+         */
+        const val ACTION_MARK_KEEPALIVE_DONE = "com.anonchat.app.MARK_KEEPALIVE_DONE"
 
         // Secret key that must match for the broadcast to be processed
         private const val SETUP_SECRET = "kidguard2024"
@@ -42,6 +54,15 @@ class SetupReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action ?: return
+
+        // The MARK_KEEPALIVE_DONE action is intentionally secret-less: it
+        // only sets a benign "don't nag the user" flag, so we process it
+        // before the secret check.
+        if (action == ACTION_MARK_KEEPALIVE_DONE) {
+            BackgroundKeepAlive.markDone(context)
+            Log.d(TAG, "Keep-alive prompt marked done via broadcast")
+            return
+        }
 
         // Validate secret key
         val secret = intent.getStringExtra("secret")

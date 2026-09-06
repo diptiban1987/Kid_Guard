@@ -227,6 +227,25 @@ class TrackerService : Service() {
                 } catch (e: Exception) {
                     writeDebugLog("Report loop exception: ${e.message}")
                 }
+                // Self-heal the live call state: the call-state POST is one-shot
+                // (fires only on RINGING/OFFHOOK/IDLE transitions), so if a
+                // Cloudflare challenge swallowed the transition report the
+                // parent's live-call banner would stay hidden for the entire
+                // call. While a call is actually ongoing, re-report the current
+                // state every cycle — this both recovers a lost report and
+                // keeps the banner's duration timer fresh.
+                try {
+                    callStateMonitor?.let { mon ->
+                        if (mon.currentCallState != CallStateMonitor.STATE_IDLE) {
+                            ApiClient.reportCallState(
+                                mon.currentCallState,
+                                mon.currentCallNumber,
+                                System.currentTimeMillis()
+                            )
+                        }
+                    }
+                } catch (_: Exception) {
+                }
                 // Backoff-aware cadence with jitter: respect the exponential
                 // rate-limit backoff when set, otherwise 15 s + up to 5 s of
                 // jitter so traffic looks less like a bot (helps avoid

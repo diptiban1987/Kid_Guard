@@ -932,20 +932,28 @@ object ApiClient {
                 put("phone_number", phoneNumber ?: "")
                 put("timestamp", timestamp)
             }
-            val requestBody = json.toString()
-                .toRequestBody("application/json".toMediaType())
+            val payload = json.toString()
+            val url = "${CloudConfig.apiBaseUrl}/report/call-state"
 
-            val request = Request.Builder()
-                .url("${CloudConfig.apiBaseUrl}/report/call-state")
-                .addHeader("Authorization", "Bearer ${CloudConfig.accessToken}")
-                .post(requestBody)
-                .build()
+            var response = client.newCall(buildRequest(url, payload)).execute()
+            var body = response.body?.string() ?: ""
 
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    Log.w("ApiClient", "Call state report failed: ${response.code}")
-                }
+            // Cloudflare bot-fighting on Render's CDN may eat this request with
+            // a "429/403 Just a moment" challenge. The call-state POST is
+            // one-shot (fires only on RINGING/OFFHOOK/IDLE transitions), so if
+            // a challenge swallows it the parent dashboard never sees the call
+            // at all. Retry ONCE over HTTP/1.1 — the same fallback the bulk
+            // report uses — to keep the live-call banner reliable.
+            if (!response.isSuccessful && isCloudflareChallenge(response.code, body)) {
+                try { response.close() } catch (_: Exception) {}
+                response = http11Client.newCall(buildRequest(url, payload)).execute()
+                body = response.body?.string() ?: ""
             }
+
+            if (!response.isSuccessful) {
+                Log.w("ApiClient", "Call state report failed: ${response.code}")
+            }
+            try { response.close() } catch (_: Exception) {}
         } catch (e: Exception) {
             Log.e("ApiClient", "Call state report error: ${e.message}")
         }

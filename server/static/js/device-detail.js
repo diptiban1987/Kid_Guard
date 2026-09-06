@@ -820,7 +820,7 @@ function buildActivityDetail(a) {
     // Screenshot image for chat captures
     let shotHtml = '';
     if (a.activity_type === 'chat_screenshot' && a.data && (a.data.image_url || a.data.media_id)) {
-        const src = a.data.image_url || `/api/files/${a.data.media_id}`;
+        const src = chatShotSrc(a);
         shotHtml = `<div style="margin:0 0 10px;">
             <div class="activity-detail-label" style="margin-bottom:6px;">📸 Screen capture — ${escHtml(String(a.data.reason || 'chat').replace(/_/g, ' '))}</div>
             <img class="act-screenshot" src="${escAttr(src)}" onclick="openLightbox('${escAttr(src)}')" alt="chat screenshot">
@@ -878,7 +878,7 @@ function activityPreview(a) {
         return first ? `<div class="activity-preview">${escHtml(first)}${more}</div>` : '';
     }
     if (a.activity_type === 'chat_screenshot' && a.data && (a.data.image_url || a.data.media_id)) {
-        const src = a.data.image_url || `/api/files/${a.data.media_id}`;
+        const src = chatShotSrc(a);
         return `<img class="activity-preview-thumb" src="${escAttr(src)}" alt="screenshot">`;
     }
     if (a.activity_type === 'text_input' && a.data && a.data.text) {
@@ -1013,6 +1013,22 @@ function renderWebPanel() {
 
 // ─── Media Panel ──────────────────────────────────────────────────────────
 
+// <img> tags cannot send Authorization headers, so media URLs must carry the
+// access token as a query param (?token=). Firebase-backed media use their
+// long-lived download URL directly.
+function mediaSrc(m) {
+    if (m && m.url) return m.url;
+    const id = m && (m.id || m.media_id);
+    if (!id) return '';
+    return `/api/files/${id}?token=${encodeURIComponent(TOKEN || '')}`;
+}
+
+function chatShotSrc(a) {
+    if (a && a.data && a.data.image_url) return a.data.image_url;
+    const id = a && a.data && a.data.media_id;
+    return id ? `/api/files/${id}?token=${encodeURIComponent(TOKEN || '')}` : '';
+}
+
 function renderMediaPanel() {
     const container = document.getElementById('panel-media');
     if (cachedMedia.length === 0) {
@@ -1020,7 +1036,7 @@ function renderMediaPanel() {
         return;
     }
     container.innerHTML = `<div class="media-grid">${cachedMedia.map(m => {
-        const thumbUrl = `/api/files/${m.id || m.media_id}`;
+        const thumbUrl = mediaSrc(m);
         const isImage = (m.mime_type || m.type || '').startsWith('image');
         return `
             <div class="media-thumb" onclick="openLightbox('${escAttr(thumbUrl)}')">

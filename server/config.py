@@ -15,6 +15,13 @@ class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-insecure-change-me')
     JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY', 'dev-insecure-change-me-jwt')
 
+    # Media files are rendered in <img> tags, which cannot send Authorization
+    # headers. The dashboard appends the access token as a query param; this
+    # location setup makes flask-jwt-extended accept it (Windows: harmless,
+    # header auth still enforced for every other API route).
+    JWT_TOKEN_LOCATION = ['headers', 'query_string']
+    JWT_QUERY_STRING_NAME = 'token'
+
     # ── Token lifetimes ───────────────────────────────────────────────────
     # Reduced from the original 30/90-day windows for multi-user safety.
     # Configurable via env so long-lived kiosk scenarios still work.

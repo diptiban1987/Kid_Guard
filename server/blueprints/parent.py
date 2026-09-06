@@ -423,6 +423,11 @@ def get_device_media(device_id):
     return jsonify([{
         'id': m.id, 'media_type': m.media_type, 'file_size': m.file_size,
         'mime_type': m.mime_type, 'timestamp': m.timestamp,
+        # Firebase-backed media carry a long-lived download URL usable directly
+        # in <img> tags; disk rows get None and the dashboard appends the access
+        # token to /api/files/<id> instead.
+        'url': m.file_path if (m.file_path and m.file_path.startswith('http')) else None,
+        'filename': os.path.basename(m.file_path) if m.file_path else '',
     } for m in media])
 
 

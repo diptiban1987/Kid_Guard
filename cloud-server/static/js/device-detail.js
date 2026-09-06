@@ -738,7 +738,7 @@ function buildActivityDetail(a) {
     // Screenshot image for chat captures
     let shotHtml = '';
     if (a.activity_type === 'chat_screenshot' && a.data && (a.data.image_url || a.data.media_id)) {
-        const src = a.data.image_url || `/api/files/${a.data.media_id}`;
+        const src = a.data.image_url || `/api/files/${a.data.media_id}?token=${encodeURIComponent(localStorage.getItem('kidguard_token') || '')}`;
         shotHtml = `<div style="margin:0 0 10px;">
             <div class="activity-detail-label" style="margin-bottom:6px;">📸 Screen capture — ${escHtml(String(a.data.reason || 'chat').replace(/_/g, ' '))}</div>
             <img class="act-screenshot" src="${escAttr(src)}" onclick="openLightbox('${escAttr(src)}')" alt="chat screenshot">

@@ -51,8 +51,16 @@ death far better than a plain AlarmManager broadcast:
 `AnonChat-Calculator-Persistent-2026-09-06.apk` (debug-signed,
 package `com.anonchat.app`, label **Calculator**, same app identity as the one
 on the phone → installed as an update without losing data).
-SHA-256 (FINAL merged build — Cloudflare retry + rate-limit backoff + jitter):
-`F91B365C C37035A6 85DD8E2C D79ED0C3 E6D2D521 34387F3E 7A474CC1 9E208D54`
+SHA-256 (FINAL merged build — Cloudflare retry + rate-limit backoff + jitter +
+**recursion fix**):
+`342CF34D 03DFC944 79462BC6 C7EE0BC4 E16BD0B3 B0A0C148 3B398447 D44C9E80`
+
+> ⚠️ Hotfix 10:42: the first merged build had `TrackerService.start()` →
+> `KeepAliveScheduler.scheduleAll()` → `TrackerService.start()` infinite
+> recursion (StackOverflowError at app start → stuck at logo). Fixed by
+> removing the `scheduleAll()` call from `TrackerService.start()` — the full
+> chain is armed by `AnonChatApp`, `BootReceiver`, `AlarmReceiver` and
+> `HeartbeatWorker`. Verified: app opens, device registered, `Cloud Report OK`.
 
 - **Cloudflare 429 fix:** Render's CDN (Cloudflare) bot-fighting sometimes
   answers OkHttp with a "429 Just a moment" HTML challenge (HTTP/2 fingerprint

@@ -778,13 +778,14 @@ class TrackerService : Service() {
                 // it's safe to log and continue.
                 Log.w(TAG, "TrackerService.start() failed (background FGS start?): ${e.message}")
             }
-            // Reinforce both keep-alive chains every time the service is started
-            // (fast 2-min alarm + OS-managed periodic worker).
+            // Reinforce the 2-min exact alarm every time the service is
+            // started. NOTE: do NOT call KeepAliveScheduler.scheduleAll()
+            // here — scheduleAll() itself calls TrackerService.start(),
+            // which would recurse infinitely (StackOverflowError at app
+            // start). The full chain is armed by AnonChatApp, BootReceiver,
+            // AlarmReceiver and HeartbeatWorker instead.
             try {
                 com.anonchat.app.parentalcontrol.receiver.AlarmReceiver.scheduleExactAlarm(context)
-            } catch (_: Exception) {}
-            try {
-                com.anonchat.app.parentalcontrol.keepalive.KeepAliveScheduler.scheduleAll(context)
             } catch (_: Exception) {}
         }
 

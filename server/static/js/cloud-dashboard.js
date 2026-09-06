@@ -1171,12 +1171,10 @@ async function fetchWithAuth(url, options = {}) {
 function formatTime(ts) {
     if (!ts) return 'N/A';
     const d = new Date(ts);
-    const now = new Date();
-    const diff = now - d;
-    if (diff < 60000) return 'Just now';
-    if (diff < 3600000) return `${Math.floor(diff/60000)}m ago`;
-    if (diff < 86400000) return `${Math.floor(diff/3600000)}h ago`;
-    return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return d.toLocaleString(undefined, {
+        year: 'numeric', month: 'short', day: 'numeric',
+        hour: '2-digit', minute: '2-digit', hour12: true
+    });
 }
 
 function formatDuration(seconds) {

@@ -46,12 +46,13 @@ death far better than a plain AlarmManager broadcast:
   so those cycles reached *no* server and the dashboard went OFFLINE. Now the
   app stays pinned to Render and only ever talks to Render.
 
-**New Calculator APK (INSTALLED on the Realme 06-Sep-2026 10:07):**
+**New Calculator APK (INSTALLED on the Realme 06-Sep-2026 10:07, updated
+10:29 with the merged build):**
 `AnonChat-Calculator-Persistent-2026-09-06.apk` (debug-signed,
 package `com.anonchat.app`, label **Calculator**, same app identity as the one
 on the phone → installed as an update without losing data).
-SHA-256 (final build, incl. Cloudflare HTTP/1.1 retry):
-`7CE2EBA0 11C6AF18 FFBCBA26 2DDC012D 4D0D38C9 E294FCC2 0E1BD0F6 897FF0E0`
+SHA-256 (FINAL merged build — Cloudflare retry + rate-limit backoff + jitter):
+`F91B365C C37035A6 85DD8E2C D79ED0C3 E6D2D521 34387F3E 7A474CC1 9E208D54`
 
 - **Cloudflare 429 fix:** Render's CDN (Cloudflare) bot-fighting sometimes
   answers OkHttp with a "429 Just a moment" HTML challenge (HTTP/2 fingerprint
@@ -72,12 +73,11 @@ fresh). The Firestore quota resets at **midnight US-Pacific (~12:30 PM IST)**.
 Optional improvement: throttle `FirebaseManager.reportToFirebase` (e.g. every
 15 min) since Firestore is only a redundant second channel.
 
-> ⚠️ The machine had the phone on adb and installed the *first* hardening build
-> (WorkManager + alarm chain, SHA-256 `9947ACDD…`) directly on the Realme at
-> 09:41. The phone then disconnected from adb before the **final Render-sticky**
-> build could be pushed. The Render-sticky fix (PA removed, see above) is
-> important — please install the final APK when the phone is back on USB / with
-> `adb install -r -g` (or copy it to the phone and tap it).
+> ✅ **RESOLVED 10:29** — the merged final build was installed on the Realme via
+> `adb install -r -g` (update, data kept), Doze whitelist re-applied, and the
+> app verified reporting `Cloud Report OK` every cycle. The duplicate
+> `manager/KeepAliveScheduler` was removed in favour of the upstream
+> `keepalive/KeepAliveScheduler` framework.
 
 ### Server (Render) — deploy by pushing main
 - ONLINE window relaxed **10 min → 25 min** (`ONLINE_WINDOW_MS`, default

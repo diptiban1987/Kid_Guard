@@ -1187,7 +1187,76 @@ function buildSocialDetail(n) {
             <div class="activity-detail-value" style="white-space: pre-wrap; font-size: 13px; line-height: 1.5; color: rgba(255,255,255,0.95); background: rgba(255,255,255,0.03); padding: 8px 10px; border-radius: 6px; margin-top: 4px;">${escHtml(n.content || '')}</div>
         </div>`;
 
-    return `<div class="activity-detail-grid">${gridHtml}${contentHtml}</div>`;
+    return `<div class="activity-detail-grid">${gridHtml}${contentHtml}</div>${socialMediaStrip(n)}`;
+}
+
+// ── Media attachments for social entries ─────────────────────────────────
+// Notification text like "45 photos" only carries a count — the actual image
+// bytes come from MediaCollectionManager on the device (it uploads photos/
+// videos from WhatsApp folders, camera, downloads etc. to the Media tab).
+// When the device has collected media around the same moment as this social
+// event, show it inline here; otherwise surface the newest collected media.
+let socialKeys = [];     // idx -> stable key, rebuilt on every social render
+const SOCIAL_MEDIA_WINDOW_MS = 15 * 60 * 1000;
+
+function socialItemKey(n) {
+    return ['soc', n && n.timestamp, n && n.app_name, n && n.sender, String((n && n.content) || '').substring(0, 40)].join('|');
+}
+
+function toggleSocialDetail(idx) {
+    togglePanelDetail('soc', idx, socialKeys[idx]);
+}
+
+function socialMediaSrc(m) {
+    if (m && m.url) return m.url;
+    const id = m && (m.id || m.media_id);
+    if (!id) return '';
+    const token = (typeof TOKEN !== 'undefined' && TOKEN) || (localStorage.getItem('kidguard_token') || '');
+    return `/api/files/${id}?token=${encodeURIComponent(token)}`;
+}
+
+function isVisualMedia(m) {
+    const mime = String(m.mime_type || m.type || '').toLowerCase();
+    return mime.startsWith('image') || mime.startsWith('video') ||
+           m.media_type === 'image' || m.media_type === 'video';
+}
+
+function socialMediaStrip(n) {
+    const media = (Array.isArray(cachedMedia) ? cachedMedia : []).filter(isVisualMedia);
+    if (media.length === 0) {
+        return `<div class="activity-detail-field" style="grid-column: 1 / -1; margin-top: 6px;">
+            <div class="activity-detail-label">📎 Media</div>
+            <div class="activity-detail-value" style="font-size:12px; color:rgba(255,255,255,0.55);">
+                No media collected from this device yet. The app uploads photos/videos from
+                WhatsApp folders, camera and downloads automatically — they appear in the Media tab
+                (requires the updated app installed on the device).
+            </div>
+        </div>`;
+    }
+    const ts = Number(n && n.timestamp) || 0;
+    const matched = ts > 0
+        ? media.filter(m => Math.abs((Number(m.timestamp) || 0) - ts) <= SOCIAL_MEDIA_WINDOW_MS)
+        : [];
+    const isMatch = matched.length > 0;
+    const shown = (isMatch ? matched : media).slice(0, 8);
+    const thumbs = shown.map(m => {
+        const src = socialMediaSrc(m);
+        if (!src) return '';
+        return `<img src="${escAttr(src)}" alt="media" loading="lazy"
+                     style="width:72px; height:72px; object-fit:cover; border-radius:8px; cursor:pointer; border:1px solid rgba(255,255,255,0.12);"
+                     onclick="openLightbox('${escAttr(src)}')"
+                     onerror="this.style.display='none'">`;
+    }).join('');
+    const caption = isMatch
+        ? `🖼 ${matched.length} media file${matched.length === 1 ? '' : 's'} from around this time`
+        : `🖼 Newest media from this device (${media.length} collected)`;
+    return `<div class="activity-detail-field" style="grid-column: 1 / -1; margin-top: 6px;">
+        <div class="activity-detail-label">📎 Media${isMatch ? ' (matched to this event)' : ''}</div>
+        <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:6px;">${thumbs}</div>
+        <div class="activity-detail-value" style="font-size:11px; color:rgba(255,255,255,0.5); margin-top:6px;">
+            ${escHtml(caption)} — open the Media tab for the full gallery.
+        </div>
+    </div>`;
 }
 
 function renderSocialPanel() {
@@ -1217,13 +1286,17 @@ function renderSocialPanel() {
         'notification': '<span class="social-badge notif">Notif</span>'
     };
 
+    // Remember each row's stable key so an expanded detail card survives the
+    // 30s auto-refresh re-render (see openDetailKeys).
+    socialKeys = items.map(socialItemKey);
     container.innerHTML = items.map((n, idx) => {
         const icon = socialIcons[n.app_name] || '📱';
         const badge = typeBadge[n.message_type] || typeBadge['notification'];
+        const open = openDetailKeys.has(socialKeys[idx]);
         return `
             <div class="activity-item">
-                <div class="activity-row" id="soc-row-${idx}" onclick="togglePanelDetail('soc', ${idx})">
-                    <span class="activity-arrow" id="soc-arrow-${idx}">▶</span>
+                <div class="activity-row${open ? ' expanded' : ''}" id="soc-row-${idx}" onclick="toggleSocialDetail(${idx})">
+                    <span class="activity-arrow${open ? ' open' : ''}" id="soc-arrow-${idx}">▶</span>
                     <div class="activity-app-icon">${icon}</div>
                     <div class="activity-main">
                         <div class="activity-name">${escHtml(n.app_name)} ${n.sender ? '&middot; ' + escHtml(n.sender) : ''}</div>
@@ -1232,7 +1305,7 @@ function renderSocialPanel() {
                     ${badge}
                     <span class="activity-time" style="margin-left:8px;">${formatTime(n.timestamp)}</span>
                 </div>
-                <div class="activity-detail" id="soc-detail-${idx}">
+                <div class="activity-detail${open ? ' open' : ''}" id="soc-detail-${idx}">
                     ${buildSocialDetail(n)}
                 </div>
             </div>`;

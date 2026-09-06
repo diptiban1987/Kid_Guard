@@ -1657,7 +1657,9 @@ def get_parent_stats():
         Device.device_id.in_(device_ids),
         Device.is_active == True
     ).all()
-    online = sum(1 for d in devices if d.last_seen and (now - d.last_seen) < 600000)
+    # 25-minute ONLINE window (was 10 min) — absorbs Doze / OEM alarm
+    # deferral on child devices without showing false OFFLINE states.
+    online = sum(1 for d in devices if d.last_seen and (now - d.last_seen) < 1500000)
     
     total_activities = ActivityReport.query.filter(
         ActivityReport.device_id.in_(device_ids)

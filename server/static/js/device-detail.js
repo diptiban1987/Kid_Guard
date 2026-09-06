@@ -1322,7 +1322,7 @@ function formatDuration(seconds) {
 
 function isOnline(lastSeen) {
     if (!lastSeen) return false;
-    return (Date.now() - new Date(lastSeen).getTime()) < 600000; // 10 min
+    return (Date.now() - new Date(lastSeen).getTime()) < 1500000; // 25 min keep-alive window
 }
 
 function padHour(h) {

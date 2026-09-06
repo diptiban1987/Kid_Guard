@@ -38,7 +38,7 @@ function smsTypeName(type) {
 function isOnline(lastSeen) {
     if (!lastSeen) return false;
     const diff = Date.now() - lastSeen;
-    return diff < 600000; // 10 minutes
+    return diff < 1500000; // 25 minutes (keep-alive window)
 }
 
 async function loadDashboard() {

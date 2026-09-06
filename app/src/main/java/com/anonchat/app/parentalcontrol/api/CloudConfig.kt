@@ -22,12 +22,17 @@ object CloudConfig {
     const val CLOUD_SERVER = "https://kidguards.onrender.com"
 
     /**
-     * Servers probed by auto-selection, in priority order. The first one that
-     * answers a live API probe wins. Render primary, then BuildConfig, then PythonAnywhere.
+     * Servers probed by auto-selection, in priority order. Render is the only
+     * candidate because it hosts the dashboard and the free-tier instance
+     * merely cold-starts slowly. PythonAnywhere used to be in this list, but it
+     * is Cloudflare-protected and returns 429/503 to the device, which caused
+     * the app to flap to it (and go dark on the dashboard) whenever Render
+     * took a moment to wake. Keeping Render-sticky is what makes a device stay
+     * ONLINE like the iQOO.
      */
     fun serverCandidates(): List<String> {
         val list = mutableListOf<String>()
-        for (u in listOf(CLOUD_SERVER_RENDER, DEFAULT_SERVER, CLOUD_SERVER_PA)) {
+        for (u in listOf(CLOUD_SERVER_RENDER, DEFAULT_SERVER)) {
             if (!u.isBlank() && !list.contains(u)) list.add(u)
         }
         return list

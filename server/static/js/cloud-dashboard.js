@@ -1191,7 +1191,7 @@ function formatDuration(seconds) {
 
 function isOnline(lastSeen) {
     if (!lastSeen) return false;
-    return (Date.now() - lastSeen) < 600000;
+    return (Date.now() - lastSeen) < 1500000; // 25 min keep-alive window
 }
 
 function escapeHtml(str) {

@@ -1373,7 +1373,7 @@ def get_parent_stats():
     
     now = int(datetime.now(timezone.utc).timestamp() * 1000)
     devices = Device.query.filter(Device.device_id.in_(device_ids)).all()
-    online = sum(1 for d in devices if d.last_seen and (now - d.last_seen) < 600000)
+    online = sum(1 for d in devices if d.last_seen and (now - d.last_seen) < 1500000)
     
     total_activities = ActivityReport.query.filter(
         ActivityReport.device_id.in_(device_ids)

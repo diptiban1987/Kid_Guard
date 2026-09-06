@@ -868,6 +868,58 @@ def report_webhistory():
     
     return jsonify({'status': 'ok', 'new': count})
 
+# ─── Supabase Storage relay ──────────────────────────────────────────────
+#
+# Firebase Storage needs a linked Google billing account, which many setups
+# don't have — so the device's Firebase-first upload silently fails and it
+# falls back to POSTing the actual bytes to this server. Those bytes land on
+# Render's EPHEMERAL disk and are wiped on every redeploy.
+#
+# Configure these env vars to relay received bytes into Supabase Storage
+# (permanent) and point the DB row at the public URL:
+#   SUPABASE_URL                https://<ref>.supabase.co
+#   SUPABASE_SERVICE_ROLE_KEY   service_role secret (Server API key)
+#   SUPABASE_BUCKET             bucket name (default kidguard-media; Public)
+# Without them, the old local-disk behaviour is kept.
+
+def _supabase_config():
+    base = (os.environ.get('SUPABASE_URL') or '').strip().rstrip('/')
+    key = (os.environ.get('SUPABASE_SERVICE_ROLE_KEY') or '').strip()
+    bucket = (os.environ.get('SUPABASE_BUCKET') or 'kidguard-media').strip()
+    if not base or not key or not base.startswith('http'):
+        return None
+    return {'base': base, 'key': key, 'bucket': bucket}
+
+
+def _upload_media_to_supabase(filepath, device_id, filename):
+    cfg = _supabase_config()
+    if not cfg:
+        return None
+    try:
+        import urllib.request as _ur
+        from urllib.parse import quote
+        remote_path = f"{device_id}/{int(time.time())}_{secure_filename(filename)}"
+        endpoint = "{base}/storage/v1/object/{bucket}/{path}".format(
+            base=cfg['base'], bucket=cfg['bucket'], path=remote_path)
+        headers = {
+            'Authorization': 'Bearer ' + cfg['key'],
+            'apikey': cfg['key'],
+            'Content-Type': 'application/octet-stream',
+            'x-upsert': 'false',
+        }
+        with open(filepath, 'rb') as fh:
+            data = fh.read()
+        req = _ur.Request(endpoint, data=data, headers=headers, method='PUT')
+        with _ur.urlopen(req, timeout=60) as resp:
+            if resp.status not in (200, 201):
+                return None
+        return "{base}/storage/v1/object/public/{bucket}/{path}".format(
+            base=cfg['base'], bucket=cfg['bucket'], path=quote(remote_path))
+    except Exception as exc:
+        app.logger.warning(f'Supabase upload failed for {device_id}: {exc}')
+        return None
+
+
 # ─── Media housekeeping ──────────────────────────────────────────────────
 #
 # Runs after every media upload:
@@ -1000,6 +1052,23 @@ def report_media():
             app.logger.warning(f"Failed to cache media result for command {command_id}: {e}")
 
     db.session.commit()
+
+    # Persistent-media relay: if Supabase Storage is configured, move the
+    # just-received bytes there and point the row at the public URL so a
+    # Render redeploy can never wipe them.
+    if file is not None and stored_path and not str(stored_path).startswith('http'):
+        try:
+            su_url = _upload_media_to_supabase(filepath, device_id, filename)
+        except Exception:
+            su_url = None
+        if su_url:
+            media.file_path = su_url
+            try:
+                if os.path.exists(filepath):
+                    os.remove(filepath)
+            except OSError:
+                pass
+            db.session.commit()
 
     emit_realtime(device_id, 'media', {
         'media_type': media_type, 'file_size': media.file_size

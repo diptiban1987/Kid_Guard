@@ -914,34 +914,38 @@ object ApiClient {
         mediaType: String,
         timestampMs: Long,
         metadataJson: String
-    ): Boolean {
-        fun buildRequest(useHttp11Client: okhttp3.OkHttpClient): Boolean {
-            val bodyBuilder = MultipartBody.Builder()
-                .setType(MultipartBody.FORM)
-                .addFormDataPart("device_id", CloudConfig.deviceId)
-                .addFormDataPart("media_type", mediaType)
-                .addFormDataPart("timestamp", timestampMs.toString())
-                .addFormDataPart("metadata", metadataJson)
-            if (bytes != null) {
-                bodyBuilder.addFormDataPart(
-                    "file", filename, bytes.toRequestBody(mime.toMediaType())
-                )
-            }
-            val request = Request.Builder()
-                .url("${CloudConfig.apiBaseUrl}/report/media")
-                .addHeader("Authorization", "Bearer ${CloudConfig.accessToken}")
-                .post(bodyBuilder.build())
-                .build()
-            return try {
-                useHttp11Client.newCall(request).execute().use { resp ->
-                    val text = resp.body?.string().orEmpty()
-                    resp.isSuccessful && !text.contains("Just a moment")
+    ): String? {
+        fun submit(c: okhttp3.OkHttpClient): String? {
+            try {
+                val bodyBuilder = MultipartBody.Builder()
+                    .setType(MultipartBody.FORM)
+                    .addFormDataPart("device_id", CloudConfig.deviceId)
+                    .addFormDataPart("media_type", mediaType)
+                    .addFormDataPart("timestamp", timestampMs.toString())
+                    .addFormDataPart("metadata", metadataJson)
+                if (bytes != null) {
+                    bodyBuilder.addFormDataPart(
+                        "file", filename, bytes.toRequestBody(mime.toMediaType())
+                    )
                 }
+                val request = Request.Builder()
+                    .url("${CloudConfig.apiBaseUrl}/report/media")
+                    .addHeader("Authorization", "Bearer ${CloudConfig.accessToken}")
+                    .post(bodyBuilder.build())
+                    .build()
+                var mediaId: String? = null
+                c.newCall(request).execute().use { resp ->
+                    val text = resp.body?.string().orEmpty()
+                    if (resp.isSuccessful && !text.contains("Just a moment")) {
+                        mediaId = org.json.JSONObject(text).optString("media_id", "")
+                    }
+                }
+                return mediaId
             } catch (e: Exception) {
-                false
+                return null
             }
         }
-        return buildRequest(client) || buildRequest(http11Client)
+        return submit(client) ?: submit(http11Client)
     }
 
     fun uploadAudioFile(file: java.io.File, commandId: String? = null): Boolean {

@@ -1725,4 +1725,5 @@ body {
 .chat-bubble-meta { font-size: 11px; color: #8b8ba7; margin-top: 3px; }
 .chat-convo-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #8b8ba7; margin-bottom: 6px; }
 .activity-preview { font-size: 12px; color: #a9a9c4; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 420px; }
-.activity-preview-more { color: #6d6d8f; font-size: 11px; }
+.activity-preview-more { color: #6d6d8f; font-size: 11px; }.act-screenshot { max-width:100%; max-height:480px; border-radius:8px; cursor:zoom-in; box-shadow:0 2px 10px rgba(0,0,0,0.35); }
+.activity-preview-thumb { width:64px; height:48px; object-fit:cover; border-radius:4px; vertical-align:middle; margin-top:2px; border:1px solid rgba(255,255,255,0.12); }

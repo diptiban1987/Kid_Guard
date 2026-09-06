@@ -265,7 +265,7 @@ class MediaCollectionManager private constructor(private val context: Context) {
                     // redirects the gallery to it.
                     return ApiClient.uploadMediaFile(
                         null, filename, mime, mediaType, item.dateTaken, meta.toString()
-                    )
+                    ) != null
                 }
             }
 
@@ -273,7 +273,7 @@ class MediaCollectionManager private constructor(private val context: Context) {
             //    straight to Render.
             ApiClient.uploadMediaFile(
                 bytes, filename, mime, mediaType, item.dateTaken, meta.toString()
-            )
+            ) != null
         } catch (e: Exception) {
             Log.e(TAG, "upload error: ${e.message}"); false
         }

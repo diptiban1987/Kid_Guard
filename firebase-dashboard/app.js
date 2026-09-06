@@ -681,15 +681,10 @@ function formatTime(ts) {
 }
 function formatTimeAgo(ts) {
     if (!ts) return '—';
-    const diffMs = Date.now() - ts;
-    if (diffMs < 0 || isNaN(diffMs)) return formatTime(ts);
-    const diffSec = Math.floor(diffMs / 1000);
-    if (diffSec < 60) return 'Just now';
-    const diffMin = Math.floor(diffSec / 60);
-    if (diffMin < 60) return `${diffMin}m ago`;
-    const diffHr = Math.floor(diffMin / 60);
-    if (diffHr < 24) return `${diffHr}h ago`;
-    return formatFullTime(ts);
+    return new Date(ts).toLocaleString(undefined, {
+        year: 'numeric', month: 'short', day: 'numeric',
+        hour: '2-digit', minute: '2-digit', hour12: true
+    });
 }
 function formatFullTime(ts) {
     if (!ts) return '—';

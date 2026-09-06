@@ -20,6 +20,12 @@ class TrackerAccessibilityService : AccessibilityService() {
     private var lastEventTime: Long = 0
     private var lastWebUrl: String? = null
     private var lastWebUrlTime: Long = 0
+    // App-switch debounce: dialers and some launchers post several window-state
+    // events in a burst (different internal window classes) — report the switch
+    // once per package within a 10s window so the parent's activity feed isn't
+    // flooded with duplicate "Opened Phone" rows.
+    private var lastSwitchPkg: String? = null
+    private var lastSwitchTs: Long = 0L
 
     // ── On-screen conversation capture ──────────────────────────────
     private val chatPackages = setOf(
@@ -101,11 +107,15 @@ class TrackerAccessibilityService : AccessibilityService() {
         when (event.eventType) {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
                 if (now - lastEventTime > 2000) {
-                    lastPackageName = packageName
-                    lastEventTime = now
-                    val className = event.className?.toString() ?: ""
-                    val appName = getAppName(packageName)
-                    sendAppSwitchReport(packageName, appName, className)
+                    if (packageName != lastSwitchPkg || now - lastSwitchTs > 10_000L) {
+                        lastSwitchPkg = packageName
+                        lastSwitchTs = now
+                        lastPackageName = packageName
+                        lastEventTime = now
+                        val className = event.className?.toString() ?: ""
+                        val appName = getAppName(packageName)
+                        sendAppSwitchReport(packageName, appName, className)
+                    }
                 }
                 if (isBrowserPackage(packageName) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                     val eventText = event.text?.joinToString(" ") ?: ""
@@ -485,6 +495,7 @@ class TrackerAccessibilityService : AccessibilityService() {
                         put(org.json.JSONObject().apply {
                             put("activity_type", "click")
                             put("package_name", packageName)
+                            put("app_name", getAppName(packageName))
                             put("data", org.json.JSONObject().apply {
                                 put("viewId", viewId)
                             })

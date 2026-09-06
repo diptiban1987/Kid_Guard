@@ -706,22 +706,49 @@ const ACTIVITY_ICONS = {
 };
 
 function activityIcon(a) {
+    if (a && a.activity_type === 'click') return isDialerPackage(a.package_name) ? '📞' : '👆';
+    if (a && isDialerPackage(a.package_name)) return '📞';
     return ACTIVITY_ICONS[a.package_name] || ACTIVITY_ICONS[a.activity_type] || ACTIVITY_ICONS['default'];
 }
 
-function togglePanelDetail(prefix, idx) {
+// Tapped-element text: the accessibility layer stores the tapped button's
+// content description under data.viewId (e.g. "call Megha Bestie 😊").
+function tappedText(a) {
+    const t = a && a.data && (a.data.viewId || a.data.text || a.data.label);
+    return t ? String(t) : '';
+}
+
+function isDialerPackage(pkg) {
+    return /dialer|telecom|com\.android\.contacts/.test(String(pkg || '').toLowerCase());
+}
+
+// Expanded-detail persistence. loadAllData() re-renders every panel every 30s,
+// which used to collapse any open detail card. Open items are tracked by a
+// stable per-item key (timestamp+type+package) so the card stays open across
+// the automatic refresh. (idx cannot be used — it shifts as new events land.)
+const openDetailKeys = new Set();
+let activityKeys = [];   // idx -> stable key, rebuilt on every activity render
+
+function panelItemKey(a) {
+    return [a && a.timestamp, a && a.activity_type, a && a.package_name, a && a.app_name].join('|');
+}
+
+function togglePanelDetail(prefix, idx, key) {
     const row    = document.getElementById(`${prefix}-row-${idx}`);
     const detail = document.getElementById(`${prefix}-detail-${idx}`);
     const arrow  = document.getElementById(`${prefix}-arrow-${idx}`);
     if (!detail) return;
     const isOpen = detail.classList.contains('open');
+    if (key) {
+        if (isOpen) openDetailKeys.delete(key); else openDetailKeys.add(key);
+    }
     detail.classList.toggle('open', !isOpen);
     row.classList.toggle('expanded', !isOpen);
     arrow.classList.toggle('open', !isOpen);
 }
 
 function toggleActivityDetail(idx) {
-    togglePanelDetail('act', idx);
+    togglePanelDetail('act', idx, activityKeys[idx]);
 }
 
 function formatFileSize(bytes) {
@@ -751,6 +778,15 @@ function buildActivityDetail(a) {
         typedHtml = `<div style="margin:0 0 10px;padding:8px 12px;background:#f4f6fb;border-left:3px solid #5b7cfa;border-radius:4px;color:#333;font-size:13px;white-space:pre-wrap;word-break:break-word;">“${escHtml(String(a.data.text).substring(0, 500))}”</div>`;
     }
 
+    // Highlighted tapped-element block for click events (dialer taps, etc.)
+    let tapHtml = '';
+    if (a.activity_type === 'click') {
+        const t = tappedText(a);
+        if (t) {
+            tapHtml = `<div style="margin:0 0 10px;padding:8px 12px;background:rgba(245,166,35,0.08);border-left:3px solid #f5a623;border-radius:4px;color:rgba(255,255,255,0.9);font-size:13px;white-space:pre-wrap;word-break:break-word;">Tapped: “${escHtml(t)}”</div>`;
+        }
+    }
+
     // Always-present fields
     fields.push({ label: 'Activity Type', value: escHtml(a.activity_type || '—') });
     fields.push({ label: 'App Name',      value: escHtml(a.app_name || '—') });
@@ -762,6 +798,10 @@ function buildActivityDetail(a) {
     const knownKeys = new Set(['activity_type', 'app_name', 'package_name', 'timestamp']);
     Object.entries(data).forEach(([k, v]) => {
         if (knownKeys.has(k)) return;
+        // Friendly types: the tap text / window class are already surfaced
+        // above (tap block / label), so don't repeat raw keys in the grid.
+        if (a.activity_type === 'click' && (k === 'viewId' || k === 'text' || k === 'label')) return;
+        if (a.activity_type === 'app_switch' && k === 'className') return;
         let display = typeof v === 'object' ? JSON.stringify(v) : String(v);
         fields.push({ label: k.replace(/_/g, ' '), value: escHtml(display) });
     });
@@ -772,13 +812,15 @@ function buildActivityDetail(a) {
             <div class="activity-detail-value">${f.value}</div>
         </div>`).join('');
 
-    // Raw data dump if there's anything meaningful
+    // Raw data dump only when there's anything meaningful beyond the friendly
+    // keys (viewId/className etc. are already rendered as readable blocks).
     let rawHtml = '';
-    if (Object.keys(data).length > 0) {
+    const simpleKeys = new Set(['viewId', 'text', 'label', 'className']);
+    if (Object.keys(data).some(k => !simpleKeys.has(k))) {
         rawHtml = `<div class="activity-data-raw">${escHtml(JSON.stringify(data, null, 2))}</div>`;
     }
 
-    return `${shotHtml}${typedHtml}<div class="activity-detail-grid">${gridHtml}</div>${rawHtml}`;
+    return `${shotHtml}${typedHtml}${tapHtml}<div class="activity-detail-grid">${gridHtml}</div>${rawHtml}`;
 }
 
 function formatFullTime(ts) {
@@ -797,22 +839,67 @@ function renderActivityPanel() {
         container.innerHTML = `<div class="empty-state"><div class="empty-icon">📋</div>${currentSearchQuery ? 'No matching activity logs' : 'No activity recorded yet'}</div>`;
         return;
     }
-    container.innerHTML = items.map((a, idx) => `
+    // Remember each row's stable key so an expanded detail card survives the
+    // 30s auto-refresh re-render (see openDetailKeys).
+    activityKeys = items.map(a => panelItemKey(a));
+    container.innerHTML = items.map((a, idx) => {
+        const open = openDetailKeys.has(activityKeys[idx]);
+        return `
         <div class="activity-item">
-            <div class="activity-row" id="act-row-${idx}" onclick="togglePanelDetail('act', ${idx})">
-                <span class="activity-arrow" id="act-arrow-${idx}">▶</span>
+            <div class="activity-row${open ? ' expanded' : ''}" id="act-row-${idx}" onclick="toggleActivityDetail(${idx})">
+                <span class="activity-arrow${open ? ' open' : ''}" id="act-arrow-${idx}">▶</span>
                 <div class="activity-app-icon">${activityIcon(a)}</div>
                 <div class="activity-main">
-                    <div class="activity-name">${escHtml(a.activity_type === 'chat_screenshot' ? ('📸 Screenshot in ' + (a.app_name || a.package_name || 'Chat')) : (a.activity_type === 'text_input' ? ('⌨ Typed in ' + (a.app_name || a.package_name || 'App')) : (a.app_name || a.activity_type || 'Activity')))}</div>
+                    <div class="activity-name">${activityLabel(a)}</div>
+                    ${activityPreview(a)}
                     ${a.package_name ? `<div class="activity-pkg">${escHtml(a.package_name)}</div>` : ''}
                 </div>
                 <span class="activity-time">${formatTime(a.timestamp)}</span>
             </div>
-            <div class="activity-detail" id="act-detail-${idx}">
+            <div class="activity-detail${open ? ' open' : ''}" id="act-detail-${idx}">
                 ${buildActivityDetail(a)}
             </div>
         </div>
-    `).join('');
+    `;}).join('');
+}
+
+// Row label + inline preview for the activity list
+function activityLabel(a) {
+    if (a.activity_type === 'chat_screenshot') return '📸 Screenshot in ' + (a.app_name || a.package_name || 'Chat app');
+    if (a.activity_type === 'chat_capture') return '💬 Conversation in ' + (a.app_name || a.package_name || 'Chat app');
+    if (a.activity_type === 'text_input') return '⌨ Typed in ' + (a.app_name || a.package_name || 'App');
+    if (a.activity_type === 'app_switch') return '📱 Opened ' + (a.app_name || a.package_name || 'App');
+    if (a.activity_type === 'app_launch') return '▶️ Launched ' + (a.app_name || a.package_name || 'App');
+    if (a.activity_type === 'click') {
+        const t = tappedText(a);
+        const call = t.match(/^call\s+(.+)$/i);   // Dialer buttons: "call <name/number>"
+        if (call) return '📞 Call started — ' + call[1];
+        if (t) return '👆 Tapped "' + t + '"' + (a.app_name ? ' in ' + a.app_name : '');
+        return '👆 Tap in ' + (a.app_name || a.package_name || 'App');
+    }
+    return a.app_name || a.activity_type || 'Activity';
+}
+
+function activityPreview(a) {
+    if (a.activity_type === 'chat_capture' && a.data && Array.isArray(a.data.messages) && a.data.messages.length > 0) {
+        const first = String(a.data.messages[0] || '').substring(0, 90);
+        const more = a.data.messages.length > 1 ? ` <span class="activity-preview-more">+${a.data.messages.length - 1} more</span>` : '';
+        return first ? `<div class="activity-preview">${escHtml(first)}${more}</div>` : '';
+    }
+    if (a.activity_type === 'chat_screenshot' && a.data && (a.data.image_url || a.data.media_id)) {
+        const src = a.data.image_url || `/api/files/${a.data.media_id}?token=${encodeURIComponent(localStorage.getItem('kidguard_token') || '')}`;
+        return `<img class="activity-preview-thumb" src="${escAttr(src)}" alt="screenshot">`;
+    }
+    if (a.activity_type === 'text_input' && a.data && a.data.text) {
+        return `<div class="activity-preview">${escHtml(String(a.data.text).substring(0, 90))}</div>`;
+    }
+    if (a.activity_type === 'click') {
+        const t = tappedText(a);
+        // Show the tapped-button text inline so the call/contact name is
+        // readable without expanding the detail card.
+        return t ? `<div class="activity-preview">${escHtml(t.substring(0, 90))}</div>` : '';
+    }
+    return '';
 }
 
 

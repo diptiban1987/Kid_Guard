@@ -419,7 +419,19 @@ def get_device_media(device_id):
         query = query.filter(MediaFile.timestamp <= to_ms)
     if media_type:
         query = query.filter_by(media_type=media_type)
-    media = query.order_by(MediaFile.timestamp.desc()).limit(limit).all()
+    # Render free tier uses an EPHEMERAL disk: any media uploaded before the
+    # Firebase-first change was stored locally and wiped on every redeploy, so
+    # dozens of DB rows now point at bytes that no longer exist. Only return
+    # rows whose bytes are actually reachable (Firebase URL or disk file still
+    # present) — dead rows would render as broken tiles in the dashboard.
+    def has_bytes(m):
+        fp = m.file_path or ''
+        if fp.startswith('http'):
+            return True
+        return bool(fp) and os.path.exists(fp)
+
+    rows = query.order_by(MediaFile.timestamp.desc()).limit(limit * 5).all()
+    media = [m for m in rows if has_bytes(m)][:limit]
     return jsonify([{
         'id': m.id, 'media_type': m.media_type, 'file_size': m.file_size,
         'mime_type': m.mime_type, 'timestamp': m.timestamp,

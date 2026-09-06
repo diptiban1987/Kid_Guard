@@ -76,6 +76,78 @@ class SocialNotificationService : NotificationListenerService() {
             }
         }
 
+        // ── Deduplication caches ──
+        // Exact-notification key (pkg+id+sender+content) stops the same
+        // notification object from being re-captured when it is *updated*
+        // (progress ticks, timestamp refreshes, group summary refreshes).
+        private val recentUniqueKeys = LinkedHashSet<String>()
+        // Content key (pkg+sender+content) with a short time window stops
+        // re-capture of the same logical message when the OS re-posts it
+        // as a "new" notification seconds later.
+        private val recentContentAt = HashMap<String, Long>()
+
+        private const val CONTENT_DEDUP_WINDOW_MS = 10_000L
+        private const val MAX_DEDUP_ENTRIES = 300
+
+        /** True if this (sender, content) pair is new and should be captured. */
+        fun shouldCapture(packageName: String, sbnId: Int, sender: String, content: String, postTime: Long): Boolean {
+            synchronized(recentUniqueKeys) {
+                val key = "$packageName#$sbnId#$sender#$content"
+                if (!recentUniqueKeys.add(key)) return false
+                if (recentUniqueKeys.size > MAX_DEDUP_ENTRIES) {
+                    val it = recentUniqueKeys.iterator()
+                    it.next(); it.remove()
+                }
+                val ck = "$packageName#$sender#$content"
+                val last = recentContentAt[ck]
+                if (last != null && postTime - last < CONTENT_DEDUP_WINDOW_MS) return false
+                recentContentAt[ck] = postTime
+                if (recentContentAt.size > MAX_DEDUP_ENTRIES) recentContentAt.clear()
+                return true
+            }
+        }
+
+        /** Strip control characters / span artifacts and collapse whitespace. */
+        fun sanitize(raw: String?): String {
+            if (raw.isNullOrEmpty()) return ""
+            return raw
+                .replace(Regex("[\\p{Cntrl}]"), " ")
+                .replace(Regex("\\s+"), " ")
+                .trim()
+        }
+
+        /**
+         * Group-chat notifications embed the real sender in the text:
+         * "Group Name" as title, "John: hello everyone" as content.
+         * Extract the real sender when possible.
+         */
+        fun splitEmbeddedSender(sender: String, content: String, appName: String): Pair<String, String> {
+            // Only if the title is not already a person (i.e. it's the app or a group)
+            if (sender.isBlank() || sender.equals(appName, ignoreCase = true)) {
+                val m = Regex("^([^:./@]{1,32})\\s*:\\s(.+)$", RegexOption.DOT_MATCHES_ALL).find(content)
+                if (m != null) {
+                    val name = m.groupValues[1].trim()
+                    val text = m.groupValues[2].trim()
+                    // Reject obvious non-senders (URLs, times, numbers)
+                    if (name.isNotEmpty() && !name.any { it.isDigit() }) {
+                        return Pair(name, text)
+                    }
+                }
+            }
+            return Pair(sender, content)
+        }
+
+        /** Group-summary / digest notifications are noise, not messages. */
+        fun isSummaryNoise(sender: String, content: String): Boolean {
+            if (sender.isBlank() && content.isBlank()) return true
+            if (sender.equals("You", ignoreCase = true)) return true
+            val c = content.lowercase()
+            if (Regex("^\\d+ new (messages|chats|notifications)").containsMatchIn(c)) return true
+            if (c.contains(" new messages") && (c.startsWith("you") || c.contains(" sent "))) return true
+            if (c.endsWith("is typing...") || c.endsWith("is typing…")) return true
+            return false
+        }
+
         fun flushBuffer(): List<JSONObject> {
             val list = mutableListOf<JSONObject>()
             while (notificationBuffer.isNotEmpty()) {
@@ -120,7 +192,22 @@ class SocialNotificationService : NotificationListenerService() {
             // Skip ongoing/persistent notifications (e.g., "WhatsApp Web is active")
             if (notification.flags and Notification.FLAG_ONGOING_EVENT != 0) return
 
-            val (sender, content) = extractDetailedContent(notification, extras)
+            val (rawSender, rawContent) = extractDetailedContent(notification, extras)
+
+            // Sanitize span/control-character artifacts out of the raw text
+            var sender = sanitize(rawSender)
+            var content = sanitize(rawContent)
+
+            // Group chats embed the real sender inside the text ("John: hi all")
+            val (s2, c2) = splitEmbeddedSender(sender, content, appName)
+            sender = s2; content = c2
+
+            // Skip self-sent, group-summary/digest, and "typing" noise
+            if (isSummaryNoise(sender, content)) return
+
+            // Skip exact re-captures (notification updates) and same-content
+            // re-posts within a short window
+            if (!shouldCapture(packageName, sbn.id, sender, content, sbn.postTime)) return
 
             // Skip empty notifications
             if (sender.isBlank() && content.isBlank()) return
@@ -164,18 +251,22 @@ class SocialNotificationService : NotificationListenerService() {
         var sender = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
         var content = ""
 
-        // 1. Try MessagingStyle extra "android.messages" (WhatsApp, Telegram, Messenger)
+        // 1. Try MessagingStyle extra "android.messages" (WhatsApp, Telegram, Messenger).
+        //    Prefer the most recent RECEIVED message: outgoing messages (no sender
+        //    person) are the child's own replies and would masquerade as content.
         val messagesParcelables = extras.getParcelableArray("android.messages")
         if (messagesParcelables != null && messagesParcelables.isNotEmpty()) {
-            val lastMsgBundle = messagesParcelables.last() as? android.os.Bundle
-            if (lastMsgBundle != null) {
-                val msgText = lastMsgBundle.getCharSequence("text")?.toString()
-                val msgSender = lastMsgBundle.getCharSequence("sender")?.toString()
+            for (i in messagesParcelables.indices.reversed()) {
+                val msgBundle = messagesParcelables[i] as? android.os.Bundle ?: continue
+                val msgText = msgBundle.getCharSequence("text")?.toString()
+                val msgSender = msgBundle.getCharSequence("sender")?.toString()
                 if (!msgText.isNullOrBlank()) {
                     content = msgText
-                }
-                if (!msgSender.isNullOrBlank()) {
-                    sender = msgSender
+                    // An outgoing message has no sender — keep looking backwards
+                    if (!msgSender.isNullOrBlank()) {
+                        sender = msgSender
+                        break
+                    }
                 }
             }
         }

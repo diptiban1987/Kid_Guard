@@ -370,6 +370,22 @@ def report_media():
     return jsonify({'status': 'ok', 'media_id': media.id})
 
 
+def _social_dedupe(canonical, notif):
+    """Return True if an identical social notification row already exists
+    (device retries / notification re-posts can resend the same content)."""
+    try:
+        q = SocialNotification.query.filter_by(
+            device_id=canonical,
+            package_name=notif.get('package_name', ''),
+            sender=notif.get('sender', ''),
+            content=notif.get('content', ''),
+            timestamp=notif.get('timestamp', _now_ms()),
+        )
+        return db.session.query(q.exists()).scalar()
+    except Exception:
+        return False
+
+
 @bp.route('/report/social', methods=['POST'])
 @jwt_required()
 def report_social():
@@ -380,6 +396,8 @@ def report_social():
         return jsonify({'error': 'Access denied'}), 403
 
     for notif in data.get('social', []):
+        if _social_dedupe(canonical, notif):
+            continue
         db.session.add(SocialNotification(
             device_id=canonical,
             package_name=notif.get('package_name', ''),
@@ -553,6 +571,8 @@ def report_bulk():
 
     if 'social' in data:
         for notif in data['social']:
+            if _social_dedupe(canonical, notif):
+                continue
             db.session.add(SocialNotification(
                 device_id=canonical, package_name=notif.get('package_name', ''),
                 app_name=notif.get('app_name', ''), sender=notif.get('sender', ''),

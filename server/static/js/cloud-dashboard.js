@@ -504,10 +504,20 @@ async function loadChildDetail(deviceId) {
         });
 
         if (locations.length > 0) {
-            const points = locations.map(l => [l.latitude, l.longitude]);
-            L.polyline(points, { color: '#667eea', weight: 3, opacity: 0.7 }).addTo(childMap);
-            childMap.fitBounds(L.polyline(points).getBounds(), { padding: [30, 30] });
-            const last = locations[0];
+            // Sort oldest → newest, drop invalid fixes, split into runs so a
+            // long city-to-city jump never draws a straight line across India.
+            const valid = locations.filter(isValidLoc)
+                .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+            const runs = splitLocationRuns(valid);
+            runs.forEach(run => {
+                L.polyline(run.map(l => [l.latitude, l.longitude]), { color: '#667eea', weight: 3, opacity: 0.7 }).addTo(childMap);
+            });
+            if (valid.length >= 2) {
+                childMap.fitBounds(L.polyline(valid.map(v => [v.latitude, v.longitude])).getBounds(), { padding: [30, 30] });
+            } else if (valid.length === 1) {
+                childMap.setView([valid[0].latitude, valid[0].longitude], 14);
+            }
+            const last = valid.length ? valid[valid.length - 1] : locations[0];
             L.marker([last.latitude, last.longitude]).addTo(childMap)
                 .bindPopup(`Latest: ${formatTime(last.timestamp)}`);
         }
@@ -1166,6 +1176,49 @@ async function fetchWithAuth(url, options = {}) {
         return res;
     }
     return res;
+}
+
+// ─── Geo trail helpers ──────────────────────────────────────────────────
+// Never draw a straight line between two far-apart fixes (e.g. a device seen
+// in both Mumbai and Odisha). Drop invalid points, sort oldest→newest, and
+// split the trail into runs separated by >25 km or >2 days.
+
+function isValidLoc(l) {
+    const la = Number(l.latitude), lo = Number(l.longitude);
+    return Number.isFinite(la) && Number.isFinite(lo)
+        && la >= -90 && la <= 90 && lo >= -180 && lo <= 180
+        && !(Math.abs(la) < 0.0001 && Math.abs(lo) < 0.0001);
+}
+
+function haversineKm(a, b) {
+    const R = 6371;
+    const toRad = d => d * Math.PI / 180;
+    const dLat = toRad(b[0] - a[0]);
+    const dLon = toRad(b[1] - a[1]);
+    const h = Math.sin(dLat / 2) ** 2
+        + Math.cos(toRad(a[0])) * Math.cos(toRad(b[0])) * Math.sin(dLon / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+function splitLocationRuns(locs) {
+    const RUN_GAP_KM = 25;
+    const RUN_GAP_DAYS = 2;
+    const runs = [];
+    let cur = [];
+    for (const l of locs) {
+        if (cur.length) {
+            const prev = cur[cur.length - 1];
+            const gapKm = haversineKm([prev.latitude, prev.longitude], [l.latitude, l.longitude]);
+            const gapDays = ((l.timestamp || 0) - (prev.timestamp || 0)) / 86400000;
+            if (gapKm > RUN_GAP_KM || gapDays > RUN_GAP_DAYS) {
+                if (cur.length >= 2) runs.push(cur);
+                cur = [];
+            }
+        }
+        cur.push(l);
+    }
+    if (cur.length >= 2) runs.push(cur);
+    return runs;
 }
 
 function formatTime(ts) {

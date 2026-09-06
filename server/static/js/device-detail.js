@@ -7,7 +7,7 @@ const REFRESH_KEY = 'kidguard_refresh';
 let TOKEN = localStorage.getItem(TOKEN_KEY);
 let deviceMap;
 let mapMarkers = [];
-let mapPolyline = null;
+let mapPolylines = [];
 let geoCircles = [];
 let refreshTimer = null;
 
@@ -214,7 +214,7 @@ function fitBoundsToPoints() {
     }
     const layers = [];
     mapMarkers.forEach(m => layers.push(m));
-    if (mapPolyline) layers.push(mapPolyline);
+    mapPolylines.forEach(p => layers.push(p));
     geoCircles.forEach(c => layers.push(c));
     if (layers.length === 0) {
         console.warn('[map] fitBoundsToPoints: no points to fit');
@@ -316,27 +316,82 @@ function initMap() {
     updateTileStatus('ok', 'Tiles loading');
 }
 
+// ─── Geo trail helpers ──────────────────────────────────────────────────
+// The location trail must never draw a straight line between two far-apart
+// fixes (e.g. a device that reports from both Mumbai and Odisha). We:
+//   1. drop invalid coordinates (0,0 / NaN / out of range)
+//   2. sort oldest → newest so the trail draws forward in time
+//   3. split into runs — consecutive points closer than MAX_RUN_GAP_KM AND
+//      MAX_RUN_GAP_DAYS stay on one polyline; anything farther starts a new
+//      segment (so a city-to-city jump stays un-connected).
+
+function isValidLoc(l) {
+    const la = Number(l.latitude), lo = Number(l.longitude);
+    return Number.isFinite(la) && Number.isFinite(lo)
+        && la >= -90 && la <= 90 && lo >= -180 && lo <= 180
+        && !(Math.abs(la) < 0.0001 && Math.abs(lo) < 0.0001);
+}
+
+function haversineKm(a, b) {
+    const R = 6371;
+    const toRad = d => d * Math.PI / 180;
+    const dLat = toRad(b[0] - a[0]);
+    const dLon = toRad(b[1] - a[1]);
+    const h = Math.sin(dLat / 2) ** 2
+        + Math.cos(toRad(a[0])) * Math.cos(toRad(b[0])) * Math.sin(dLon / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+function splitLocationRuns(locs) {
+    const RUN_GAP_KM = 25;   // >25 km between consecutive fixes → new run
+    const RUN_GAP_DAYS = 2;  // or >2 days gap → new run
+    const runs = [];
+    let cur = [];
+    for (const l of locs) {
+        if (cur.length) {
+            const prev = cur[cur.length - 1];
+            const gapKm = haversineKm([prev.latitude, prev.longitude], [l.latitude, l.longitude]);
+            const gapDays = ((l.timestamp || 0) - (prev.timestamp || 0)) / 86400000;
+            if (gapKm > RUN_GAP_KM || gapDays > RUN_GAP_DAYS) {
+                if (cur.length >= 2) runs.push(cur);
+                cur = [];
+            }
+        }
+        cur.push(l);
+    }
+    if (cur.length >= 2) runs.push(cur);
+    return runs;
+}
+
 function renderMap(locations, geofences) {
     // Clear previous layers
     mapMarkers.forEach(m => deviceMap.removeLayer(m));
     mapMarkers = [];
-    if (mapPolyline) { deviceMap.removeLayer(mapPolyline); mapPolyline = null; }
+    mapPolylines.forEach(p => { try { deviceMap.removeLayer(p); } catch (e) {} });
+    mapPolylines = [];
     geoCircles.forEach(c => deviceMap.removeLayer(c));
     geoCircles = [];
 
     if (locations && locations.length > 0) {
-        const points = locations.map(l => [l.latitude, l.longitude]);
+        // Sort oldest → newest and drop invalid fixes (0,0 / NaN) so the
+        // trail draws forward in time without bogus points.
+        const valid = locations.filter(isValidLoc)
+            .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
 
-        // Polyline trail
-        mapPolyline = L.polyline(points, {
-            color: '#667eea',
-            weight: 3,
-            opacity: 0.7,
-            smoothFactor: 1
-        }).addTo(deviceMap);
+        // One polyline per continuous run — long jumps such as Mumbai ↔
+        // Odisha are split into separate segments instead of one straight
+        // line across the whole country.
+        mapPolylines = splitLocationRuns(valid).map(run =>
+            L.polyline(run.map(l => [l.latitude, l.longitude]), {
+                color: '#667eea',
+                weight: 3,
+                opacity: 0.7,
+                smoothFactor: 1
+            }).addTo(deviceMap)
+        );
 
-        // Latest position marker (special, larger)
-        const latest = locations[0];
+        // Latest position marker (special, larger) — most recent fix
+        const latest = valid.length ? valid[valid.length - 1] : locations[0];
         const latestMarker = L.circleMarker([latest.latitude, latest.longitude], {
             radius: 9,
             fillColor: '#667eea',
@@ -350,11 +405,11 @@ function renderMap(locations, geofences) {
         // Trail-point markers (cap at ~80 so very large datasets stay light).
         // The polyline below still draws the full trail visually.
         const maxMarkers = 80;
-        const step = locations.length > maxMarkers
-            ? Math.ceil(locations.length / maxMarkers)
+        const step = valid.length > maxMarkers
+            ? Math.ceil(valid.length / maxMarkers)
             : 1;
-        for (let i = 1; i < locations.length; i += step) {
-            const loc = locations[i];
+        for (let i = 1; i < valid.length; i += step) {
+            const loc = valid[i];
             const marker = L.circleMarker([loc.latitude, loc.longitude], {
                 radius: 4,
                 fillColor: '#764ba2',
@@ -372,7 +427,14 @@ function renderMap(locations, geofences) {
         // every point on the trail, so it covers all 180+ locations
         // without us adding a marker for each one.)
         if (!userHasPanned) {
-            deviceMap.fitBounds(mapPolyline.getBounds(), { padding: [40, 40] });
+            if (valid.length >= 2) {
+                deviceMap.fitBounds(
+                    L.polyline(valid.map(v => [v.latitude, v.longitude])).getBounds(),
+                    { padding: [40, 40] }
+                );
+            } else if (valid.length === 1) {
+                deviceMap.setView([valid[0].latitude, valid[0].longitude], 15);
+            }
         }
     }
 

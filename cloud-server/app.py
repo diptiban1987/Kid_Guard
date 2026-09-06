@@ -868,6 +868,63 @@ def report_webhistory():
     
     return jsonify({'status': 'ok', 'new': count})
 
+# ─── Media housekeeping ──────────────────────────────────────────────────
+#
+# Runs after every media upload:
+#   1. Dead-row sweep — delete rows whose local file no longer exists
+#      (ephemeral-disk redeploys leave orphans that only inflate the
+#      storage meter).
+#   2. Cap enforcement — when the device's live media total exceeds
+#      MEDIA_MAX_TOTAL_BYTES (env var, default 28 MB), delete the OLDEST
+#      rows until back under the cap.
+
+_MEDIA_DEFAULT_CAP_BYTES = 28 * 1024 * 1024
+
+def _prune_media(device_id):
+    try:
+        dead = MediaFile.query.filter(
+            MediaFile.device_id == device_id,
+            MediaFile.file_path.isnot(None),
+            ~MediaFile.file_path.like('http%'),
+        ).order_by(MediaFile.timestamp.asc()).limit(2000).all()
+        dead_count = 0
+        for m in dead:
+            if m.file_path and not os.path.exists(m.file_path):
+                db.session.delete(m)
+                dead_count += 1
+        if dead_count:
+            db.session.commit()
+
+        try:
+            max_bytes = int(os.environ.get('MEDIA_MAX_TOTAL_BYTES',
+                                           str(_MEDIA_DEFAULT_CAP_BYTES)))
+        except ValueError:
+            max_bytes = _MEDIA_DEFAULT_CAP_BYTES
+        total = db.session.query(
+            db.func.coalesce(db.func.sum(MediaFile.file_size), 0)
+        ).filter(MediaFile.device_id == device_id).scalar() or 0
+        if total <= max_bytes:
+            return
+
+        oldest = MediaFile.query.filter(MediaFile.device_id == device_id)\
+            .order_by(MediaFile.timestamp.asc()).all()
+        for m in oldest:
+            if total <= max_bytes:
+                break
+            fp = m.file_path or ''
+            if fp and not fp.startswith('http'):
+                try:
+                    if os.path.exists(fp):
+                        os.remove(fp)
+                except OSError:
+                    pass
+            db.session.delete(m)
+            total -= int(m.file_size or 0)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        app.logger.warning(f"Media prune failed for {device_id}: {e}")
+
 @app.route('/api/report/media', methods=['POST'])
 @jwt_required()
 def report_media():
@@ -875,27 +932,51 @@ def report_media():
     media_type = request.form.get('media_type', 'photo')
     command_id  = request.form.get('command_id')   # links upload to a remote command
     file = request.files.get('file')
+    metadata = request.form.get('metadata', '')
 
-    if not file:
-        return jsonify({'error': 'No file'}), 400
+    if not device_id:
+        return jsonify({'error': 'device_id required'}), 400
 
-    filename = f"{device_id}_{int(time.time())}_{secure_filename(file.filename)}"
-    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    file.save(filepath)
+    if file is not None:
+        filename = f"{device_id}_{int(time.time())}_{secure_filename(file.filename)}"
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(filepath)
+        stored_size = os.path.getsize(filepath)
+        stored_mime = file.mimetype
+        stored_path = filepath
+    else:
+        # Metadata-only row: the device's bytes already live in Firebase
+        # Storage (storage_url in metadata) or the file was too large to
+        # upload. file_path = Firebase URL when available.
+        stored_size = 0
+        stored_url = None
+        try:
+            meta_obj = json.loads(metadata) if metadata else {}
+            stored_size = meta_obj.get('original_size', 0) or 0
+            su = meta_obj.get('storage_url')
+            if isinstance(su, str) and su.startswith('http'):
+                stored_url = su
+        except Exception:
+            pass
+        if stored_url:
+            stored_mime = media_type if media_type in ('image', 'video') else 'application/octet-stream'
+        else:
+            stored_mime = 'video/*' if media_type == 'video' else 'application/octet-stream'
+        stored_path = stored_url
 
     media = MediaFile(
         device_id=device_id,
         media_type=media_type,
-        file_path=filepath,
-        file_size=os.path.getsize(filepath),
-        mime_type=file.mimetype,
+        file_path=stored_path,
+        file_size=stored_size,
+        mime_type=stored_mime,
         timestamp=int(datetime.now(timezone.utc).timestamp() * 1000)
     )
     db.session.add(media)
 
     # If this upload is linked to a remote command, cache the image/audio in memory
     # so the parent dashboard can show it immediately via poll_command_result
-    if command_id:
+    if command_id and file is not None:
         try:
             import base64 as _b64
             with open(filepath, 'rb') as fh:
@@ -924,6 +1005,8 @@ def report_media():
         'media_type': media_type, 'file_size': media.file_size
     })
 
+    # Housekeeping: sweep dead rows + enforce the per-device media cap.
+    _prune_media(device_id)
     return jsonify({'status': 'ok', 'media_id': media.id})
 
 @app.route('/api/report/bulk', methods=['POST'])
@@ -1938,20 +2021,31 @@ def get_device_media(device_id):
     
     limit = request.args.get('limit', 50, type=int)
     media_type = request.args.get('type')
-    
+
     query = MediaFile.query.filter_by(device_id=real_id)
     if media_type:
         query = query.filter_by(media_type=media_type)
-    
-    media = query.order_by(MediaFile.timestamp.desc()).limit(limit).all()
-    
+
+    # Ephemeral-disk rows whose bytes no longer exist would render as broken
+    # tiles — only return rows whose bytes are actually reachable (Firebase
+    # URL or disk file still present).
+    def has_bytes(m):
+        fp = m.file_path or ''
+        if fp.startswith('http'):
+            return True
+        return bool(fp) and os.path.exists(fp)
+
+    rows = query.order_by(MediaFile.timestamp.desc()).limit(limit * 5).all()
+    media = [m for m in rows if has_bytes(m)][:limit]
+
     return jsonify([{
         'id': m.id,
         'filename': os.path.basename(m.file_path) if m.file_path else f"{m.media_type}_{m.id}",
         'media_type': m.media_type,
         'file_size': m.file_size,
         'mime_type': m.mime_type,
-        'timestamp': m.timestamp
+        'timestamp': m.timestamp,
+        'url': m.file_path if (m.file_path and m.file_path.startswith('http')) else None,
     } for m in media])
 
 @app.route('/api/parent/geofences/<device_id>')
@@ -2251,10 +2345,15 @@ def get_media(media_id):
         device = Device.query.filter_by(user_id=user_id).first()
         if not device or media.device_id != device.device_id:
             return jsonify({'error': 'Access denied'}), 403
-    
-    if not os.path.exists(media.file_path):
+
+    # Firebase-backed media: file_path holds a https download URL — the
+    # bytes live in Firebase Storage, so just send the browser there.
+    if media.file_path and media.file_path.startswith('http'):
+        return redirect(media.file_path)
+
+    if not media.file_path or not os.path.exists(media.file_path):
         return jsonify({'error': 'File not found on disk'}), 404
-    
+
     return send_file(media.file_path, mimetype=media.mime_type or 'image/jpeg', conditional=True)
 
 # ─── Web Routes ──────────────────────────────────────────────────────────

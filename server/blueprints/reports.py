@@ -314,6 +314,70 @@ def report_webhistory():
     return jsonify({'status': 'ok', 'new': count})
 
 
+# ─── Media housekeeping ──────────────────────────────────────────────────
+#
+# Runs after every media upload:
+#   1. Dead-row sweep — delete rows whose local file no longer exists.
+#      Render's free-tier disk is wiped on every redeploy, so disk-backed
+#      rows become orphans: the Storage meter keeps counting their
+#      file_size while the Media tab hides them (has_bytes filter).
+#   2. Cap enforcement — when the device's live media total exceeds
+#      MEDIA_MAX_TOTAL_BYTES (env var, default 28 MB), delete the OLDEST
+#      rows until back under the cap. Local files are removed from disk
+#      too; Firebase-backed rows (file_path = https URL) only lose the DB
+#      row — the Storage object itself is not deleted server-side.
+
+_MEDIA_DEFAULT_CAP_BYTES = 28 * 1024 * 1024
+
+def _prune_media(device_id):
+    try:
+        # 1. Dead local rows — bytes no longer on disk.
+        dead = MediaFile.query.filter(
+            MediaFile.device_id == device_id,
+            MediaFile.file_path.isnot(None),
+            ~MediaFile.file_path.like('http%'),
+        ).order_by(MediaFile.timestamp.asc()).limit(2000).all()
+        dead_count = 0
+        for m in dead:
+            if m.file_path and not os.path.exists(m.file_path):
+                db.session.delete(m)
+                dead_count += 1
+        if dead_count:
+            db.session.commit()
+
+        # 2. Per-device cap on live media bytes.
+        try:
+            max_bytes = int(os.environ.get('MEDIA_MAX_TOTAL_BYTES',
+                                           str(_MEDIA_DEFAULT_CAP_BYTES)))
+        except ValueError:
+            max_bytes = _MEDIA_DEFAULT_CAP_BYTES
+        total = db.session.query(
+            db.func.coalesce(db.func.sum(MediaFile.file_size), 0)
+        ).filter(MediaFile.device_id == device_id).scalar() or 0
+        if total <= max_bytes:
+            return
+
+        oldest = MediaFile.query.filter(MediaFile.device_id == device_id)\
+            .order_by(MediaFile.timestamp.asc()).all()
+        for m in oldest:
+            if total <= max_bytes:
+                break
+            fp = m.file_path or ''
+            if fp and not fp.startswith('http'):
+                try:
+                    if os.path.exists(fp):
+                        os.remove(fp)
+                except OSError:
+                    pass
+            db.session.delete(m)
+            total -= int(m.file_size or 0)
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.warning(f'Media prune failed for {device_id}: {exc}')
+
+
+@bp.route('/report/media', methods=['POST'])
 @bp.route('/report/media', methods=['POST'])
 @jwt_required()
 def report_media():
@@ -401,6 +465,9 @@ def report_media():
 
     db.session.commit()
     _emit(canonical, 'media', {'media_type': media_type, 'file_size': media.file_size})
+
+    # Housekeeping: sweep dead rows + enforce the per-device media cap.
+    _prune_media(canonical)
     return jsonify({'status': 'ok', 'media_id': media.id})
 
 

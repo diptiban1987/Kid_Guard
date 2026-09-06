@@ -560,13 +560,26 @@ def get_device_storage(device_id):
         except Exception:
             count = 0
 
-        # For media, firebase_bytes = SUM(file_size) and the row-count
-        # estimate uses file_size, not the per-row average (because
-        # media_bytes dwarfs the metadata).
+        # For media, firebase_bytes = SUM(file_size) over LIVE rows only.
+        # Rows whose bytes no longer exist (ephemeral-disk redeploys wiped
+        # locally-stored files) are excluded here — and deleted outright —
+        # so the meter matches what the Media tab can actually show.
         if key == 'media':
             try:
-                size_sum = db.session.query(db.func.coalesce(db.func.sum(MediaFile.file_size), 0))\
-                    .filter(MediaFile.device_id == real_id).scalar() or 0
+                rows = MediaFile.query.filter(MediaFile.device_id == real_id).all()
+                size_sum = 0
+                dead_rows = []
+                for m in rows:
+                    fp = m.file_path or ''
+                    live = fp.startswith('http') or (bool(fp) and os.path.exists(fp))
+                    if live:
+                        size_sum += int(m.file_size or 0)
+                    else:
+                        dead_rows.append(m)
+                if dead_rows:
+                    for m in dead_rows:
+                        db.session.delete(m)
+                    db.session.commit()
             except Exception:
                 size_sum = 0
             firebase_total += int(size_sum)

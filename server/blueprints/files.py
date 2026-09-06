@@ -6,7 +6,7 @@ devices belonging to their children; a child can only fetch their own.
 """
 import os
 
-from flask import Blueprint, jsonify, send_file
+from flask import Blueprint, jsonify, send_file, redirect
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from ..extensions import db
@@ -40,6 +40,11 @@ def get_media(media_id):
     elif user.role != 'admin':
         return jsonify({'error': 'Access denied'}), 403
 
-    if not os.path.exists(media.file_path):
+    # Firebase-backed media: file_path holds a https download URL.
+    if media.file_path and media.file_path.startswith('http'):
+        return redirect(media.file_path)
+
+    if not media.file_path or not os.path.exists(media.file_path):
         return jsonify({'error': 'File not found on disk'}), 404
     return send_file(media.file_path, mimetype=media.mime_type)
+

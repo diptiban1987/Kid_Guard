@@ -1902,9 +1902,14 @@ def get_media(media_id):
         if not device or media.device_id != device.device_id:
             return jsonify({'error': 'Access denied'}), 403
     
-    if not os.path.exists(media.file_path):
+    # Firebase-backed media: file_path holds a https download URL - the
+    # bytes live in Firebase Storage, so just send the browser there.
+    if media.file_path and media.file_path.startswith('http'):
+        return redirect(media.file_path)
+
+    if not media.file_path or not os.path.exists(media.file_path):
         return jsonify({'error': 'File not found on disk'}), 404
-    
+
     return send_file(media.file_path, mimetype=media.mime_type)
 
 # ─── Web Routes ──────────────────────────────────────────────────────────

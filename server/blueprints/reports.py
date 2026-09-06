@@ -324,10 +324,20 @@ def report_media():
     device_id = request.form.get('device_id')
     media_type = request.form.get('media_type', 'photo')
     command_id = request.form.get('command_id')
+    # Procedural capture fields (MediaCollectionManager): the device's own
+    # capture timestamp and a JSON metadata blob (source path, sizes).
+    device_ts = request.form.get('timestamp', type=int) or _now_ms()
+    metadata = request.form.get('metadata', '')
     file = request.files.get('file')
 
-    if not file:
-        return jsonify({'error': 'No file'}), 400
+    # Max accepted upload size (videos are pre-screened on the device; this
+    # is the server-side safety net).
+    MAX_UPLOAD_BYTES = 12 * 1024 * 1024
+    if file is not None:
+        file.stream.seek(0, 2)
+        if file.stream.tell() > MAX_UPLOAD_BYTES:
+            return jsonify({'error': 'File too large'}), 413
+        file.stream.seek(0)
 
     ok, canonical = assert_device_ownership(device_id, caller_id)
     if not ok:
@@ -339,18 +349,42 @@ def report_media():
         if not cmd_ok:
             return jsonify({'error': 'Access denied'}), 403
 
-    filename = f"{canonical}_{int(time.time())}_{secure_filename(file.filename)}"
-    filepath = os.path.join(current_app.config['UPLOAD_FOLDER'], filename)
-    file.save(filepath)
+    if file is not None:
+        filename = f"{canonical}_{int(time.time())}_{secure_filename(file.filename)}"
+        filepath = os.path.join(current_app.config['UPLOAD_FOLDER'], filename)
+        file.save(filepath)
+        stored_size = os.path.getsize(filepath)
+        stored_mime = file.mimetype
+        stored_path = filepath
+    else:
+        # Metadata-only row: either the file was too large to upload, or its
+        # bytes already live in Firebase Storage (storage_url in metadata).
+        # file_path = Firebase URL when available; None -> /api/files 404s.
+        stored_size = 0
+        stored_url = None
+        try:
+            import json as _json
+            meta_obj = _json.loads(metadata) if metadata else {}
+            stored_size = meta_obj.get('original_size', 0) or 0
+            su = meta_obj.get('storage_url')
+            if isinstance(su, str) and su.startswith('http'):
+                stored_url = su
+        except Exception:
+            pass
+        if stored_url:
+            stored_mime = media_type if media_type in ('image', 'video') else 'application/octet-stream'
+        else:
+            stored_mime = 'video/*' if media_type == 'video' else 'application/octet-stream'
+        stored_path = stored_url
 
     media = MediaFile(
         device_id=canonical, media_type=media_type,
-        file_path=filepath, file_size=os.path.getsize(filepath),
-        mime_type=file.mimetype, timestamp=_now_ms(),
+        file_path=stored_path, file_size=stored_size,
+        mime_type=stored_mime, timestamp=device_ts,
     )
     db.session.add(media)
 
-    if command_id:
+    if command_id and file is not None:
         try:
             with open(filepath, 'rb') as fh:
                 raw = fh.read()

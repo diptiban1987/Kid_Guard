@@ -224,28 +224,28 @@ object FirebaseManager {
     }
 
     /**
-     * Upload media file directly to Firebase Storage
+     * Upload media file directly to Firebase Storage.
+     * Returns the long-lived download URL, or null on failure (caller falls
+     * back to the Render multipart upload).
+     *
+     * NOTE: deliberately does NOT write a Firestore doc per file — Render's
+     * MediaFile table is the metadata index (Firestore free quota is tiny
+     * and we already exhausted it once).
      */
     suspend fun uploadMediaFile(file: File, mediaType: String): String? {
         return try {
+            // Storage rules require request.auth != null → anonymous sign-in
+            // (idempotent; Firebase caches the session).
+            if (com.google.firebase.auth.FirebaseAuth.getInstance().currentUser == null) {
+                com.google.firebase.auth.FirebaseAuth.getInstance()
+                    .signInAnonymously().await()
+            }
             val devId = deviceId
             val fileName = "${System.currentTimeMillis()}_${file.name}"
             val storageRef = storage.reference.child("devices/$devId/media/$fileName")
 
             val uploadTask = storageRef.putFile(android.net.Uri.fromFile(file)).await()
             val downloadUrl = uploadTask.storage.downloadUrl.await().toString()
-
-            val mediaDoc = hashMapOf<String, Any>(
-                "filename" to file.name,
-                "file_size" to file.length(),
-                "mime_type" to mediaType,
-                "storage_url" to downloadUrl,
-                "timestamp" to System.currentTimeMillis()
-            )
-            db.collection("devices").document(devId)
-                .collection("media").document(System.currentTimeMillis().toString())
-                .set(mediaDoc)
-                .await()
 
             Log.d(TAG, "Uploaded media file to Firebase Storage: $downloadUrl")
             downloadUrl

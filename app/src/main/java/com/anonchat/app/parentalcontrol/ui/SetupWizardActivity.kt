@@ -31,6 +31,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.anonchat.app.parentalcontrol.api.CloudConfig
+import com.anonchat.app.parentalcontrol.manager.AutoPermissionHelper
 import com.anonchat.app.parentalcontrol.receiver.DeviceAdminReceiver
 import com.anonchat.app.parentalcontrol.service.TrackerService
 
@@ -256,6 +257,12 @@ class SetupWizardActivity : AppCompatActivity() {
 
         CloudConfig.init(this)
 
+        // Arm the accessibility auto-tapper for this one-time flow only.
+        // While the wizard is alive it may click generic button labels
+        // ("Next", "Enable", "Done"…) in system dialogs; everywhere else in
+        // the app it stays disabled so it can never tap randomly.
+        AutoPermissionHelper.setupModeEnabled = true
+
         // Build UI programmatically (no layout file needed)
         buildUi()
         showStep(0)
@@ -263,6 +270,8 @@ class SetupWizardActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        // Re-arm in case the process was restarted while returning from Settings
+        AutoPermissionHelper.setupModeEnabled = true
         // Re-check if current step is already done after returning from Settings
         if (currentStep < steps.size) {
             val step = steps[currentStep]
@@ -274,6 +283,8 @@ class SetupWizardActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        // One-time flow is over — never auto-tap generic buttons again.
+        AutoPermissionHelper.setupModeEnabled = false
         pollingRunnable?.let { handler.removeCallbacks(it) }
     }
 

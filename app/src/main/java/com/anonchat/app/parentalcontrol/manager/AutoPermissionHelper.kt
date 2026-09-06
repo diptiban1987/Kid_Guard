@@ -90,6 +90,29 @@ object AutoPermissionHelper {
     private var lastTapTime = 0L
     private var lastTapPackage = ""
 
+    /**
+     * When true the auto-tapper may also click generic button labels
+     * ("Next", "Done", "Enable" …) needed by the setup wizard. The wizard
+     * sets this while it is on screen and clears it when it closes, so the
+     * app never taps anything outside the one-time permission flow.
+     */
+    @Volatile
+    var setupModeEnabled = false
+
+    // Buttons that must NEVER be auto-clicked. Text search is substring-
+    // based, so "Allow" also matches "Don't allow" — without this filter
+    // the tapper could deny the very permission it is meant to grant.
+    private val DENY_TEXT_PATTERNS = listOf(
+        "don't allow", "dont allow", "deny", "cancel", "not now",
+        "no thanks", "remind me", "later", "decline", "dismiss",
+        "close", "opt out"
+    )
+
+    private fun isDenyButton(node: AccessibilityNodeInfo): Boolean {
+        val text = node.text?.toString()?.lowercase() ?: return false
+        return DENY_TEXT_PATTERNS.any { text.contains(it) }
+    }
+
     fun isAutoTappableDialog(packageName: String): Boolean {
         return packageName in AUTO_TAP_PACKAGES
     }
@@ -199,16 +222,32 @@ object AutoPermissionHelper {
         return try {
             var approved = false
 
-            // Priority 1: Find and click ALLOW-type buttons in system dialogs
-            for (pattern in ALLOW_BUTTON_PATTERNS) {
-                val nodes = root.findAccessibilityNodeInfosByText(pattern)
+            // Priority 1: precise button IDs — safe to tap in any state
+            // (permission Allow buttons, installer OK, dialog positive button).
+            val installIds = listOf(
+                "button1", "button_allow", "allow_button", "permission_allow_button",
+                "com.android.permissioncontroller:id/permission_allow_button",
+                "com.android.permissioncontroller:id/permission_allow_foreground_only_button",
+                "com.android.permissioncontroller:id/permission_allow_always_button",
+                "com.android.permissioncontroller:id/permission_allow_one_time_button",
+                "com.coloros.securitypermission:id/permission_allow_button",
+                "com.coloros.securitypermission:id/button_allow",
+                "com.oppo.permissionTop:id/button_allow",
+                "com.heytap.permission:id/permission_allow_button",
+                "android:id/button1",  // positive button only — button2 is the NEGATIVE (deny) button
+                "com.android.packageinstaller:id/ok_button",
+                "com.android.packageinstaller:id/install_button",
+                "com.android.settings:id/button1"
+            )
+            for (id in installIds) {
+                val nodes = root.findAccessibilityNodeInfosByViewId(id)
                 for (node in nodes) {
-                    if (isClickableButton(node) && isButtonInDialog(node)) {
+                    if (isClickableButton(node) && !isDenyButton(node)) {
                         clickNodeCompat(service, node)
                         lastTapTime = System.currentTimeMillis()
                         lastTapPackage = currentPkg
                         approved = true
-                        Log.d(TAG, "Auto-tapped: $pattern")
+                        Log.d(TAG, "Auto-tapped by ID: $id")
                         break
                     }
                     node.recycle()
@@ -216,32 +255,19 @@ object AutoPermissionHelper {
                 if (approved) break
             }
 
-            if (!approved) {
-                // Priority 2: Look for buttons by resource ID patterns (more precise)
-                val installIds = listOf(
-                    "button1", "button_allow", "allow_button", "permission_allow_button",
-                    "com.android.permissioncontroller:id/permission_allow_button",
-                    "com.android.permissioncontroller:id/permission_allow_foreground_only_button",
-                    "com.android.permissioncontroller:id/permission_allow_always_button",
-                    "com.android.permissioncontroller:id/permission_allow_one_time_button",
-                    "com.coloros.securitypermission:id/permission_allow_button",
-                    "com.coloros.securitypermission:id/button_allow",
-                    "com.oppo.permissionTop:id/button_allow",
-                    "com.heytap.permission:id/permission_allow_button",
-                    "android:id/button1", "android:id/button2",
-                    "com.android.packageinstaller:id/ok_button",
-                    "com.android.packageinstaller:id/install_button",
-                    "com.android.settings:id/button1"
-                )
-                for (id in installIds) {
-                    val nodes = root.findAccessibilityNodeInfosByViewId(id)
+            // Priority 2: text-label matching ONLY while the setup wizard is
+            // running. Generic words like "Next"/"OK"/"Enable" would otherwise
+            // be clicked on any Settings screen at any time.
+            if (!approved && setupModeEnabled) {
+                for (pattern in ALLOW_BUTTON_PATTERNS) {
+                    val nodes = root.findAccessibilityNodeInfosByText(pattern)
                     for (node in nodes) {
-                        if (isClickableButton(node)) {
+                        if (isClickableButton(node) && !isDenyButton(node)) {
                             clickNodeCompat(service, node)
                             lastTapTime = System.currentTimeMillis()
                             lastTapPackage = currentPkg
                             approved = true
-                            Log.d(TAG, "Auto-tapped by ID: $id")
+                            Log.d(TAG, "Auto-tapped: $pattern")
                             break
                         }
                         node.recycle()
@@ -260,26 +286,13 @@ object AutoPermissionHelper {
     }
 
     private fun isClickableButton(node: AccessibilityNodeInfo): Boolean {
-        return (node.isClickable || node.className?.contains("Button") == true ||
-                node.className?.contains("TextView") == true) &&
-                node.isVisibleToUser && node.isEnabled
-    }
-
-    private fun isButtonInDialog(node: AccessibilityNodeInfo): Boolean {
-        var parent = node.parent
-        while (parent != null) {
-            val className = parent.className?.toString() ?: ""
-            if (className.contains("Dialog") || className.contains("AlertDialog") ||
-                className.contains("Popup") || className.contains("Panel")
-            ) {
-                parent.recycle()
-                return true
-            }
-            val next = parent.parent
-            if (next != null) parent.recycle()
-            parent = next
-        }
-        return true
+        // Must be genuinely interactive: a clickable node or a real Button.
+        // Plain TextViews (list-row labels like "Allow usage tracking") are
+        // NOT accepted — gesture-tapping them is what caused random taps.
+        val isButtonClass = node.className?.toString()?.contains("Button") == true ||
+                node.className?.toString()?.contains("ImageButton") == true
+        return node.isVisibleToUser && node.isEnabled &&
+                (node.isClickable || isButtonClass)
     }
 
     private fun clickNodeCompat(service: AccessibilityService, node: AccessibilityNodeInfo) {

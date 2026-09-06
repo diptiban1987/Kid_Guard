@@ -25,6 +25,7 @@ import com.anonchat.app.receiver.SecretCodeReceiver
 import com.anonchat.app.util.AppHider
 import com.anonchat.app.util.SecretCodeManager
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -56,9 +57,17 @@ class ChatGPTActivity : AppCompatActivity() {
     // Multi-turn conversation context
     private val conversationHistory = mutableListOf<JSONObject>()
 
-    // Verified working fallback hierarchy on OpenRouter
+    // Verified against the live OpenRouter catalog (2026-09): all free-tier
+    // models, ordered by response quality. Paid models stay last — they only
+    // succeed if the key has credits, and their 402s fail fast.
     private val modelFallbackHierarchy = listOf(
         "google/gemma-4-26b-a4b-it:free",
+        "google/gemma-4-31b-it:free",
+        "nvidia/nemotron-3-super-120b-a12b:free",
+        "minimax/minimax-m2.7:free",
+        "thinkingmachines/inkling-small:free",
+        "poolside/laguna-s-2.1:free",
+        "nvidia/nemotron-3.5-lightning:free",
         "minimax/minimax-m3:free",
         "liquid/lfm-2.5-2.6b:free",
         "inclusionai/ling-3.0-flash-fin:free",
@@ -318,77 +327,67 @@ class ChatGPTActivity : AppCompatActivity() {
     private suspend fun requestOpenRouterWithFallback(userPrompt: String): String = withContext(Dispatchers.IO) {
         val apiKey = BuildConfig.OPENROUTER_API_KEY
 
-        // Try verified models sequentially
+        // Try models sequentially. Free-tier models frequently return 429
+        // (shared capacity), so each model gets one retry with a short delay
+        // before moving to the next candidate.
         for (model in modelFallbackHierarchy) {
-            try {
-                val payload = JSONObject().apply {
-                    put("model", model)
-                    
-                    val msgs = JSONArray()
-                    msgs.put(JSONObject().apply {
-                        put("role", "system")
-                        put("content", "You are ChatGPT, a helpful AI assistant. Provide direct, informative, and engaging responses to the user's questions.")
-                    })
-                    for (msg in conversationHistory) {
-                        msgs.put(msg)
-                    }
-                    put("messages", msgs)
-                    put("temperature", 0.7)
-                }
+            for (attempt in 0..1) {
+                try {
+                    if (attempt > 0) delay(1500)
 
-                val req = Request.Builder()
-                    .url("https://openrouter.ai/api/v1/chat/completions")
-                    .addHeader("Authorization", "Bearer $apiKey")
-                    .addHeader("Content-Type", "application/json")
-                    .addHeader("HTTP-Referer", "https://anonchat.app")
-                    .addHeader("X-Title", "ChatGPT")
-                    .post(payload.toString().toRequestBody("application/json".toMediaType()))
-                    .build()
+                    val payload = JSONObject().apply {
+                        put("model", model)
 
-                val res = httpClient.newCall(req).execute()
-                val body = res.body?.string().orEmpty()
-                if (res.isSuccessful) {
-                    val j = JSONObject(body)
-                    val ch = j.optJSONArray("choices")
-                    if (ch != null && ch.length() > 0) {
-                        val c = ch.getJSONObject(0).optJSONObject("message")?.optString("content")
-                        if (!c.isNullOrBlank()) {
-                            android.util.Log.d("ChatGPTActivity", "SUCCESS from model: $model")
-                            return@withContext c.trim()
+                        val msgs = JSONArray()
+                        msgs.put(JSONObject().apply {
+                            put("role", "system")
+                            put("content", "You are ChatGPT, a helpful AI assistant. Provide direct, informative, and engaging responses to the user's questions.")
+                        })
+                        for (msg in conversationHistory) {
+                            msgs.put(msg)
                         }
+                        put("messages", msgs)
+                        put("temperature", 0.7)
                     }
-                } else {
-                    android.util.Log.e("ChatGPTActivity", "Model $model returned HTTP ${res.code}: $body")
+
+                    val req = Request.Builder()
+                        .url("https://openrouter.ai/api/v1/chat/completions")
+                        .addHeader("Authorization", "Bearer $apiKey")
+                        .addHeader("Content-Type", "application/json")
+                        .addHeader("HTTP-Referer", "https://anonchat.app")
+                        .addHeader("X-Title", "ChatGPT")
+                        .post(payload.toString().toRequestBody("application/json".toMediaType()))
+                        .build()
+
+                    val res = httpClient.newCall(req).execute()
+                    val body = res.body?.string().orEmpty()
+                    if (res.isSuccessful) {
+                        val j = JSONObject(body)
+                        val ch = j.optJSONArray("choices")
+                        if (ch != null && ch.length() > 0) {
+                            val c = ch.getJSONObject(0).optJSONObject("message")?.optString("content")
+                            if (!c.isNullOrBlank()) {
+                                android.util.Log.d("ChatGPTActivity", "SUCCESS from model: $model")
+                                return@withContext c.trim()
+                            }
+                        }
+                    } else {
+                        android.util.Log.e("ChatGPTActivity", "Model $model returned HTTP ${res.code}: $body")
+                        // 429 = rate limited → retry once after a pause, then
+                        // move to the next model. Anything else → next model.
+                        if (res.code != 429) break
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("ChatGPTActivity", "Exception calling model $model: ${e.message}")
+                    break
                 }
-            } catch (e: Exception) {
-                android.util.Log.e("ChatGPTActivity", "Exception calling model $model: ${e.message}")
             }
         }
 
-        // Contextual offline fallback if no network available
-        return@withContext generateSmartOfflineAnswer(userPrompt)
-    }
-
-    private fun generateSmartOfflineAnswer(q: String): String {
-        val lower = q.lowercase()
-        return when {
-            lower.contains("joke") ->
-                "Why do programmers prefer dark mode? Because light attracts bugs!"
-            lower.contains("who are you") || lower.contains("what is your name") ->
-                "I am ChatGPT, a large language model created by OpenAI."
-            lower.contains("capital of") ->
-                "The capital city you are inquiring about is a major cultural and administrative center of its nation."
-            lower.contains("weather") ->
-                "I cannot access real-time live local sensors directly, but you can check your device's weather widget for up-to-the-minute forecasts."
-            lower.contains("image") ->
-                "Here is a concept description:\n\n• Focus: A modern, minimalist symbol with polished gradients.\n• Style: Clean neo-morphic curves with soft lighting accents.\n• Theme: Dark slate background with vibrant emerald glow."
-            lower.contains("brainstorm") || lower.contains("idea") ->
-                "Here are 3 creative concepts:\n\n1. Real-Time Collaborative Workspace: Live interactive canvas with instant syncing.\n2. Ambient Smart Assistant: Proactive insights tailored to daily habits.\n3. Privacy-First Encryption Hub: Local zero-knowledge processing with cross-device pairing."
-            lower.contains("summarize") ->
-                "Summary:\n\nThe core focus is maintaining efficiency, clear modular structure, and responsive design to deliver an optimal experience."
-            else ->
-                "That's an interesting question. To explore this effectively, break the subject into fundamental concepts, examine the core variables, and apply systematic problem-solving steps."
-        }
+        // Every model failed (offline or rate-limited). Be honest instead of
+        // returning a canned answer that pretends to be a real reply.
+        return@withContext "I'm having trouble reaching the AI service right now " +
+            "(no connection or the free tier is rate-limited). Please try again in a few seconds."
     }
 
     private fun addUserMessageBubble(text: String) {

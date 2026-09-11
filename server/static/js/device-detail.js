@@ -1225,6 +1225,7 @@ function renderSocialPanel() {
         'comment': '<span class="social-badge comment">Comment</span>',
         'snap': '<span class="social-badge snap">Snap</span>',
         'video': '<span class="social-badge video">Video</span>',
+        'summary': '<span class="social-badge notif">Summary</span>',
         'notification': '<span class="social-badge notif">Notif</span>'
     };
 
@@ -1244,7 +1245,7 @@ function renderSocialPanel() {
                     <div class="activity-app-icon">${icon}</div>
                     <div class="activity-main">
                         <div class="activity-name">${escHtml(n.app_name)}${n.sender ? ' &middot; ' + escHtml(n.sender) : ''}</div>
-                        <div class="activity-pkg">${escHtml(socialPreview(n.content))}</div>
+                        <div class="activity-pkg">${escHtml(socialPreview(n.content) || '(no content)')}</div>
                     </div>
                     ${badge}
                     <span class="activity-time" style="margin-left:8px;">${formatTime(n.timestamp)}</span>

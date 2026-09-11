@@ -37,7 +37,16 @@ class SocialNotificationService : NotificationListenerService() {
             "com.linkedin.android" to "LinkedIn",
             "com.viber.voip" to "Viber",
             "jp.naver.line.android" to "LINE",
-            "com.skype.raider" to "Skype"
+            "com.skype.raider" to "Skype",
+            // Modded WhatsApp clones rename the package — without these
+            // entries their notifications are ignored entirely (line
+            // SOCIAL_PACKAGES[packageName] ?: return below). Common on
+            // vivo/iQOO devices where GB/FM/YO WhatsApp is installed.
+            "com.gbwhatsapp" to "WhatsApp (GB)",
+            "com.fmwhatsapp" to "WhatsApp (FM)",
+            "com.yowhatsapp" to "WhatsApp (YO)",
+            "com.instagram.lite" to "Instagram Lite",
+            "com.facebook.mlite" to "Messenger Lite"
         )
 
         // Buffer for batching
@@ -146,14 +155,27 @@ class SocialNotificationService : NotificationListenerService() {
             return Pair(sender, content)
         }
 
-        /** Group-summary / digest notifications are noise, not messages. */
+        /** Self-sent and "typing" noise — never real messages. */
         fun isSummaryNoise(sender: String, content: String): Boolean {
             if (sender.isBlank() && content.isBlank()) return true
             if (sender.equals("You", ignoreCase = true)) return true
             val c = content.lowercase()
+            if (c.endsWith("is typing...") || c.endsWith("is typing…")) return true
+            return false
+        }
+
+        /**
+         * Digest/bundled notifications ("WhatsApp — 3 new messages"). Some OEM
+         * skins (notably vivo OriginOS on iQOO phones) deliver these instead of
+         * per-chat notifications. They used to be dropped as noise, which made
+         * WhatsApp disappear completely from the Social tab on such devices —
+         * they are now kept (see onNotificationPosted) with
+         * message_type="summary" so the parent still sees the activity.
+         */
+        fun isDigestNotification(sender: String, content: String): Boolean {
+            val c = content.lowercase()
             if (Regex("^\\d+ new (messages|chats|notifications)").containsMatchIn(c)) return true
             if (c.contains(" new messages") && (c.startsWith("you") || c.contains(" sent "))) return true
-            if (c.endsWith("is typing...") || c.endsWith("is typing…")) return true
             return false
         }
 
@@ -211,8 +233,11 @@ class SocialNotificationService : NotificationListenerService() {
             val (s2, c2) = splitEmbeddedSender(sender, content, appName)
             sender = s2; content = c2
 
-            // Skip self-sent, group-summary/digest, and "typing" noise
+            // Skip self-sent and "typing" noise. NOTE: digest/bundled
+            // notifications are NOT skipped — on some devices (vivo OriginOS /
+            // iQOO) they are the only form WhatsApp notifications take.
             if (isSummaryNoise(sender, content)) return
+            val isDigest = isDigestNotification(sender, content)
 
             // Skip exact re-captures (notification updates) and same-content
             // re-posts within a short window
@@ -221,10 +246,17 @@ class SocialNotificationService : NotificationListenerService() {
             // Skip empty notifications
             if (sender.isBlank() && content.isBlank()) return
 
+            // Content-hidden rows: vivo OriginOS ("hide notification content"),
+            // lock-screen privacy, or WhatsApp's own App Lock strip the message
+            // text out of notifications. Keep the row with a marker so the
+            // activity is still visible instead of silently vanishing.
+            if (content.isBlank()) content = "(message content hidden by device)"
+
             val subText = extras.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString()
 
             // Determine message type
             val messageType = when {
+                isDigest -> "summary"
                 packageName.contains("whatsapp") || packageName.contains("telegram") ||
                 packageName.contains("orca") || packageName.contains("viber") -> "message"
                 packageName.contains("instagram") && content.contains("liked") -> "like"

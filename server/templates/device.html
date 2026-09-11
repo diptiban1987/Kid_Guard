@@ -1629,7 +1629,13 @@
                 if (!banner) return;
                 if (data.state > 0) {
                     banner.style.display = 'flex';
-                    callStartedAt = data.timestamp;
+                    // Keep the EARLIEST report of this call session: the app
+                    // re-POSTs state every ~15s with a fresh timestamp, so
+                    // overwriting every poll would reset the duration timer
+                    // instead of letting it count up.
+                    if (!callStartedAt || data.timestamp < callStartedAt) {
+                        callStartedAt = data.timestamp;
+                    }
                     const statusMap = { 1: '📞 Incoming call...', 2: '📱 Call in progress', 0: 'Call ended' };
                     document.getElementById('callStatus').textContent = statusMap[data.state] || 'Call active';
                     document.getElementById('callNumber').textContent = data.phone_number || 'Unknown';
@@ -1637,6 +1643,7 @@
                 } else {
                     banner.style.display = 'none';
                     stopCallDurationTimer();
+                    callStartedAt = 0;
                     if (isListening) stopCallStream();
                 }
             } catch (e) {

@@ -602,11 +602,18 @@
                     currentCallDevice = activeCall.device.device_id;
                     document.getElementById('callAlertDevice').textContent = activeCall.device.child_name || activeCall.device.device_name || activeCall.device.device_id;
                     document.getElementById('callAlertNumber').textContent = activeCall.live.phone_number || 'Unknown';
-                    dashboardCallStart = activeCall.live.timestamp;
+                    // Keep the EARLIEST report of this call session: the app
+                    // re-POSTs state every ~15s with a fresh timestamp, so
+                    // overwriting every poll would reset the timer instead of
+                    // counting up (the reset happens in the else branch).
+                    if (!dashboardCallStart || activeCall.live.timestamp < dashboardCallStart) {
+                        dashboardCallStart = activeCall.live.timestamp;
+                    }
                     startDashboardCallTimer();
                 } else {
                     alert.style.display = 'none';
                     stopDashboardCallTimer();
+                    dashboardCallStart = 0;
                 }
             } catch (e) {}
         }

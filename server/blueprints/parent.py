@@ -960,13 +960,34 @@ def poll_mic_audio(device_id, command_id):
 
 # ─── Live call state + audio streaming control ──────────────────────────
 
+# While a call is genuinely ongoing the device app re-POSTs its call state on
+# every ~15s report cycle (TrackerService.startPeriodicReporting self-heal),
+# so a live entry much older than that means the app died / the phone
+# rebooted before it could report IDLE — the exact "Active Call" zombie that
+# otherwise sticks around for days. The TTL must comfortably exceed the app's
+# worst-case rate-limit backoff (300s) so a throttled-but-alive app never
+# gets a real call masked.
+_CALL_STATE_TTL_MS = 10 * 60 * 1000
+
+
 @bp.route('/parent/calls/<device_id>/live', methods=['GET'])
 @parent_required
 def get_live_call_state(device_id):
     real_id, err = _resolve_or_403(device_id)
     if err:
         return err
-    state = live_call_state.get(real_id, {'state': 0, 'phone_number': '', 'timestamp': 0, 'streaming': False})
+    state = live_call_state.get(real_id)
+    if state and state.get('state', 0) > 0:
+        try:
+            age = _now_ms() - int(state.get('timestamp') or 0)
+        except (TypeError, ValueError):
+            age = _CALL_STATE_TTL_MS + 1
+        if age > _CALL_STATE_TTL_MS:
+            # No refresh within TTL → the call ended without an IDLE report.
+            live_call_state.pop(real_id, None)
+            state = None
+    if not state:
+        state = {'state': 0, 'phone_number': '', 'timestamp': 0, 'streaming': False}
     streaming = live_audio_streams.get(real_id, {'active': False})
     return jsonify({
         'state': state.get('state', 0), 'phone_number': state.get('phone_number', ''),

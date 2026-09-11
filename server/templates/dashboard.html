@@ -504,7 +504,8 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="/static/js/cloud-dashboard.js?v=2"></script>
+    <script src="/static/js/net-resilience.js?v=1"></script>
+    <script src="/static/js/cloud-dashboard.js?v=3"></script>
     <style>
         .active-call-alert {
             display: flex;
@@ -566,7 +567,11 @@
         function startDashboardCallPolling() {
             if (dashboardCallPolling) return;
             checkDashboardCallState();
-            dashboardCallPolling = setInterval(checkDashboardCallState, 3000);
+            // 15s like the device page: this poller fetches /api/parent/devices
+            // plus a /live call per device, and a 3s burst of identical
+            // requests is exactly what trips the edge security check into
+            // challenging the whole tab.
+            dashboardCallPolling = setInterval(checkDashboardCallState, 15000);
         }
 
         async function checkDashboardCallState() {

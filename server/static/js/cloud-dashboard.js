@@ -1153,7 +1153,12 @@ async function fetchWithAuth(url, options = {}) {
     options.headers['Authorization'] = `Bearer ${TOKEN}`;
     options.headers['Content-Type'] = 'application/json';
     
-    const res = await fetch(url, options);
+    // Shared resilience wrapper (net-resilience.js): absorbs Render edge
+    // security-check challenges, 5xx pages and network blips with backoff
+    // retries + on-page banner. 401/403 JSON passes through to the refresh
+    // flow below.
+    const doFetch = (window.KidGuardNet && window.KidGuardNet.fetch) ? window.KidGuardNet.fetch : fetch;
+    const res = await doFetch(url, options);
     if (res.status === 401 || res.status === 403) {
         const refresh = localStorage.getItem('kidguard_refresh');
         if (refresh) {

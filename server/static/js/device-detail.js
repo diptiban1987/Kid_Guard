@@ -85,16 +85,13 @@ async function fetchWithAuth(url, options = {}) {
     // is the next best signal.
     options.headers['X-KidGuard-Client'] = 'dashboard/1.0';
 
-    let res = await fetch(url, options);
-    // If the proxy is challenging the request (HTTP 401/403/429 with a
-    // non-JSON body), wait briefly and retry once. This recovers from the
-    // Cloudflare "Just a moment" challenge without forcing a full page
-    // reload.
-    if ((res.status === 429 || res.status === 401 || res.status === 403) &&
-        !isJsonResponse(res)) {
-        await sleep(2500);
-        res = await fetch(url, options);
-    }
+    // Delegate challenge / 5xx / network-blip handling to the shared
+    // resilience wrapper (net-resilience.js): exponential backoff retries
+    // with an on-page banner. 401/403 JSON responses pass through unchanged
+    // to the token-refresh flow below; HTML 401/403 (proxy challenge) is
+    // retried by the wrapper instead of triggering a logout.
+    const doFetch = (window.KidGuardNet && window.KidGuardNet.fetch) ? window.KidGuardNet.fetch : fetch;
+    const res = await doFetch(url, options);
     if (res.status === 401 || res.status === 403) {
         const refresh = localStorage.getItem(REFRESH_KEY);
         if (refresh) {
@@ -455,18 +452,23 @@ function renderMap(locations, geofences) {
 
 // ─── Load All Data ────────────────────────────────────────────────────────
 
-// safeJson: short-circuit to a typed fallback when an upstream proxy (Cloudflare
-// Turnstile on Render cold-starts) returns an HTML challenge page or a non-JSON
-// error. A single bad response must never tear the whole device page down.
+// safeJson: short-circuit to a typed fallback when an upstream proxy (Render's
+// edge "Security Check" / Cloudflare Turnstile on cold-starts) returns an HTML
+// challenge page or a non-JSON error. A single bad response must never tear
+// the whole device page down. Failures are flagged so loadAllData() can
+// schedule a quick retry instead of leaving panels showing 0 for 30s.
+let loadHadFailures = false;
 async function safeJson(res, fallback) {
     try {
         const ct = (res.headers.get('content-type') || '').toLowerCase();
         if (!ct.includes('application/json')) {
+            loadHadFailures = true;
             console.warn('[device-detail] non-JSON response', res.status, ct);
             return fallback;
         }
         return await res.json();
     } catch (e) {
+        loadHadFailures = true;
         console.warn('[device-detail] JSON parse failed', res.status, e.message);
         return fallback;
     }
@@ -495,6 +497,8 @@ if (typeof CanvasRenderingContext2D !== 'undefined' && !CanvasRenderingContext2D
 
 async function loadAllData() {
     try {
+        loadHadFailures = false;
+
         // Fetch device info first
         const devicesRes = await fetchWithAuth('/api/parent/devices');
         const devices = await safeJson(devicesRes, []);
@@ -503,28 +507,32 @@ async function loadAllData() {
             deviceInfo = found;
             renderDeviceHeader(deviceInfo);
         }
-        // If the response was empty/blank (e.g. Cloudflare 429 challenge), keep
+        // If the response was empty/blank (e.g. challenge page), keep
         // the previously rendered header so the badge doesn't flicker between
         // ONLINE and OFFLINE on every poll while a challenge is in progress.
 
         // Parallel fetch all data. Time-series endpoints get the active
         // date-range filter; static ones (apps/geofences/restrictions/
-        // schedule/chats) are unaffected.
+        // schedule/chats) are unaffected. Requests are STAGGERED ~100ms
+        // apart (i*100) instead of fired simultaneously: a 13-request burst
+        // is the exact traffic shape that trips Render's edge security
+        // check, and ~1.3s of spread is invisible at a 30s refresh cadence.
         const range = activeRange;
+        const stagger = (i, fn) => new Promise(res => setTimeout(res, i * 100)).then(fn);
         const [locations, activity, sms, calls, apps, screentime, webhistory, media, geofences, restrictions, schedule, social, chats] = await Promise.all([
-            fetchWithAuth(`/api/parent/locations/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, [])).catch(() => []),
-            fetchWithAuth(`/api/parent/activity/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, [])).catch(() => []),
-            fetchWithAuth(`/api/parent/sms/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, [])).catch(() => []),
-            fetchWithAuth(`/api/parent/calls/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, [])).catch(() => []),
-            fetchWithAuth(`/api/parent/apps/${DEVICE_ID}`).then(r => safeJson(r, [])).catch(() => []),
-            fetchWithAuth(`/api/parent/screentime/${DEVICE_ID}?days=7`).then(r => safeJson(r, [])).catch(() => []),
-            fetchWithAuth(`/api/parent/webhistory/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, [])).catch(() => []),
-            fetchWithAuth(`/api/parent/media/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, [])).catch(() => []),
-            fetchWithAuth(`/api/parent/geofences/${DEVICE_ID}`).then(r => safeJson(r, [])).catch(() => []),
-            fetchWithAuth(`/api/parent/restrictions/${DEVICE_ID}`).then(r => safeJson(r, [])).catch(() => []),
-            fetchWithAuth(`/api/parent/schedule/${DEVICE_ID}`).then(r => safeJson(r, [])).catch(() => []),
-            fetchWithAuth(`/api/parent/social/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, [])).catch(() => []),
-            fetchWithAuth(`/api/parent/device/${DEVICE_ID}/chats?limit=500`).then(r => safeJson(r, [])).catch(() => [])
+            stagger(0, () => fetchWithAuth(`/api/parent/locations/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, [])).catch(() => [])),
+            stagger(1, () => fetchWithAuth(`/api/parent/activity/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, [])).catch(() => [])),
+            stagger(2, () => fetchWithAuth(`/api/parent/sms/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, [])).catch(() => [])),
+            stagger(3, () => fetchWithAuth(`/api/parent/calls/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, [])).catch(() => [])),
+            stagger(4, () => fetchWithAuth(`/api/parent/apps/${DEVICE_ID}`).then(r => safeJson(r, [])).catch(() => [])),
+            stagger(5, () => fetchWithAuth(`/api/parent/screentime/${DEVICE_ID}?days=7`).then(r => safeJson(r, [])).catch(() => [])),
+            stagger(6, () => fetchWithAuth(`/api/parent/webhistory/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, [])).catch(() => [])),
+            stagger(7, () => fetchWithAuth(`/api/parent/media/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, [])).catch(() => [])),
+            stagger(8, () => fetchWithAuth(`/api/parent/geofences/${DEVICE_ID}`).then(r => safeJson(r, [])).catch(() => [])),
+            stagger(9, () => fetchWithAuth(`/api/parent/restrictions/${DEVICE_ID}`).then(r => safeJson(r, [])).catch(() => [])),
+            stagger(10, () => fetchWithAuth(`/api/parent/schedule/${DEVICE_ID}`).then(r => safeJson(r, [])).catch(() => [])),
+            stagger(11, () => fetchWithAuth(`/api/parent/social/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, [])).catch(() => [])),
+            stagger(12, () => fetchWithAuth(`/api/parent/device/${DEVICE_ID}/chats?limit=500`).then(r => safeJson(r, [])).catch(() => []))
         ]);
 
         // Cache
@@ -577,10 +585,27 @@ async function loadAllData() {
         // Update tab badges + hide empty tabs
         updateTabBadges();
 
+        // If any panel's data was blocked mid-load (proxy challenge, 5xx,
+        // network blip), retry much sooner than the 30s auto-refresh so the
+        // stats don't sit at 0 for half a minute.
+        if (loadHadFailures) scheduleQuickRetry();
+
     } catch (err) {
         console.error('Load error:', err);
         showToast('Error', 'Failed to load device data');
     }
+}
+
+// Faster follow-up load when part of the previous one was blocked by the
+// server's edge security check (see net-resilience.js).
+let quickRetryTimer = null;
+function scheduleQuickRetry() {
+    if (quickRetryTimer) return;
+    showToast('Retrying', 'Some data was blocked by the security check \u2014 retrying\u2026');
+    quickRetryTimer = setTimeout(() => {
+        quickRetryTimer = null;
+        loadAllData();
+    }, 10000);
 }
 
 // ─── Device Header ────────────────────────────────────────────────────────

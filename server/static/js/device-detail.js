@@ -1203,10 +1203,12 @@ function renderSocialPanel() {
         'notification': '<span class="social-badge notif">Notif</span>'
     };
 
+    // Collapse OS re-post duplicates so the tab shows one clean row per message.
+    const items = dedupeSocialList(cachedSocial);
     // Remember each row's stable key so an expanded detail card survives the
     // 30s auto-refresh re-render (see openDetailKeys).
-    socialKeys = cachedSocial.map(socialItemKey);
-    container.innerHTML = cachedSocial.map((n, idx) => {
+    socialKeys = items.map(socialItemKey);
+    container.innerHTML = items.map((n, idx) => {
         const icon = socialIcons[n.app_name] || '📱';
         const badge = typeBadge[n.message_type] || typeBadge['notification'];
         const open = openDetailKeys.has(socialKeys[idx]);
@@ -1217,7 +1219,7 @@ function renderSocialPanel() {
                     <div class="activity-app-icon">${icon}</div>
                     <div class="activity-main">
                         <div class="activity-name">${escHtml(n.app_name)}${n.sender ? ' &middot; ' + escHtml(n.sender) : ''}</div>
-                        <div class="activity-pkg">${escHtml((n.content || '').substring(0, 70))}</div>
+                        <div class="activity-pkg">${escHtml(socialPreview(n.content))}</div>
                     </div>
                     ${badge}
                     <span class="activity-time" style="margin-left:8px;">${formatTime(n.timestamp)}</span>
@@ -1263,6 +1265,53 @@ const SOCIAL_MEDIA_WINDOW_MS = 15 * 60 * 1000;
 
 function socialItemKey(n) {
     return ['soc', n && n.timestamp, n && n.app_name, n && n.sender, String((n && n.content) || '').substring(0, 40)].join('|');
+}
+
+// Android re-posts still-active notifications (content updates, listener
+// rebinds, reboot re-posts, upload retries) which used to stack identical
+// rows in the Social tab. The server now collapses these before responding;
+// this mirrors that collapse client-side so rows stay clean even while
+// legacy duplicate rows are still in the database.
+const SOCIAL_DEDUP_WINDOW_MS = 10 * 60 * 1000;
+
+/**
+ * Collapse re-posted notification duplicates (same app + sender + content
+ * within SOCIAL_DEDUP_WINDOW_MS), keeping the ORIGINAL arrival (oldest row)
+ * of each cluster — re-post timestamps are OS artifacts, not when the message
+ * actually arrived. The list arrives newest-first and is returned
+ * newest-first too. Mirrors the server-side collapse.
+ */
+function dedupeSocialList(list) {
+    const src = Array.isArray(list) ? list : [];
+    const kept = new Map();   // (pkg|sender|content) -> [{ts, idx}]
+    const out = [];
+    for (const n of src) {
+        const key = `${(n && n.package_name) || ''}|${(n && n.sender) || ''}|${(n && n.content) || ''}`;
+        const ts = Number(n && n.timestamp) || 0;
+        let entries = kept.get(key);
+        if (!entries) { entries = []; kept.set(key, entries); }
+        const hit = entries.find(e => Math.abs(ts - e.ts) < SOCIAL_DEDUP_WINDOW_MS);
+        if (hit) {
+            if (ts < hit.ts) {
+                // OS re-post of an already-kept row: keep the original.
+                hit.ts = ts;
+                out[hit.idx] = n;
+            }
+            continue;
+        }
+        entries.push({ ts, idx: out.length });
+        out.push(n);
+    }
+    // A replacement above can locally disturb the newest-first order; restore it.
+    return out.sort((a, b) => (Number(b && b.timestamp) || 0) - (Number(a && a.timestamp) || 0));
+}
+
+/** Single-line preview: collapse whitespace, cut on a word boundary. */
+function socialPreview(text, max = 70) {
+    const clean = String(text || '').replace(/\s+/g, ' ').trim();
+    if (clean.length <= max) return clean;
+    const cut = clean.lastIndexOf(' ', max - 1);
+    return clean.substring(0, cut > 30 ? cut : max - 1).trimEnd() + '…';
 }
 
 function toggleSocialDetail(idx) {

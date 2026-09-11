@@ -550,18 +550,53 @@ def report_media():
     return jsonify({'status': 'ok', 'media_id': media.id})
 
 
+def _social_dedup_window_ms():
+    """How close two identical social notifications (same app + sender +
+    content) may be posted before the later one counts as an OS re-post
+    duplicate rather than a genuine repeat message.
+
+    Android re-delivers live notifications (notification content updates,
+    NotificationListener rebinds, reboot re-posts, upload retries), which used
+    to stack identical rows in the Social tab. The 10-minute default absorbs
+    all of those. Override with the SOCIAL_DEDUP_WINDOW_MS environment
+    variable; 0 disables the window check (exact-timestamp retries are still
+    deduped on ingest).
+    """
+    try:
+        return int(os.environ.get('SOCIAL_DEDUP_WINDOW_MS', '600000'))
+    except (TypeError, ValueError):
+        return 600000
+
+
 def _social_dedupe(canonical, notif):
-    """Return True if an identical social notification row already exists
-    (device retries / notification re-posts can resend the same content)."""
+    """Return True if this social notification is a re-post/retry of one
+    already stored (device retries / notification re-posts can resend the
+    same content). Two cases count as a duplicate: the exact same row
+    (identical timestamp — upload retries / failover resends), and the same
+    app + sender + content within the dedup window (the OS re-delivering a
+    still-active notification with a refreshed postTime)."""
     try:
         q = SocialNotification.query.filter_by(
             device_id=canonical,
             package_name=notif.get('package_name', ''),
             sender=notif.get('sender', ''),
             content=notif.get('content', ''),
-            timestamp=notif.get('timestamp', _now_ms()),
         )
-        return db.session.query(q.exists()).scalar()
+        ts = notif.get('timestamp', _now_ms())
+        # 1. Exact retry (same timestamp) — always a duplicate.
+        if db.session.query(q.filter_by(timestamp=ts).exists()).scalar():
+            return True
+        # 2. Re-post within the window (tolerates small clock skew on both
+        #    sides; re-posts normally arrive seconds-to-minutes later).
+        window = _social_dedup_window_ms()
+        if window > 0:
+            repost = q.filter(
+                SocialNotification.timestamp >= ts - window,
+                SocialNotification.timestamp <= ts + window,
+            ).first()
+            if repost is not None:
+                return True
+        return False
     except Exception:
         return False
 

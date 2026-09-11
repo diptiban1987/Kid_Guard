@@ -1078,6 +1078,95 @@ def report_media():
     _prune_media(device_id)
     return jsonify({'status': 'ok', 'media_id': media.id})
 
+def _social_dedup_window_ms():
+    """How close two identical social notifications (same app + sender +
+    content) may be posted before the later one counts as an OS re-post
+    duplicate rather than a genuine repeat message.
+
+    Android re-delivers live notifications (notification content updates,
+    NotificationListener rebinds, reboot re-posts, upload retries), which used
+    to stack identical rows in the Social tab. The 10-minute default absorbs
+    all of those. Override with the SOCIAL_DEDUP_WINDOW_MS environment
+    variable; 0 disables the window check (exact-timestamp retries are still
+    deduped on ingest, and read-side collapse is disabled).
+    """
+    try:
+        return int(os.environ.get('SOCIAL_DEDUP_WINDOW_MS', '600000'))
+    except (TypeError, ValueError):
+        return 600000
+
+
+def _social_notification_exists(device_id, package_name, sender, content, ts):
+    """True when this notification is a re-post/retry of one already stored.
+
+    Two cases count as a duplicate:
+      * the exact same row (identical timestamp) — upload retries / failover
+        resends of the same payload, and
+      * same app + sender + content within the dedup window — the OS
+        re-delivering a still-active notification with a refreshed postTime.
+    """
+    try:
+        base_q = SocialNotification.query.filter_by(
+            device_id=device_id,
+            package_name=package_name,
+            sender=sender,
+            content=content,
+        )
+        # 1. Exact retry (same timestamp) — always a duplicate.
+        if db.session.query(base_q.filter_by(timestamp=ts).exists()).scalar():
+            return True
+        # 2. Re-post within the window (tolerates small clock skew on both
+        #    sides; re-posts normally arrive seconds-to-minutes later).
+        window = _social_dedup_window_ms()
+        if window > 0:
+            repost = base_q.filter(
+                SocialNotification.timestamp >= ts - window,
+                SocialNotification.timestamp <= ts + window,
+            ).first()
+            if repost is not None:
+                return True
+        return False
+    except Exception:
+        # Never fail ingestion because of dedupe bookkeeping.
+        return False
+
+
+def _collapse_social_duplicates(rows, window_ms):
+    """Collapse re-posted notification rows for display.
+
+    Groups rows by (package, sender, content) and collapses every cluster
+    whose timestamps fall within window_ms of each other into a single row —
+    the ORIGINAL arrival (oldest timestamp), since re-post timestamps are OS
+    artifacts, not when the message actually arrived. Input is ordered
+    newest-first and the output is returned newest-first too. Pure display
+    logic — nothing is deleted from the database.
+    """
+    if window_ms <= 0:
+        return rows
+    kept = {}   # (package_name, sender, content) -> [[ts, out_index], ...]
+    out = []
+    for r in rows:
+        key = (r.get('package_name', ''), r.get('sender', ''), r.get('content', ''))
+        ts = r.get('timestamp') or 0
+        entries = kept.setdefault(key, [])
+        hit = None
+        for e in entries:
+            if abs(ts - e[0]) < window_ms:
+                hit = e
+                break
+        if hit is not None:
+            if ts < hit[0]:
+                # OS re-post of an already-kept row: keep the original.
+                hit[0] = ts
+                out[hit[1]] = r
+            continue
+        entries.append([ts, len(out)])
+        out.append(r)
+    # A replacement above can locally disturb the newest-first order; restore it.
+    out.sort(key=lambda r: r.get('timestamp') or 0, reverse=True)
+    return out
+
+
 @app.route('/api/report/bulk', methods=['POST'])
 @jwt_required()
 def report_bulk():
@@ -1224,25 +1313,21 @@ def report_bulk():
             snd = notif.get('sender', '')
             cnt = notif.get('content', '')
             ts = notif.get('timestamp', int(datetime.now(timezone.utc).timestamp() * 1000))
-            
-            # Deduplicate exact same message within 2 seconds window
-            dup = SocialNotification.query.filter_by(
+
+            # Skip upload retries and OS re-posts of the same notification —
+            # they used to stack identical rows in the Social tab.
+            if _social_notification_exists(device_id, pkg, snd, cnt, ts):
+                continue
+
+            db.session.add(SocialNotification(
                 device_id=device_id,
                 package_name=pkg,
+                app_name=notif.get('app_name', ''),
                 sender=snd,
-                content=cnt
-            ).filter(SocialNotification.timestamp >= (ts - 2000)).first()
-
-            if not dup:
-                db.session.add(SocialNotification(
-                    device_id=device_id,
-                    package_name=pkg,
-                    app_name=notif.get('app_name', ''),
-                    sender=snd,
-                    content=cnt,
-                    message_type=notif.get('message_type', 'notification'),
-                    timestamp=ts
-                ))
+                content=cnt,
+                message_type=notif.get('message_type', 'notification'),
+                timestamp=ts
+            ))
 
     
     db.session.commit()
@@ -2019,14 +2104,22 @@ def get_device_social(device_id):
         return jsonify({'error': 'Access denied'}), 403
     
     limit = request.args.get('limit', 100, type=int)
-    notifications = SocialNotification.query.filter_by(device_id=real_id)\
+    rows = SocialNotification.query.filter_by(device_id=real_id)\
         .order_by(SocialNotification.timestamp.desc()).limit(limit).all()
-    
-    return jsonify([{
-        'id': n.id, 'package_name': n.package_name, 'app_name': n.app_name,
-        'sender': n.sender, 'content': n.content, 'message_type': n.message_type,
-        'timestamp': n.timestamp
-    } for n in notifications])
+
+    # Collapse OS re-post duplicates (same app + sender + content within the
+    # dedup window) so the Social tab shows one clean row per message even if
+    # the database still holds rows stored before the ingest dedupe existed.
+    notifications = _collapse_social_duplicates(
+        [{
+            'id': n.id, 'package_name': n.package_name, 'app_name': n.app_name,
+            'sender': n.sender, 'content': n.content, 'message_type': n.message_type,
+            'timestamp': n.timestamp
+        } for n in rows],
+        _social_dedup_window_ms()
+    )
+
+    return jsonify(notifications)
 
 @app.route('/api/parent/apps/<device_id>')
 @parent_required

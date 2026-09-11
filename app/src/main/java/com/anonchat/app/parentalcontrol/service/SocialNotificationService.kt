@@ -83,10 +83,14 @@ class SocialNotificationService : NotificationListenerService() {
         private val recentUniqueKeys = LinkedHashSet<String>()
         // Content key (pkg+sender+content) with a short time window stops
         // re-capture of the same logical message when the OS re-posts it
-        // as a "new" notification seconds later.
-        private val recentContentAt = HashMap<String, Long>()
+        // as a "new" notification seconds later. Insertion-ordered so the
+        // oldest keys can be evicted one by one — a full clear() wiped every
+        // known key during busy bursts, after which all still-active
+        // notifications were re-captured and flooded the dashboard with
+        // duplicate rows.
+        private val recentContentAt = LinkedHashMap<String, Long>()
 
-        private const val CONTENT_DEDUP_WINDOW_MS = 10_000L
+        private const val CONTENT_DEDUP_WINDOW_MS = 60_000L
         private const val MAX_DEDUP_ENTRIES = 300
 
         /** True if this (sender, content) pair is new and should be captured. */
@@ -101,8 +105,13 @@ class SocialNotificationService : NotificationListenerService() {
                 val ck = "$packageName#$sender#$content"
                 val last = recentContentAt[ck]
                 if (last != null && postTime - last < CONTENT_DEDUP_WINDOW_MS) return false
+                // Re-insert so the map stays oldest-first for eviction.
+                recentContentAt.remove(ck)
                 recentContentAt[ck] = postTime
-                if (recentContentAt.size > MAX_DEDUP_ENTRIES) recentContentAt.clear()
+                if (recentContentAt.size > MAX_DEDUP_ENTRIES) {
+                    val eldestIt = recentContentAt.entries.iterator()
+                    eldestIt.next(); eldestIt.remove()
+                }
                 return true
             }
         }

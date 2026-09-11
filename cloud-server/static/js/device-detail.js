@@ -595,7 +595,10 @@ function renderStats() {
     const filteredCalls = filterList(cachedCalls, [c => c.name, c => c.number]);
     const filteredApps = filterList(cachedApps, [a => a.app_name, a => a.package_name]);
     const filteredWeb = filterList(cachedWebHistory, [w => w.title, w => w.url, w => w.browser]);
-    const filteredSocial = filterList(cachedSocial, [n => n.app_name, n => n.sender, n => n.content]);
+    // Social rows are collapsed (OS re-post duplicates) so the badge shows the
+    // real number of distinct notifications, matching the Social tab rows.
+    const socialBase = dedupeSocialList(cachedSocial);
+    const filteredSocial = filterList(socialBase, [n => n.app_name, n => n.sender, n => n.content]);
     const filteredMedia = filterList(cachedMedia, [m => m.filename, m => m.mime_type]);
 
     // Tab count badges
@@ -604,7 +607,7 @@ function renderStats() {
     if (document.getElementById('badgeCalls')) document.getElementById('badgeCalls').textContent = currentSearchQuery ? `${filteredCalls.length}/${cachedCalls.length}` : cachedCalls.length;
     if (document.getElementById('badgeApps')) document.getElementById('badgeApps').textContent = currentSearchQuery ? `${filteredApps.length}/${cachedApps.length}` : cachedApps.length;
     if (document.getElementById('badgeWeb')) document.getElementById('badgeWeb').textContent = currentSearchQuery ? `${filteredWeb.length}/${cachedWebHistory.length}` : cachedWebHistory.length;
-    if (document.getElementById('badgeSocial')) document.getElementById('badgeSocial').textContent = currentSearchQuery ? `${filteredSocial.length}/${(cachedSocial || []).length}` : (cachedSocial || []).length;
+    if (document.getElementById('badgeSocial')) document.getElementById('badgeSocial').textContent = currentSearchQuery ? `${filteredSocial.length}/${socialBase.length}` : socialBase.length;
     if (document.getElementById('badgeMedia')) document.getElementById('badgeMedia').textContent = currentSearchQuery ? `${filteredMedia.length}/${cachedMedia.length}` : cachedMedia.length;
 }
 
@@ -1265,6 +1268,53 @@ function socialItemKey(n) {
     return ['soc', n && n.timestamp, n && n.app_name, n && n.sender, String((n && n.content) || '').substring(0, 40)].join('|');
 }
 
+// Android re-posts still-active notifications (content updates, listener
+// rebinds, reboot re-posts, upload retries) which used to stack identical
+// rows in the Social tab. The server now collapses these before responding;
+// this mirrors that collapse client-side so rows and the tab badge stay
+// clean even while legacy duplicate rows are still in the database.
+const SOCIAL_DEDUP_WINDOW_MS = 10 * 60 * 1000;
+
+/**
+ * Collapse re-posted notification duplicates (same app + sender + content
+ * within SOCIAL_DEDUP_WINDOW_MS), keeping the ORIGINAL arrival (oldest row)
+ * of each cluster — re-post timestamps are OS artifacts, not when the message
+ * actually arrived. The list arrives newest-first and is returned
+ * newest-first too. Mirrors the server-side collapse.
+ */
+function dedupeSocialList(list) {
+    const src = Array.isArray(list) ? list : [];
+    const kept = new Map();   // (pkg|sender|content) -> [{ts, idx}]
+    const out = [];
+    for (const n of src) {
+        const key = `${(n && n.package_name) || ''}|${(n && n.sender) || ''}|${(n && n.content) || ''}`;
+        const ts = Number(n && n.timestamp) || 0;
+        let entries = kept.get(key);
+        if (!entries) { entries = []; kept.set(key, entries); }
+        const hit = entries.find(e => Math.abs(ts - e.ts) < SOCIAL_DEDUP_WINDOW_MS);
+        if (hit) {
+            if (ts < hit.ts) {
+                // OS re-post of an already-kept row: keep the original.
+                hit.ts = ts;
+                out[hit.idx] = n;
+            }
+            continue;
+        }
+        entries.push({ ts, idx: out.length });
+        out.push(n);
+    }
+    // A replacement above can locally disturb the newest-first order; restore it.
+    return out.sort((a, b) => (Number(b && b.timestamp) || 0) - (Number(a && a.timestamp) || 0));
+}
+
+/** Single-line preview: collapse whitespace, cut on a word boundary. */
+function socialPreview(text, max = 70) {
+    const clean = String(text || '').replace(/\s+/g, ' ').trim();
+    if (clean.length <= max) return clean;
+    const cut = clean.lastIndexOf(' ', max - 1);
+    return clean.substring(0, cut > 30 ? cut : max - 1).trimEnd() + '…';
+}
+
 function toggleSocialDetail(idx) {
     togglePanelDetail('soc', idx, socialKeys[idx]);
 }
@@ -1323,7 +1373,9 @@ function socialMediaStrip(n) {
 
 function renderSocialPanel() {
     const container = document.getElementById('panel-social');
-    const items = filterList(cachedSocial, [n => n.app_name, n => n.sender, n => n.content]);
+    // Collapse OS re-post duplicates so the tab shows one clean row per
+    // message, then apply the search filter on top of the deduped list.
+    const items = filterList(dedupeSocialList(cachedSocial), [n => n.app_name, n => n.sender, n => n.content]);
     if (items.length === 0) {
         container.innerHTML = `<div class="empty-state"><div class="empty-icon">💬</div>${currentSearchQuery ? 'No matching social activity' : 'No social media activity captured yet.'}</div>`;
         return;
@@ -1362,7 +1414,7 @@ function renderSocialPanel() {
                     <div class="activity-app-icon">${icon}</div>
                     <div class="activity-main">
                         <div class="activity-name">${escHtml(n.app_name)} ${n.sender ? '&middot; ' + escHtml(n.sender) : ''}</div>
-                        <div class="activity-pkg">${escHtml((n.content || '').substring(0, 70))}</div>
+                        <div class="activity-pkg">${escHtml(socialPreview(n.content))}</div>
                     </div>
                     ${badge}
                     <span class="activity-time" style="margin-left:8px;">${formatTime(n.timestamp)}</span>

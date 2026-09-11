@@ -18,6 +18,30 @@
             margin: 0 auto;
             min-height: calc(100vh - 60px);
         }
+        /* ─── Sticky "Device Data" header ───
+           Range chips + tab bar stay pinned under the navbar while the
+           tab panels scroll. The shared `.card { overflow: hidden }` rule
+           would trap the sticky element inside the card's own (never
+           scrolling) box, so it is released for this card only, and the
+           header gets matching top corners + an opaque composite
+           background so rows don't bleed through while stuck. */
+        #deviceDataCard {
+            overflow: visible;
+        }
+        #deviceDataCard > .card-header {
+            position: -webkit-sticky;
+            position: sticky;
+            top: 60px; /* flush under the 60px sticky navbar */
+            z-index: 500; /* above panels, below navbar (1000) and modals */
+            background: #191632; /* #0f0c29 page bg + 4% card overlay */
+            border-radius: 12px 12px 0 0;
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.28);
+        }
+        #deviceDataCard .tab-bar {
+            overflow-x: auto; /* 8 tabs can exceed width on phones */
+            max-width: 100%;
+        }
+
 
         /* ─── Device Info Header ─── */
         .device-header {
@@ -1323,7 +1347,7 @@
         </div>
 
         <!-- Tabbed Data Section -->
-        <div class="card">
+        <div class="card" id="deviceDataCard">
             <div class="card-header">
                 <h2>Device Data</h2>
                 <div class="card-header-right">

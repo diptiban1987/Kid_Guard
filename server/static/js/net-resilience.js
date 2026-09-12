@@ -135,7 +135,12 @@
         if (method === 'GET') {
             const key = method + '|' + url;
             const existing = inFlightGets.get(key);
-            if (existing) return existing;
+            // Body-once rule: a fetch Response can be read exactly once, so
+            // every dedup joiner gets its own clone of the pristine response
+            // (sharing the object made the second consumer die with "body
+            // stream already read" — seen live on /parent/devices).
+
+            if (existing) return existing.then(r => (r && r.clone) ? r.clone() : r);
             const p = (async () => {
                 try {
                     return await resilientFetchInner(url, opts, method);
@@ -144,7 +149,7 @@
                 }
             })();
             inFlightGets.set(key, p);
-            return p;
+            return p.then(r => (r && r.clone) ? r.clone() : r);
         }
         return resilientFetchInner(url, opts, method);
     }

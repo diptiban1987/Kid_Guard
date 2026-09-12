@@ -400,6 +400,17 @@ class SocialNotification(db.Model):
     received_at = db.Column(db.BigInteger, default=_now_ms)
 
 
+class ScreenFrame(db.Model):
+    __tablename__ = 'screen_frames'
+
+    # One row per device — /report/screen-frame UPSERTS it, so continuous
+    # ~1 fps live screen streaming can never grow the database.
+    device_id = db.Column(db.String(100), db.ForeignKey('devices.device_id'), primary_key=True)
+    ts = db.Column(db.BigInteger)
+    image = db.Column(db.LargeBinary)  # raw JPEG bytes of the latest frame
+    received_at = db.Column(db.BigInteger, default=_now_ms)
+
+
 class ChatMessage(db.Model):
     __tablename__ = 'chat_messages'
 

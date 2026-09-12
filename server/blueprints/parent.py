@@ -7,6 +7,7 @@ in the dashboard API.
 """
 import json
 import os
+import base64
 from datetime import datetime, timezone
 
 from flask import Blueprint, request, jsonify, current_app
@@ -16,7 +17,7 @@ from ..models import (
     User, ChildRelation, Device, LocationReport, ActivityReport, BatteryReport,
     ScreenTimeReport, SmsMessage, CallLog, InstalledApp, MediaFile, WebHistory,
     Geofence, GeofenceEvent, RemoteCommand, AppRestriction, ScheduleRule,
-    SocialNotification, ChatMessage,
+    SocialNotification, ChatMessage, ScreenFrame,
 )
 from ..extensions import live_call_state, live_audio_streams, live_command_results, live_mic_chunks
 from ..security import (
@@ -968,6 +969,26 @@ def poll_mic_audio(device_id, command_id):
 # worst-case rate-limit backoff (300s) so a throttled-but-alive app never
 # gets a real call masked.
 _CALL_STATE_TTL_MS = 10 * 60 * 1000
+
+
+@bp.route('/parent/screen-frame/<device_id>', methods=['GET'])
+@parent_required
+def get_screen_frame(device_id):
+    """Latest live screen-view frame. The child upserts one frame per device
+    at ~1 fps; a frame older than 30s is returned with fresh=false so the
+    dashboard can show a "signal lost" state instead of a frozen image."""
+    real_id, err = _resolve_or_403(device_id)
+    if err:
+        return err
+    row = ScreenFrame.query.filter_by(device_id=real_id).first()
+    if row is None or not row.image:
+        return jsonify({'error': 'no frame'}), 404
+    fresh = (_now_ms() - int(row.ts or 0)) < 30_000
+    return jsonify({
+        'ts': row.ts,
+        'fresh': fresh,
+        'image': base64.b64encode(row.image).decode('ascii'),
+    })
 
 
 @bp.route('/parent/calls/<device_id>/live', methods=['GET'])

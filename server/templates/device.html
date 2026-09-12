@@ -2104,14 +2104,28 @@
         } catch(e) {}
     }
 
-    function stopMicEarly() {
-        // Send stop command to device
-        fetchWithAuth(`/api/parent/commands/${DEVICE_ID}`, {
-            method: 'POST',
-            body: JSON.stringify({ command: 'stop_audio', params: { command_id: cmdCurrentId } })
-        }).catch(() => {});
-        stopMicStream();
-        document.getElementById('cmdResultSub').textContent = '⏹ Recording stopped';
+    async function stopMicEarly() {
+        const savedId = cmdCurrentId;
+        stopMicStream(); // stop chunk playback immediately
+        document.getElementById('cmdResultSub').textContent = '⏹ Stopping…';
+        // Send stop command to device (retry once; warn if delivery failed)
+        let delivered = false;
+        for (let attempt = 0; attempt < 2 && !delivered; attempt++) {
+            try {
+                const res = await fetchWithAuth(`/api/parent/commands/${DEVICE_ID}`, {
+                    method: 'POST',
+                    body: JSON.stringify({ command: 'stop_audio', params: { command_id: savedId } })
+                });
+                delivered = !!(res && res.ok);
+            } catch (_) {}
+            if (!delivered && attempt === 0) await new Promise(r => setTimeout(r, 700));
+        }
+        const sub = document.getElementById('cmdResultSub');
+        if (sub) {
+            sub.textContent = delivered
+                ? '⏹ Recording stopped'
+                : '⚠ Stop signal not delivered — device stops at its next heartbeat (~15s)';
+        }
     }
 
     function stopMicStream() {

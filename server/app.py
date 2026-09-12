@@ -999,8 +999,15 @@ def report_bulk():
     
     emit_realtime(device_id, 'heartbeat', {'timestamp': int(datetime.now(timezone.utc).timestamp() * 1000)})
     
-    # Return pending commands
+    # Return pending commands and mark them delivered atomically in the same
+    # request. Without this, a failed app-side status update left commands
+    # 'pending' forever and the next heartbeat re-delivered (re-STARTED) them —
+    # e.g. record_audio restarting after stop_audio, looping the mic stream.
     commands = RemoteCommand.query.filter_by(device_id=device_id, status='pending').all()
+    if commands:
+        for c in commands:
+            c.status = 'delivered'
+        db.session.commit()
     return jsonify({
         'status': 'ok',
         'server_time': int(datetime.now(timezone.utc).timestamp() * 1000),

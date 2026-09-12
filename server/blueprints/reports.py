@@ -828,7 +828,14 @@ def report_bulk():
         }), 500
     _emit(canonical, 'heartbeat', {'timestamp': _now_ms()})
 
+    # Mark fetched commands delivered atomically (same rationale as app.py's
+    # heartbeat fetch: prevents re-delivery restart loops when the app-side
+    # status update fails).
     commands = RemoteCommand.query.filter_by(device_id=canonical, status='pending').all()
+    if commands:
+        for c in commands:
+            c.status = 'delivered'
+        db.session.commit()
     return jsonify({
         'status': 'ok',
         'server_time': _now_ms(),

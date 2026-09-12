@@ -220,8 +220,62 @@ def create_app(config_class=Config):
     if app.config.get('FLASK_DEBUG') or os.environ.get('FLASK_AUTO_CREATE') == '1':
         with app.app_context():
             db.create_all()
+            _ensure_missing_columns(app)
 
     return app
+
+
+def _ensure_missing_columns(app):
+    """Boot-time schema guard: ALTER in any column the models declare but the
+    deployed table lacks.
+
+    ``db.create_all()`` creates missing TABLES but never ALTERs existing ones,
+    so a new column on an existing model makes EVERY query of that table fail
+    with "column does not exist" until a human intervenes. Seen live on the
+    Render Postgres: ``devices.fcm_token`` (Remote Wake commit) — the old boot
+    ALTER was SQLite-only so it never ran there, no Alembic migration covered
+    it, and /parent/stats + /parent/devices 500'd from the ``Device.query``
+    in ``get_child_device_ids()`` which sits OUTSIDE the routes' try/except
+    guards (global 500 handler answered, hence the generic error body).
+
+    This runs on every backend (Postgres / MySQL / SQLite), is idempotent,
+    and never raises — a failed sync logs and leaves the app bootable instead
+    of crash-looping the whole service.
+    """
+    from sqlalchemy import inspect as sa_inspect, text
+
+    try:
+        inspector = sa_inspect(db.engine)
+        existing_tables = set(inspector.get_table_names())
+        added = []
+        with db.engine.begin() as conn:
+            for table in db.metadata.sorted_tables:
+                if table.name not in existing_tables:
+                    continue  # brand-new table — create_all() just made it
+                try:
+                    present = {c['name'] for c in inspector.get_columns(table.name)}
+                except Exception:
+                    continue
+                for column in table.columns:
+                    if column.name in present:
+                        continue
+                    # Only add columns that are safe on a non-empty table:
+                    # nullable, or carrying a server-side default.
+                    if not column.nullable and column.server_default is None:
+                        app.logger.warning(
+                            '[schema-guard] %s.%s missing but NOT NULL without '
+                            'default — manual migration required, skipping',
+                            table.name, column.name)
+                        continue
+                    col_ddl = column.type.compile(dialect=db.engine.dialect)
+                    conn.execute(text('ALTER TABLE %s ADD COLUMN %s %s' % (
+                        table.name, column.name, col_ddl)))
+                    added.append('%s.%s' % (table.name, column.name))
+        if added:
+            app.logger.warning('[schema-guard] added missing column(s): %s',
+                               ', '.join(added))
+    except Exception:
+        app.logger.exception('[schema-guard] column sync failed — booting anyway')
 
 
 def get_socketio():

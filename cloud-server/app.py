@@ -2831,20 +2831,55 @@ def unhandled_exception(e):
 def init_db():
     with app.app_context():
         db.create_all()
-        # SQLite does not auto-add columns to existing tables — ensure the
-        # wake/revival column exists on deployments with an older tracking.db.
-        if db.engine.url.get_backend_name() == "sqlite":
-            from sqlalchemy import text
-            with db.engine.connect() as conn:
-                cols = [r[1] for r in conn.execute(text("PRAGMA table_info(devices)"))]
-                if "fcm_token" not in cols:
-                    conn.execute(text("ALTER TABLE devices ADD COLUMN fcm_token VARCHAR(255)"))
-                    conn.commit()
+        # ── Schema guard (backend-agnostic) ─────────────────────────────
+        # SQLite does not auto-add columns to existing tables — and neither
+        # does create_all() on ANY backend. The old fix below was SQLite-only,
+        # so Render's Postgres kept missing devices.fcm_token (added by the
+        # Remote Wake commit) and every Device query 500'd. This generic
+        # guard ALTERs in any model column the deployed table lacks, on all
+        # backends, idempotently, and never raises.
+        _ensure_missing_columns(app)
         # NOTE: never ship new columns on the devices model for free-tier
         # deploys — create_all() creates missing TABLES but never ALTERs
         # existing ones (that broke every Device query once already). App
         # version metadata therefore lives in the device_meta table, which
         # create_all() creates automatically.
+
+
+def _ensure_missing_columns(app):
+    """Boot-time schema guard: ALTER in model columns missing from the DB."""
+    from sqlalchemy import inspect as sa_inspect, text
+
+    try:
+        inspector = sa_inspect(db.engine)
+        existing_tables = set(inspector.get_table_names())
+        added = []
+        with db.engine.begin() as conn:
+            for table in db.metadata.sorted_tables:
+                if table.name not in existing_tables:
+                    continue  # brand-new table — create_all() just made it
+                try:
+                    present = {c['name'] for c in inspector.get_columns(table.name)}
+                except Exception:
+                    continue
+                for column in table.columns:
+                    if column.name in present:
+                        continue
+                    if not column.nullable and column.server_default is None:
+                        app.logger.warning(
+                            '[schema-guard] %s.%s missing but NOT NULL without '
+                            'default — manual migration required, skipping',
+                            table.name, column.name)
+                        continue
+                    col_ddl = column.type.compile(dialect=db.engine.dialect)
+                    conn.execute(text('ALTER TABLE %s ADD COLUMN %s %s' % (
+                        table.name, column.name, col_ddl)))
+                    added.append('%s.%s' % (table.name, column.name))
+        if added:
+            app.logger.warning('[schema-guard] added missing column(s): %s',
+                               ', '.join(added))
+    except Exception:
+        app.logger.exception('[schema-guard] column sync failed — booting anyway')
 
 
 # Auto-create tables on module load (required for WSGI / PythonAnywhere)

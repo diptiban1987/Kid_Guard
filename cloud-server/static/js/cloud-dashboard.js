@@ -232,7 +232,12 @@ async function loadDashboard() {
             catch (e) { console.warn('[dashboard] JSON parse failed:', e); return fallback; }
         };
         const stats = await safeJson(statsRes, { children: [], online_devices: 0, total_activities: 0, total_locations: 0 });
-        const devices = await safeJson(devicesRes, []);
+        // Sentinel fallback: identity comparison lets the sidebar tell
+        // "fetch failed (challenge/429/5xx page)" apart from a genuinely
+        // empty device list.
+        const devicesFallback = [];
+        const devices = await safeJson(devicesRes, devicesFallback);
+        const devicesFetchFailed = (devices === devicesFallback);
 
         if (!Array.isArray(devices) || devicesRes.status === 403) {
             localStorage.removeItem('kidguard_token');
@@ -302,10 +307,18 @@ async function loadDashboard() {
         if (bounds.length > 0) map.fitBounds(bounds, { padding: [50, 50] });
 
         // Sidebar
-        document.getElementById('deviceCount').textContent = `${devices.filter(d => isOnline(d.last_seen)).length} online`;
+        if (devicesFetchFailed) {
+            document.getElementById('deviceCount').textContent = '—';
+        } else {
+            document.getElementById('deviceCount').textContent = `${devices.filter(d => isOnline(d.last_seen)).length} online`;
+        }
         
         const deviceList = document.getElementById('deviceListSidebar');
-        if (devices && devices.length > 0) {
+        if (devicesFetchFailed && (!devices || devices.length === 0)) {
+            // Fetch failed (challenge / 429 / 5xx) — do NOT say "No devices
+            // connected"; that reads as lost data. Amber text signals retrying.
+            deviceList.innerHTML = '<div style="padding:8px 12px;font-size:12px;color:#f0ad4e;">⚠️ Couldn\'t load devices — retrying…</div>';
+        } else if (devices && devices.length > 0) {
             deviceList.innerHTML = devices.map(d => {
                 const online = isOnline(d.last_seen);
                 const name = d.device_name || (d.manufacturer ? `${d.manufacturer} ${d.model}` : d.device_id);

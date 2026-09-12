@@ -504,8 +504,8 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="/static/js/net-resilience.js?v=1"></script>
-    <script src="/static/js/cloud-dashboard.js?v=3"></script>
+    <script src="/static/js/net-resilience.js?v=3"></script>
+    <script src="/static/js/cloud-dashboard.js?v=5"></script>
     <style>
         .active-call-alert {
             display: flex;
@@ -563,15 +563,17 @@
         let dashboardCallPolling = null;
         let dashboardCallTimer = null;
         let dashboardCallStart = 0;
+        let callStateRRIndex = 0;
 
         function startDashboardCallPolling() {
             if (dashboardCallPolling) return;
             checkDashboardCallState();
-            // 15s like the device page: this poller fetches /api/parent/devices
-            // plus a /live call per device, and a 3s burst of identical
-            // requests is exactly what trips the edge security check into
-            // challenging the whole tab.
-            dashboardCallPolling = setInterval(checkDashboardCallState, 15000);
+            // 30s: this poller fetches /api/parent/devices every beat. A 15s
+            // devices + all-live burst is exactly what trips Render's edge
+            // security check into challenging the whole tab — a challenged
+            // devices response blanks the sidebar ("No devices paired") until
+            // a fresh page load.
+            dashboardCallPolling = setInterval(checkDashboardCallState, 30000);
         }
 
         async function checkDashboardCallState() {
@@ -583,14 +585,18 @@
                 if (!Array.isArray(devices)) return;
 
                 let activeCall = null;
-                for (const dev of devices) {
+                // Round-robin: ONE /live call per beat instead of one per
+                // device. With N devices the full sweep takes N×30s — still
+                // far faster than a human notices, and the request rate stays
+                // flat instead of scaling with device count.
+                if (devices.length) {
+                    const dev = devices[callStateRRIndex++ % devices.length];
                     try {
                         const liveRes = await fetchWithAuth(`/api/parent/calls/${dev.device_id}/live`);
                         if (liveRes.ok) {
                             const live = await liveRes.json();
                             if (live.state > 0) {
                                 activeCall = { device: dev, live: live };
-                                break;
                             }
                         }
                     } catch (e) {}

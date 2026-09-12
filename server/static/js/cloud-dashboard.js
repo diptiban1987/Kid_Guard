@@ -237,7 +237,13 @@ async function loadDashboard() {
             fetchWithAuth('/api/parent/devices')
         ]);
         const stats = await safeJson(statsRes, { children: [], online_devices: 0, total_activities: 0, total_locations: 0 });
-        const devices = await safeJson(devicesRes, []);
+        // Sentinel fallback: identity comparison lets the sidebar tell
+        // "fetch failed (challenge/429/5xx page)" apart from a genuinely
+        // empty device list — showing "No devices paired" for a failed fetch
+        // made a temporary network problem look like lost data.
+        const devicesFallback = [];
+        const devices = await safeJson(devicesRes, devicesFallback);
+        const devicesFetchFailed = (devices === devicesFallback);
 
         if (!Array.isArray(devices) || statsRes.status === 403) {
             localStorage.removeItem('kidguard_token');
@@ -307,10 +313,18 @@ async function loadDashboard() {
         if (bounds.length > 0) map.fitBounds(bounds, { padding: [50, 50] });
 
         // Sidebar
-        document.getElementById('deviceCount').textContent = `${devices.filter(d => isOnline(d.last_seen)).length} online`;
+        if (devicesFetchFailed) {
+            document.getElementById('deviceCount').textContent = '—';
+        } else {
+            document.getElementById('deviceCount').textContent = `${devices.filter(d => isOnline(d.last_seen)).length} online`;
+        }
         
         const deviceList = document.getElementById('deviceListSidebar');
-        if (devices && devices.length > 0) {
+        if (devicesFetchFailed && (!devices || devices.length === 0)) {
+            // Fetch failed (challenge / 429 / 5xx) — do NOT say "No devices
+            // paired"; that reads as lost data. Amber text signals retrying.
+            deviceList.innerHTML = `<div style="padding:10px 14px;color:#f0ad4e;font-size:13px;">⚠️ Couldn't load devices — retrying…</div>`;
+        } else if (devices && devices.length > 0) {
             deviceList.innerHTML = devices.map(d => {
                 const online = isOnline(d.last_seen);
                 return `<a class="sidebar-item" href="/device/${d.device_id}" style="text-decoration:none;display:flex;align-items:center;gap:8px;">

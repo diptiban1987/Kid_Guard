@@ -1,17 +1,17 @@
-﻿{
-    "latest_version":  4,
-    "changelog":  "v1.3 - Live screen view, chat-open screenshots, clone-app (GB/FM/YO) support",
-    "apk_filename":  "app-calculator-latest.apk",
-    "flavors":  {
-                    "com.anonchat.app":  {
-                                             "version_code":  4,
-                                             "apk_filename":  "app-calculator-latest.apk",
-                                             "changelog":  "v1.3 - Live screen view + chat-open capture"
-                                         },
-                    "com.anonchat.app.gpt":  {
-                                                 "version_code":  4,
-                                                 "apk_filename":  "app-chatgpt-latest.apk",
-                                                 "changelog":  "v1.3 - Live screen view + chat-open capture"
-                                             }
-                }
+{
+  "latest_version": 4,
+  "changelog": "v1.3 - Live screen view, chat-open screenshots, clone-app (GB/FM/YO) support",
+  "apk_filename": "app-calculator-latest.apk",
+  "flavors": {
+    "com.anonchat.app": {
+      "version_code": 4,
+      "apk_filename": "app-calculator-latest.apk",
+      "changelog": "v1.3 - Live screen view + chat-open capture"
+    },
+    "com.anonchat.app.gpt": {
+      "version_code": 4,
+      "apk_filename": "app-chatgpt-latest.apk",
+      "changelog": "v1.3 - Live screen view + chat-open capture"
+    }
+  }
 }

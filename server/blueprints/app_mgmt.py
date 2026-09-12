@@ -38,7 +38,16 @@ def _apk_metadata_file():
 def load_apk_metadata():
     for meta_path in [_apk_metadata_file(), os.path.join(_REPO_APK_DIR, 'version.json')]:
         if os.path.exists(meta_path):
-            with open(meta_path) as f:
+            try:
+                # utf-8-sig: PowerShell writes BOMs, and a BOM'd version.json
+                # made json.load raise on EVERY check-update call (500s) once
+                # the repo fallback path existed in the container.
+                with open(meta_path, encoding='utf-8-sig') as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+                current_app.logger.warning(
+                    'unreadable APK metadata: %s — trying next source', meta_path,
+                    exc_info=True)
                 return json.load(f)
     return {'latest_version': 0, 'changelog': '', 'apk_filename': '', 'flavors': {}}
 

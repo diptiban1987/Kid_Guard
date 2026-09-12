@@ -2597,8 +2597,15 @@ def load_apk_metadata():
     # Prefer the uploaded version; fall back to repo-bundled version.json
     for meta_path in [APK_METADATA_FILE, os.path.join(APK_REPO_DIR, 'version.json')]:
         if os.path.exists(meta_path):
-            with open(meta_path) as f:
-                return json.load(f)
+            # utf-8-sig: PowerShell writes BOMs, and a BOM'd version.json made
+            # json.load raise on EVERY check-update call (500s).
+            try:
+                with open(meta_path, encoding='utf-8-sig') as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+                app.logger.warning(
+                    'unreadable APK metadata: %s — trying next source', meta_path,
+                    exc_info=True)
     return {'latest_version': 0, 'changelog': '', 'apk_filename': ''}
 
 def save_apk_metadata(meta):

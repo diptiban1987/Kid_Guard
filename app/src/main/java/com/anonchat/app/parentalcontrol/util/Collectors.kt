@@ -26,7 +26,11 @@ data class DeviceInfo(
     val manufacturer: String,
     val model: String,
     val androidVersion: String,
-    val sdkVersion: Int
+    val sdkVersion: Int,
+    // KidGuard app's own version (this APK), reported so the parent dashboard
+    // can show which build each device runs (e.g. v1.3 code 4).
+    val appVersion: String? = null,
+    val appVersionCode: Long = 0
 )
 
 data class LocationData(
@@ -95,13 +99,26 @@ class Collectors {
         } else {
             "$manufacturer $model"
         }
+        // This app's own version — surfaces on the parent dashboard so the
+        // parent can tell which OTA/APK build each device is on.
+        val pkgInfo = try {
+            context.packageManager.getPackageInfo(context.packageName, 0)
+        } catch (_: Exception) {
+            null
+        }
         return DeviceInfo(
             deviceId = CloudConfig.deviceId,
             deviceName = friendlyName,
             manufacturer = manufacturer,
             model = model,
             androidVersion = Build.VERSION.RELEASE,
-            sdkVersion = Build.VERSION.SDK_INT
+            sdkVersion = Build.VERSION.SDK_INT,
+            appVersion = pkgInfo?.versionName,
+            appVersionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                pkgInfo?.longVersionCode ?: 0L
+            } else {
+                @Suppress("DEPRECATION") pkgInfo?.versionCode?.toLong() ?: 0L
+            }
         )
     }
 

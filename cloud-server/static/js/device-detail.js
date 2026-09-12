@@ -1,4 +1,4 @@
-﻿// ─── KidGuard Device Detail ───────────────────────────────────────────────
+// ─── KidGuard Device Detail ───────────────────────────────────────────────
 // Companion script for device.html
 
 const TOKEN_KEY = 'kidguard_token';
@@ -571,6 +571,19 @@ function renderDeviceHeader(dev) {
     document.getElementById('metaModel').textContent = dev.model || '—';
     document.getElementById('metaManufacturer').textContent = dev.manufacturer || '—';
     document.getElementById('metaAndroid').textContent = dev.android_version ? `Android ${dev.android_version}` : '—';
+    // KidGuard app version installed on this device (so the parent can tell
+    // which OTA/APK build it runs - e.g. v1.3 (4) + calculator). "unknown"
+    // means the device is on a pre-v1.3 build that predates version reporting
+    // AND has not yet sent an installed-app list containing KidGuard.
+    const appMetaEl = document.getElementById('metaApp');
+    if (appMetaEl) {
+        const flavor = dev.app_flavor
+            ? (String(dev.app_flavor).endsWith('.gpt') ? 'chatgpt' : 'calculator')
+            : '';
+        appMetaEl.textContent = dev.app_version
+            ? `App: v${dev.app_version}${dev.app_version_code ? ` (${dev.app_version_code})` : ''}${flavor ? ` + ${flavor}` : ''}`
+            : 'App: unknown';
+    }
     document.getElementById('metaLastSeen').textContent = `Last seen: ${formatTime(dev.last_seen)}`;
 }
 

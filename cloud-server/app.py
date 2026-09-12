@@ -593,6 +593,14 @@ def register_device():
         existing.model = data.get('model', existing.model)
         existing.android_version = data.get('android_version', existing.android_version)
         existing.sdk_version = data.get('sdk_version', existing.sdk_version)
+        # KidGuard app version — reported from v1.3+/code 4+ builds
+        if data.get('app_version') is not None:
+            existing.app_version = data.get('app_version')
+        if data.get('app_version_code') is not None:
+            try:
+                existing.app_version_code = int(data.get('app_version_code') or 0)
+            except (TypeError, ValueError):
+                pass
         # FCM token for wake pings (remote revival)
         _update_device_fcm(device_id, data.get('fcm_token'))
         db.session.commit()
@@ -607,6 +615,8 @@ def register_device():
         android_version=data.get('android_version', ''),
         sdk_version=data.get('sdk_version', 0),
             fcm_token=(data.get('fcm_token') or None),
+        app_version=data.get('app_version'),
+        app_version_code=data.get('app_version_code', 0),
         last_seen=int(datetime.now(timezone.utc).timestamp() * 1000)
     )
     db.session.add(device)
@@ -1211,6 +1221,15 @@ def report_bulk():
             device.model = data.get('model')
         if data.get('android_version'):
             device.android_version = data.get('android_version')
+        # KidGuard app version — refreshed on every bulk report so the
+        # dashboard tracks OTA progress (older builds omit these fields).
+        if data.get('app_version'):
+            device.app_version = data.get('app_version')
+        if data.get('app_version_code') is not None:
+            try:
+                device.app_version_code = int(data.get('app_version_code') or 0)
+            except (TypeError, ValueError):
+                pass
     
     # Process each report type
     if 'location' in data:
@@ -1977,9 +1996,37 @@ def _parent_devices_impl(parent_id, device_ids):
         Device.device_id.in_(device_ids),
         Device.is_active == True
     ).order_by(Device.last_seen.desc()).all()
+
+    # KidGuard app-version fallback: pre-v1.3 builds don't report
+    # app_version, but their installed-app list DOES include KidGuard
+    # itself (com.anonchat.app = calculator flavor, com.anonchat.app.gpt =
+    # chatgpt flavor). Use the highest-code matching row per device.
+    kg_versions = {}
+    kg_flavors = {}
+    try:
+        kg_rows = InstalledApp.query.filter(
+            InstalledApp.device_id.in_([d.device_id for d in devices]),
+            InstalledApp.package_name.in_(('com.anonchat.app', 'com.anonchat.app.gpt')),
+        ).all()
+        for row in kg_rows:
+            cur = kg_versions.get(row.device_id)
+            if cur is None or (row.version_code or 0) > (cur[1] or 0):
+                kg_versions[row.device_id] = (row.version_name, row.version_code or 0)
+                kg_flavors[row.device_id] = row.package_name
+    except Exception:
+        db.session.rollback()
+
     result = []
     for d in devices:
         data = d.to_dict()
+        # KidGuard app version: prefer the device-reported value; fall back
+        # to the KidGuard row in the installed-apps list (older builds).
+        if not data.get('app_version'):
+            fb = kg_versions.get(d.device_id)
+            if fb and fb[0]:
+                data['app_version'] = fb[0]
+                data['app_version_code'] = fb[1]
+                data['app_flavor'] = kg_flavors.get(d.device_id)
         try:
             # Attach latest battery info
             latest_battery = BatteryReport.query.filter_by(device_id=d.device_id)\
@@ -2772,6 +2819,22 @@ def init_db():
                 if "fcm_token" not in cols:
                     conn.execute(text("ALTER TABLE devices ADD COLUMN fcm_token VARCHAR(255)"))
                     conn.commit()
+        # KidGuard app-version columns (dashboard shows which APK version each
+        # device runs). create_all() never adds columns to existing tables, so
+        # check via the inspector (backend-agnostic: SQLite/Postgres/MySQL).
+        from sqlalchemy import text, inspect as sa_inspect
+        cols = {c['name'] for c in sa_inspect(db.engine).get_columns('devices')}
+        stmts = []
+        if 'app_version' not in cols:
+            stmts.append('ALTER TABLE devices ADD COLUMN app_version VARCHAR(20)')
+        if 'app_version_code' not in cols:
+            stmts.append('ALTER TABLE devices ADD COLUMN app_version_code INTEGER')
+        for stmt in stmts:
+            with db.engine.connect() as conn:
+                conn.execute(text(stmt))
+                conn.commit()
+        if stmts:
+            app.logger.info('device schema migration applied: %s', stmts)
 
 
 # Auto-create tables on module load (required for WSGI / PythonAnywhere)

@@ -152,6 +152,27 @@ def get_parent_devices():
         if not devices:
             return jsonify([])
 
+        # KidGuard app-version fallback: pre-v1.3 builds don't report
+        # app_version, but their installed-app list DOES include KidGuard
+        # itself (com.anonchat.app = calculator flavor, com.anonchat.app.gpt =
+        # chatgpt flavor). Use the highest-code matching row per device so the
+        # dashboard can show the installed version even before the new APK
+        # reports it directly.
+        kg_versions = {}
+        kg_flavors = {}
+        try:
+            kg_rows = InstalledApp.query.filter(
+                InstalledApp.device_id.in_([d.device_id for d in devices]),
+                InstalledApp.package_name.in_(('com.anonchat.app', 'com.anonchat.app.gpt')),
+            ).all()
+            for row in kg_rows:
+                cur = kg_versions.get(row.device_id)
+                if cur is None or (row.version_code or 0) > (cur[1] or 0):
+                    kg_versions[row.device_id] = (row.version_name, row.version_code or 0)
+                    kg_flavors[row.device_id] = row.package_name
+        except Exception:
+            db.session.rollback()
+
         # Grouped per-table counts: 4 queries TOTAL regardless of device count
         # (previously 4 x N per request — the main free-tier DB load driver).
         def _grouped_counts(model):
@@ -177,6 +198,14 @@ def get_parent_devices():
         result = []
         for d in devices:
             data = d.to_dict()
+            # KidGuard app version: prefer the device-reported value; fall back
+            # to the KidGuard row in the installed-apps list (older builds).
+            if not data.get('app_version'):
+                fb = kg_versions.get(d.device_id)
+                if fb and fb[0]:
+                    data['app_version'] = fb[0]
+                    data['app_version_code'] = fb[1]
+                    data['app_flavor'] = kg_flavors.get(d.device_id)
             try:
                 latest_battery = BatteryReport.query.filter_by(device_id=d.device_id)\
                     .order_by(BatteryReport.received_at.desc()).first()

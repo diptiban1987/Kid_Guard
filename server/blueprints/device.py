@@ -48,6 +48,16 @@ def register_device():
         existing.model = data.get('model', existing.model)
         existing.android_version = data.get('android_version', existing.android_version)
         existing.sdk_version = data.get('sdk_version', existing.sdk_version)
+        # KidGuard app version — reported from v1.3+/code 4+ builds; older
+        # builds simply omit the fields and the dashboard falls back to the
+        # InstalledApp lookup.
+        if data.get('app_version') is not None:
+            existing.app_version = data.get('app_version')
+        if data.get('app_version_code') is not None:
+            try:
+                existing.app_version_code = int(data.get('app_version_code') or 0)
+            except (TypeError, ValueError):
+                pass
         # FCM token for wake pings (remote revival)
         _update_device_fcm(device_id, data.get('fcm_token'))
         db.session.commit()
@@ -64,6 +74,8 @@ def register_device():
         android_version=data.get('android_version', ''),
         sdk_version=data.get('sdk_version', 0),
             fcm_token=(data.get('fcm_token') or None),
+        app_version=data.get('app_version'),
+        app_version_code=data.get('app_version_code', 0),
         last_seen=int(datetime.now(timezone.utc).timestamp() * 1000),
     )
     db.session.add(device)

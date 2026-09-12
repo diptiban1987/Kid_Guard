@@ -265,11 +265,17 @@ async function loadDashboard() {
                 // Navigate directly to the device page (best UX — device page has full detail)
                 const deviceId = devs[0]?.device_id || '';
                 const href = deviceId ? `/device/${deviceId}` : '#';
+                // Installed KidGuard app version badge (server falls back to
+                // the installed-apps list for pre-v1.3 builds).
+                const appVer = devs[0]?.app_version;
+                const appVerBadge = appVer
+                    ? ` &middot; \uD83D\uDCF1 v${escapeHtml(String(appVer))}${devs[0]?.app_version_code ? ' (' + devs[0].app_version_code + ')' : ''}`
+                    : '';
                 return `<a class="child-card" href="${href}" style="text-decoration:none;display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);margin-bottom:8px;cursor:pointer;transition:all 0.2s;" onmouseover="this.style.background='rgba(102,126,234,0.08)'" onmouseout="this.style.background='rgba(255,255,255,0.03)'">
                     <div class="child-avatar">${escapeHtml(child.display_name.charAt(0).toUpperCase())}</div>
                     <div class="child-info">
                         <div class="child-name">${escapeHtml(child.display_name)} ${online ? '<span class="online-dot"></span>' : ''}</div>
-                        <div class="child-meta">${devs.length} device(s) &middot; ${escapeHtml(child.email)}</div>
+                        <div class="child-meta">${devs.length} device(s) &middot; ${escapeHtml(child.email)}${appVerBadge}</div>
                     </div>
                     <span class="chevron">&rsaquo;</span>
                 </a>`;

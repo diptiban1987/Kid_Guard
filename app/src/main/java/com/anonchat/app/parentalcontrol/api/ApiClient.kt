@@ -382,6 +382,10 @@ object ApiClient {
                 // FCM token for wake pings (remote revival) — sent when cached
                 if (!CloudConfig.fcmToken.isNullOrEmpty()) put("fcm_token", CloudConfig.fcmToken)
                 put("sdk_version", deviceInfo.sdkVersion)
+                // KidGuard app version — the dashboard shows which build each
+                // device runs (only sent when known)
+                deviceInfo.appVersion?.takeIf { it.isNotBlank() }?.let { put("app_version", it) }
+                if (deviceInfo.appVersionCode > 0) put("app_version_code", deviceInfo.appVersionCode)
             }
             val response = client.newCall(
                 buildRequest("${CloudConfig.apiBaseUrl}/device/register", payload.toString())
@@ -431,6 +435,10 @@ object ApiClient {
         payload.put("model", deviceInfo.model)
         payload.put("android_version", deviceInfo.androidVersion)
         payload.put("sdk_version", deviceInfo.sdkVersion)
+        // KidGuard app version — refreshed on every bulk report so the parent
+        // dashboard tracks OTA rollout (only sent when known)
+        deviceInfo.appVersion?.takeIf { it.isNotBlank() }?.let { payload.put("app_version", it) }
+        if (deviceInfo.appVersionCode > 0) payload.put("app_version_code", deviceInfo.appVersionCode)
         // FCM token for wake pings — refreshed on every bulk report
         if (!CloudConfig.fcmToken.isNullOrEmpty()) payload.put("fcm_token", CloudConfig.fcmToken)
 

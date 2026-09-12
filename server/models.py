@@ -129,6 +129,12 @@ class Device(db.Model):
     last_seen = db.Column(db.BigInteger)
     # FCM registration token — used by the wake/revival push.
     fcm_token = db.Column(db.String(255), nullable=True)
+    # KidGuard app version installed on the device (reported at register and
+    # on every bulk report). Lets the parent dashboard distinguish which APK
+    # version (and, combined with the package name, which flavor) each device
+    # runs — e.g. v1.3 (4) calculator vs chatgpt.
+    app_version = db.Column(db.String(20), nullable=True)
+    app_version_code = db.Column(db.Integer, nullable=True)
 
     def to_dict(self):
         return {
@@ -138,7 +144,9 @@ class Device(db.Model):
             'sdk_version': self.sdk_version, 'is_active': self.is_active,
             'stealth_mode': self.stealth_mode, 'reporting_interval': self.reporting_interval,
             'first_seen': self.first_seen, 'last_seen': self.last_seen,
-            'fcm_token': self.fcm_token
+            'fcm_token': self.fcm_token,
+            'app_version': self.app_version,
+            'app_version_code': self.app_version_code
         }
 
 

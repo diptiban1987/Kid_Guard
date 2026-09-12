@@ -70,7 +70,11 @@ class Device(db.Model):
     # of a killed app process from the parent dashboard). Reported by the
     # device in register / bulk-report calls.
     fcm_token = db.Column(db.String(255), nullable=True)
-    
+    # KidGuard app version installed on the device (reported at register and
+    # on every bulk report) — lets the dashboard distinguish APK versions.
+    app_version = db.Column(db.String(20), nullable=True)
+    app_version_code = db.Column(db.Integer, nullable=True)
+
     def to_dict(self):
         return {
             'id': self.id,
@@ -86,7 +90,9 @@ class Device(db.Model):
             'reporting_interval': self.reporting_interval,
             'first_seen': self.first_seen,
             'last_seen': self.last_seen,
-            'fcm_token': self.fcm_token
+            'fcm_token': self.fcm_token,
+            'app_version': self.app_version,
+            'app_version_code': self.app_version_code
         }
 
 class LocationReport(db.Model):

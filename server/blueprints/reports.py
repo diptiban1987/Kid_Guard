@@ -650,6 +650,15 @@ def report_bulk():
     device = Device.query.filter_by(device_id=canonical).first()
     if device:
         device.last_seen = _now_ms()
+        # KidGuard app version — refreshed on every bulk report so the
+        # dashboard tracks OTA progress (older builds omit these fields).
+        if data.get('app_version'):
+            device.app_version = data.get('app_version')
+        if data.get('app_version_code') is not None:
+            try:
+                device.app_version_code = int(data.get('app_version_code') or 0)
+            except (TypeError, ValueError):
+                pass
 
     # Diagnostic: log payload shape before processing
     try:

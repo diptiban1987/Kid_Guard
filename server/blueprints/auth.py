@@ -78,7 +78,11 @@ def register():
 
 
 @bp.route('/auth/login', methods=['POST'])
-@limiter.limit('5/minute')
+# Rate limit keyed by real client IP (ProxyFix). Only FAILED attempts consume
+# budget: the parent's browser and the child devices share one public IP, and
+# the Android app re-authenticates on its own — with a plain 5/minute bucket a
+# device re-auth burst locked the human out with 429s on manual login.
+@limiter.limit('20/minute', deduct_when=lambda response: response.status_code != 200)
 def login():
     data = request.get_json() or {}
     email = data.get('email', '').strip().lower()

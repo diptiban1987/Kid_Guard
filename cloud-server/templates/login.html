@@ -315,13 +315,16 @@
                         password: document.getElementById('loginPassword').value
                     })
                 });
-                const data = await res.json();
+                // Safe parse: a proxy-level 429/challenge page returns HTML, not JSON
+                const data = await res.json().catch(() => ({}));
                 
                 if (res.ok) {
                     localStorage.setItem('kidguard_token', data.token);
                     localStorage.setItem('kidguard_refresh', data.refresh_token);
                     localStorage.setItem('kidguard_server', customUrl || window.location.origin);
                     window.location.href = '/dashboard';
+                } else if (res.status === 429) {
+                    showError('Too many attempts — the server is busy. Wait about a minute and try again.');
                 } else {
                     showError(data.error || 'Invalid credentials');
                 }
@@ -354,13 +357,16 @@
                         role: 'parent'
                     })
                 });
-                const data = await res.json();
+                // Safe parse: a proxy-level 429/challenge page returns HTML, not JSON
+                const data = await res.json().catch(() => ({}));
                 
                 if (res.ok) {
                     localStorage.setItem('kidguard_token', data.token);
                     localStorage.setItem('kidguard_refresh', data.refresh_token);
                     localStorage.setItem('kidguard_server', customUrl || window.location.origin);
                     window.location.href = '/dashboard';
+                } else if (res.status === 429) {
+                    showError('Too many attempts — the server is busy. Wait about a minute and try again.');
                 } else {
                     showError(data.error || 'Registration failed');
                 }

@@ -195,7 +195,10 @@ def create_app(config_class=Config):
 
     @app.errorhandler(429)
     def rate_limit_exceeded(e):
-        return jsonify({'error': 'Too many requests', 'detail': str(e.description)}), 429
+        resp = jsonify({'error': 'Too many requests', 'detail': str(e.description)})
+        # Clients (and net-resilience.js) honor Retry-After when backing off.
+        resp.headers['Retry-After'] = '60'
+        return resp
 
     @app.errorhandler(500)
     def internal_error(e):

@@ -16,7 +16,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy.exc import IntegrityError
 
 from ..extensions import db
-from ..models import Device, Geofence, AppRestriction, RemoteCommand
+from ..models import Device, Geofence, AppRestriction, RemoteCommand, upsert_device_meta
 from ..security import assert_device_ownership, audit_log
 from ..blueprints.parent import _update_device_fcm  # FCM token capture (wake/revival)
 
@@ -50,14 +50,13 @@ def register_device():
         existing.sdk_version = data.get('sdk_version', existing.sdk_version)
         # KidGuard app version — reported from v1.3+/code 4+ builds; older
         # builds simply omit the fields and the dashboard falls back to the
-        # InstalledApp lookup.
-        if data.get('app_version') is not None:
-            existing.app_version = data.get('app_version')
-        if data.get('app_version_code') is not None:
-            try:
-                existing.app_version_code = int(data.get('app_version_code') or 0)
-            except (TypeError, ValueError):
-                pass
+        # InstalledApp lookup. Stored in device_meta (own table — see model).
+        upsert_device_meta(
+            device_id,
+            app_version=data.get('app_version'),
+            app_version_code=data.get('app_version_code'),
+            app_package=data.get('app_package'),
+        )
         # FCM token for wake pings (remote revival)
         _update_device_fcm(device_id, data.get('fcm_token'))
         db.session.commit()
@@ -74,8 +73,6 @@ def register_device():
         android_version=data.get('android_version', ''),
         sdk_version=data.get('sdk_version', 0),
             fcm_token=(data.get('fcm_token') or None),
-        app_version=data.get('app_version'),
-        app_version_code=data.get('app_version_code', 0),
         last_seen=int(datetime.now(timezone.utc).timestamp() * 1000),
     )
     db.session.add(device)
@@ -84,6 +81,12 @@ def register_device():
     except IntegrityError:
         db.session.rollback()
         return jsonify({'error': 'Device already registered'}), 409
+    upsert_device_meta(
+        device_id,
+        app_version=data.get('app_version'),
+        app_version_code=data.get('app_version_code'),
+        app_package=data.get('app_package'),
+    )
     audit_log(user_id, 'device_register', target_type='device', target_id=device.id,
               metadata={'device_id': device_id})
     return jsonify({'message': 'Device registered', 'device': device.to_dict()}), 201

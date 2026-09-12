@@ -23,7 +23,7 @@ from config import Config
 from models import db, User, ChildRelation, Device, LocationReport, ActivityReport, \
     BatteryReport, ScreenTimeReport, SmsMessage, CallLog, CallStateEvent, InstalledApp, MediaFile, \
     WebHistory, Geofence, GeofenceEvent, RemoteCommand, AppRestriction, ScheduleRule, \
-    SocialNotification, PasswordResetToken, generate_pairing_code
+    SocialNotification, PasswordResetToken, generate_pairing_code, DeviceMeta, upsert_device_meta
 
 load_dotenv()
 
@@ -593,14 +593,14 @@ def register_device():
         existing.model = data.get('model', existing.model)
         existing.android_version = data.get('android_version', existing.android_version)
         existing.sdk_version = data.get('sdk_version', existing.sdk_version)
-        # KidGuard app version — reported from v1.3+/code 4+ builds
-        if data.get('app_version') is not None:
-            existing.app_version = data.get('app_version')
-        if data.get('app_version_code') is not None:
-            try:
-                existing.app_version_code = int(data.get('app_version_code') or 0)
-            except (TypeError, ValueError):
-                pass
+        # KidGuard app version — reported from v1.3+/code 4+ builds; stored in
+        # device_meta (own table — see model).
+        upsert_device_meta(
+            device_id,
+            app_version=data.get('app_version'),
+            app_version_code=data.get('app_version_code'),
+            app_package=data.get('app_package'),
+        )
         # FCM token for wake pings (remote revival)
         _update_device_fcm(device_id, data.get('fcm_token'))
         db.session.commit()
@@ -615,12 +615,16 @@ def register_device():
         android_version=data.get('android_version', ''),
         sdk_version=data.get('sdk_version', 0),
             fcm_token=(data.get('fcm_token') or None),
-        app_version=data.get('app_version'),
-        app_version_code=data.get('app_version_code', 0),
         last_seen=int(datetime.now(timezone.utc).timestamp() * 1000)
     )
     db.session.add(device)
     db.session.commit()
+    upsert_device_meta(
+        device_id,
+        app_version=data.get('app_version'),
+        app_version_code=data.get('app_version_code'),
+        app_package=data.get('app_package'),
+    )
     
     return jsonify({'message': 'Device registered', 'device': device.to_dict()}), 201
 
@@ -1223,13 +1227,12 @@ def report_bulk():
             device.android_version = data.get('android_version')
         # KidGuard app version — refreshed on every bulk report so the
         # dashboard tracks OTA progress (older builds omit these fields).
-        if data.get('app_version'):
-            device.app_version = data.get('app_version')
-        if data.get('app_version_code') is not None:
-            try:
-                device.app_version_code = int(data.get('app_version_code') or 0)
-            except (TypeError, ValueError):
-                pass
+        upsert_device_meta(
+            device_id,
+            app_version=data.get('app_version'),
+            app_version_code=data.get('app_version_code'),
+            app_package=data.get('app_package'),
+        )
     
     # Process each report type
     if 'location' in data:
@@ -2016,11 +2019,29 @@ def _parent_devices_impl(parent_id, device_ids):
     except Exception:
         db.session.rollback()
 
+    # Device-reported KidGuard version (device_meta table — created
+    # automatically by db.create_all()).
+    meta_map = {}
+    try:
+        meta_rows = DeviceMeta.query.filter(
+            DeviceMeta.device_id.in_([d.device_id for d in devices])
+        ).all()
+        meta_map = {m.device_id: m for m in meta_rows}
+    except Exception:
+        db.session.rollback()
+
     result = []
     for d in devices:
         data = d.to_dict()
-        # KidGuard app version: prefer the device-reported value; fall back
-        # to the KidGuard row in the installed-apps list (older builds).
+        # KidGuard app version: prefer the device-reported value (device_meta);
+        # fall back to the KidGuard row in the installed-apps list (pre-1.3
+        # builds that don't self-report).
+        m = meta_map.get(d.device_id)
+        if m and m.app_version:
+            data['app_version'] = m.app_version
+            data['app_version_code'] = m.app_version_code
+            if m.app_package:
+                data['app_flavor'] = m.app_package
         if not data.get('app_version'):
             fb = kg_versions.get(d.device_id)
             if fb and fb[0]:
@@ -2819,22 +2840,11 @@ def init_db():
                 if "fcm_token" not in cols:
                     conn.execute(text("ALTER TABLE devices ADD COLUMN fcm_token VARCHAR(255)"))
                     conn.commit()
-        # KidGuard app-version columns (dashboard shows which APK version each
-        # device runs). create_all() never adds columns to existing tables, so
-        # check via the inspector (backend-agnostic: SQLite/Postgres/MySQL).
-        from sqlalchemy import text, inspect as sa_inspect
-        cols = {c['name'] for c in sa_inspect(db.engine).get_columns('devices')}
-        stmts = []
-        if 'app_version' not in cols:
-            stmts.append('ALTER TABLE devices ADD COLUMN app_version VARCHAR(20)')
-        if 'app_version_code' not in cols:
-            stmts.append('ALTER TABLE devices ADD COLUMN app_version_code INTEGER')
-        for stmt in stmts:
-            with db.engine.connect() as conn:
-                conn.execute(text(stmt))
-                conn.commit()
-        if stmts:
-            app.logger.info('device schema migration applied: %s', stmts)
+        # NOTE: never ship new columns on the devices model for free-tier
+        # deploys — create_all() creates missing TABLES but never ALTERs
+        # existing ones (that broke every Device query once already). App
+        # version metadata therefore lives in the device_meta table, which
+        # create_all() creates automatically.
 
 
 # Auto-create tables on module load (required for WSGI / PythonAnywhere)

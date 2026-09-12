@@ -26,6 +26,7 @@ from ..models import (
     Device, LocationReport, ActivityReport, BatteryReport, ScreenTimeReport,
     SmsMessage, CallLog, CallStateEvent, InstalledApp, MediaFile, WebHistory,
     Geofence, GeofenceEvent, SocialNotification, RemoteCommand, ScreenFrame,
+    upsert_device_meta,
 )
 from ..security import (
     assert_device_ownership, assert_command_ownership, audit_log,
@@ -652,13 +653,12 @@ def report_bulk():
         device.last_seen = _now_ms()
         # KidGuard app version — refreshed on every bulk report so the
         # dashboard tracks OTA progress (older builds omit these fields).
-        if data.get('app_version'):
-            device.app_version = data.get('app_version')
-        if data.get('app_version_code') is not None:
-            try:
-                device.app_version_code = int(data.get('app_version_code') or 0)
-            except (TypeError, ValueError):
-                pass
+        upsert_device_meta(
+            canonical,
+            app_version=data.get('app_version'),
+            app_version_code=data.get('app_version_code'),
+            app_package=data.get('app_package'),
+        )
 
     # Diagnostic: log payload shape before processing
     try:

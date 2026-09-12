@@ -31,6 +31,18 @@ def device_page(device_id):
                           has_socketio=current_app.config.get('HAS_SOCKETIO', False))
 
 
+@bp.after_request
+def _no_cache_html(resp):
+    """HTML pages must always revalidate — otherwise browsers keep serving a
+    stale dashboard.html that references old ?v=N script versions, and shipped
+    JS fixes never reach the client (seen live: console still loading
+    net-resilience.js?v=1 after two deploys)."""
+    if resp.mimetype == 'text/html':
+        resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        resp.headers['Pragma'] = 'no-cache'
+    return resp
+
+
 @bp.route('/static/<path:filename>')
 def static_files(filename):
     """Static file fallback for environments where the WSGI server doesn't

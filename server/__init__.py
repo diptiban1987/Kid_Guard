@@ -196,6 +196,7 @@ def create_app(config_class=Config):
     @app.errorhandler(429)
     def rate_limit_exceeded(e):
         resp = jsonify({'error': 'Too many requests', 'detail': str(e.description)})
+        resp.status_code = 429
         # Clients (and net-resilience.js) honor Retry-After when backing off.
         resp.headers['Retry-After'] = '60'
         return resp
@@ -212,36 +213,13 @@ def create_app(config_class=Config):
         return jsonify({'error': 'Internal server error'}), 500
 
     # ── Dev: auto-create tables (prod uses Alembic) ─────────────────────
+    # NOTE: create_all() creates missing TABLES but never alters existing
+    # ones — never ship new columns on existing models for free-tier deploys
+    # (see DeviceMeta in models.py for why version metadata lives in its own
+    # table instead of new columns on ``devices``).
     if app.config.get('FLASK_DEBUG') or os.environ.get('FLASK_AUTO_CREATE') == '1':
         with app.app_context():
             db.create_all()
-
-    # ── Lightweight column migration: KidGuard app version on devices ────
-    # db.create_all() only creates MISSING TABLES — it never adds columns to
-    # existing ones. Free-tier deployments (Render/PythonAnywhere) don't run
-    # Alembic, so ensure the app-version columns exist here. Inspector-checked
-    # and therefore idempotent + backend-agnostic (SQLite/Postgres/MySQL).
-    def _ensure_device_version_columns():
-        from sqlalchemy import text as _text
-        with app.app_context():
-            try:
-                insp = db.inspect(db.engine)
-                cols = {c['name'] for c in insp.get_columns('devices')}
-                stmts = []
-                if 'app_version' not in cols:
-                    stmts.append('ALTER TABLE devices ADD COLUMN app_version VARCHAR(20)')
-                if 'app_version_code' not in cols:
-                    stmts.append('ALTER TABLE devices ADD COLUMN app_version_code INTEGER')
-                for stmt in stmts:
-                    db.session.execute(_text(stmt))
-                if stmts:
-                    db.session.commit()
-                    app.logger.info('device schema migration applied: %s', stmts)
-            except Exception:
-                db.session.rollback()
-                app.logger.exception('device app-version column migration failed')
-
-    _ensure_device_version_columns()
 
     return app
 

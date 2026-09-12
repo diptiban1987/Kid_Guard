@@ -129,12 +129,6 @@ class Device(db.Model):
     last_seen = db.Column(db.BigInteger)
     # FCM registration token — used by the wake/revival push.
     fcm_token = db.Column(db.String(255), nullable=True)
-    # KidGuard app version installed on the device (reported at register and
-    # on every bulk report). Lets the parent dashboard distinguish which APK
-    # version (and, combined with the package name, which flavor) each device
-    # runs — e.g. v1.3 (4) calculator vs chatgpt.
-    app_version = db.Column(db.String(20), nullable=True)
-    app_version_code = db.Column(db.Integer, nullable=True)
 
     def to_dict(self):
         return {
@@ -144,10 +138,64 @@ class Device(db.Model):
             'sdk_version': self.sdk_version, 'is_active': self.is_active,
             'stealth_mode': self.stealth_mode, 'reporting_interval': self.reporting_interval,
             'first_seen': self.first_seen, 'last_seen': self.last_seen,
-            'fcm_token': self.fcm_token,
-            'app_version': self.app_version,
-            'app_version_code': self.app_version_code
+            'fcm_token': self.fcm_token
         }
+
+
+class DeviceMeta(db.Model):
+    """Per-device app metadata (KidGuard's own version, package/flavor).
+
+    Deliberately a SEPARATE table, not new columns on ``devices``: free-tier
+    deployments create missing TABLES via ``db.create_all()`` on boot but never
+    ALTER existing ones — new columns on devices made every Device query fail
+    with "column does not exist" (500s on stats/devices/updates) until a
+    manual migration ran. A dedicated table is created automatically.
+    """
+    __tablename__ = 'device_meta'
+
+    device_id = db.Column(db.String(100), db.ForeignKey('devices.device_id'), primary_key=True)
+    app_version = db.Column(db.String(20))
+    app_version_code = db.Column(db.Integer)
+    app_package = db.Column(db.String(255))
+    updated_at = db.Column(db.BigInteger, default=_now_ms)
+
+
+def upsert_device_meta(device_id, app_version=None, app_version_code=None, app_package=None):
+    """Best-effort upsert of a device's KidGuard app version metadata.
+
+    Called from device register + bulk report. Never raises into the request
+    path: a metadata hiccup must not fail a report. Writes only on change so
+    the 15s report cycle doesn't commit every time.
+    """
+    if not device_id:
+        return
+    if app_version is None and app_version_code is None and app_package is None:
+        return
+    try:
+        meta = DeviceMeta.query.filter_by(device_id=device_id).first()
+        if meta is None:
+            meta = DeviceMeta(device_id=device_id)
+            db.session.add(meta)
+        changed = False
+        if app_version and meta.app_version != app_version:
+            meta.app_version = app_version
+            changed = True
+        if app_version_code is not None:
+            try:
+                v = int(app_version_code or 0)
+            except (TypeError, ValueError):
+                v = 0
+            if (meta.app_version_code or 0) != v:
+                meta.app_version_code = v
+                changed = True
+        if app_package and meta.app_package != app_package:
+            meta.app_package = app_package
+            changed = True
+        if changed:
+            meta.updated_at = _now_ms()
+            db.session.commit()
+    except Exception:
+        db.session.rollback()
 
 
 class LocationReport(db.Model):

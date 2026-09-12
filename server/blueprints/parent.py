@@ -15,7 +15,7 @@ from sqlalchemy import func
 
 from ..extensions import db
 from ..models import (
-    User, ChildRelation, Device, LocationReport, ActivityReport, BatteryReport,
+    User, ChildRelation, Device, DeviceMeta, LocationReport, ActivityReport, BatteryReport,
     ScreenTimeReport, SmsMessage, CallLog, InstalledApp, MediaFile, WebHistory,
     Geofence, GeofenceEvent, RemoteCommand, AppRestriction, ScheduleRule,
     SocialNotification, ChatMessage, ScreenFrame,
@@ -195,11 +195,29 @@ def get_parent_devices():
         # ScreenTimeReport's canonical day-key is the `date` string (YYYY-MM-DD).
         today_key = datetime.now(timezone.utc).strftime('%Y-%m-%d')
 
+        # Device-reported KidGuard version (device_meta table — its own table
+        # so free-tier deploys auto-create it via db.create_all()).
+        meta_map = {}
+        try:
+            meta_rows = DeviceMeta.query.filter(
+                DeviceMeta.device_id.in_([d.device_id for d in devices])
+            ).all()
+            meta_map = {m.device_id: m for m in meta_rows}
+        except Exception:
+            db.session.rollback()
+
         result = []
         for d in devices:
             data = d.to_dict()
-            # KidGuard app version: prefer the device-reported value; fall back
-            # to the KidGuard row in the installed-apps list (older builds).
+            # KidGuard app version: prefer the device-reported value
+            # (device_meta); fall back to the KidGuard row in the
+            # installed-apps list (pre-1.3 builds that don't self-report).
+            m = meta_map.get(d.device_id)
+            if m and m.app_version:
+                data['app_version'] = m.app_version
+                data['app_version_code'] = m.app_version_code
+                if m.app_package:
+                    data['app_flavor'] = m.app_package
             if not data.get('app_version'):
                 fb = kg_versions.get(d.device_id)
                 if fb and fb[0]:

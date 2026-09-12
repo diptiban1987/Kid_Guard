@@ -221,8 +221,46 @@ def create_app(config_class=Config):
         with app.app_context():
             db.create_all()
             _ensure_missing_columns(app)
+            _ensure_pairing_sentinel(app)
 
     return app
+
+
+def _ensure_pairing_sentinel(app):
+    """Ensure the ``users`` row with id='pending' exists.
+
+    The pairing flow stores placeholder rows: pairing/generate inserts
+    ``child_id='pending'`` (claim's fallback inserts ``parent_id='pending'``)
+    until the child claims and the parent approves. SQLite dev never enforced
+    FK constraints, but Postgres DOES — so on Render every
+    /pairing/generate 500'd with a FOREIGN KEY constraint violation (verified
+    locally: FK-enforced insert of the sentinel row fails identically).
+
+    A real (disabled, role=system) user row with id='pending' satisfies the
+    FK without any schema surgery. All code paths filter it out: pending
+    listing explicitly excludes child_id='pending', and children/devices
+    queries filter is_active=True while the sentinel is False.
+    """
+    try:
+        from .models import User
+        with app.app_context():
+            if db.session.get(User, 'pending') is None:
+                db.session.add(User(
+                    id='pending',
+                    email='pending@kidguard-internal',
+                    password_hash='!',   # never verifies; login blocked anyway
+                    display_name='(pairing pending)',
+                    role='system',
+                    is_active=False,
+                ))
+                db.session.commit()
+                app.logger.warning(
+                    "[schema-guard] created pairing sentinel user id='pending' "
+                    "(FK constraint on child_relations needs a real users row)")
+    except Exception:
+        db.session.rollback()
+        app.logger.exception(
+            "[schema-guard] pairing sentinel creation failed — booting anyway")
 
 
 def _ensure_missing_columns(app):

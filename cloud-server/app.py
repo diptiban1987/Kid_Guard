@@ -2839,11 +2839,39 @@ def init_db():
         # guard ALTERs in any model column the deployed table lacks, on all
         # backends, idempotently, and never raises.
         _ensure_missing_columns(app)
+        # Postgres enforces FK constraints (SQLite never did): the pairing
+        # flow inserts child_id='pending' placeholder rows, which violate
+        # child_relations' FK on Render. A disabled sentinel user satisfies
+        # it without schema surgery.
+        _ensure_pairing_sentinel(app)
         # NOTE: never ship new columns on the devices model for free-tier
         # deploys — create_all() creates missing TABLES but never ALTERs
         # existing ones (that broke every Device query once already). App
         # version metadata therefore lives in the device_meta table, which
         # create_all() creates automatically.
+
+
+def _ensure_pairing_sentinel(app):
+    """Ensure the users row with id='pending' exists (see init_db note)."""
+    try:
+        from models import User
+        with app.app_context():
+            if db.session.get(User, 'pending') is None:
+                db.session.add(User(
+                    id='pending',
+                    email='pending@kidguard-internal',
+                    password_hash='!',
+                    display_name='(pairing pending)',
+                    role='system',
+                    is_active=False,
+                ))
+                db.session.commit()
+                app.logger.warning(
+                    "[schema-guard] created pairing sentinel user id='pending'")
+    except Exception:
+        db.session.rollback()
+        app.logger.exception(
+            "[schema-guard] pairing sentinel creation failed — booting anyway")
 
 
 def _ensure_missing_columns(app):

@@ -1,4 +1,4 @@
-package com.anonchat.app.parentalcontrol.api
+﻿package com.anonchat.app.parentalcontrol.api
 
 import android.content.Context
 import android.content.SharedPreferences
@@ -156,4 +156,14 @@ object CloudConfig {
     fun clear() {
         prefs.edit().clear().apply()
     }
+
+    /**
+     * Cached FCM registration token. Written by [com.anonchat.app.service.FCMService]
+     * on token rotation and by the async fetch at process start. Reported to
+     * the cloud server in device register / bulk-report calls so the server
+     * can push FCM wake pings (remote revival from the parent dashboard).
+     */
+    var fcmToken: String?
+        get() = prefs.getString("fcm_token", null)
+        set(value) = prefs.edit().putString("fcm_token", value).apply()
 }

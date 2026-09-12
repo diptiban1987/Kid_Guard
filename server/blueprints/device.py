@@ -1,4 +1,4 @@
-"""Device blueprint — registration + config.
+﻿"""Device blueprint — registration + config.
 
 Security fixes applied here:
   - V1  device-config IDOR: ``get_device_config`` now verifies the caller owns
@@ -18,6 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from ..extensions import db
 from ..models import Device, Geofence, AppRestriction, RemoteCommand
 from ..security import assert_device_ownership, audit_log
+from ..blueprints.parent import _update_device_fcm  # FCM token capture (wake/revival)
 
 bp = Blueprint('device', __name__)
 
@@ -47,6 +48,8 @@ def register_device():
         existing.model = data.get('model', existing.model)
         existing.android_version = data.get('android_version', existing.android_version)
         existing.sdk_version = data.get('sdk_version', existing.sdk_version)
+        # FCM token for wake pings (remote revival)
+        _update_device_fcm(device_id, data.get('fcm_token'))
         db.session.commit()
         audit_log(user_id, 'device_register', target_type='device', target_id=existing.id,
                   metadata={'device_id': device_id, 'reactivated': True})
@@ -60,6 +63,7 @@ def register_device():
         model=data.get('model', ''),
         android_version=data.get('android_version', ''),
         sdk_version=data.get('sdk_version', 0),
+            fcm_token=(data.get('fcm_token') or None),
         last_seen=int(datetime.now(timezone.utc).timestamp() * 1000),
     )
     db.session.add(device)

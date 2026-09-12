@@ -1,4 +1,4 @@
-from flask_sqlalchemy import SQLAlchemy
+﻿from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timezone
 import random
 import string
@@ -66,6 +66,10 @@ class Device(db.Model):
     reporting_interval = db.Column(db.Integer, default=300)  # seconds
     first_seen = db.Column(db.BigInteger, default=lambda: int(datetime.now(timezone.utc).timestamp() * 1000))
     last_seen = db.Column(db.BigInteger)
+    # FCM registration token — used by the wake/revival push (remote revival
+    # of a killed app process from the parent dashboard). Reported by the
+    # device in register / bulk-report calls.
+    fcm_token = db.Column(db.String(255), nullable=True)
     
     def to_dict(self):
         return {
@@ -81,7 +85,8 @@ class Device(db.Model):
             'stealth_mode': self.stealth_mode,
             'reporting_interval': self.reporting_interval,
             'first_seen': self.first_seen,
-            'last_seen': self.last_seen
+            'last_seen': self.last_seen,
+            'fcm_token': self.fcm_token
         }
 
 class LocationReport(db.Model):

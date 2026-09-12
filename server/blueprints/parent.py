@@ -1,4 +1,4 @@
-"""Parent dashboard blueprint — all /api/parent/* endpoints (~25 routes).
+﻿"""Parent dashboard blueprint — all /api/parent/* endpoints (~25 routes).
 
 All device-scoped reads go through ``resolve_device_id`` (ownership-checked) and
 all object-scoped deletes (geofence, restriction, schedule) verify the object's
@@ -1210,3 +1210,89 @@ def get_device_chats(device_id):
         current_app.logger.exception("chats endpoint failed: %s", e)
         db.session.rollback()
         return jsonify([])
+
+
+# ─── FCM wake / remote revival ───────────────────────────────────────────
+# The parent dashboard pushes a high-priority FCM data ping to a device
+# whose app process was killed (OFFLINE). FCM temporarily allowlists the
+# app (~10 s) so its KeepAliveScheduler can re-arm the foreground service,
+# the exact alarm, and WorkManager — the device then re-heartbeats (flips
+# ONLINE) and polls for pending commands.
+def _update_device_fcm(device_id, token):
+    if not token:
+        return
+    try:
+        from ..models import Device
+        d = Device.query.filter_by(device_id=device_id).first()
+        if d and d.fcm_token != token[:255]:
+            d.fcm_token = token[:255]
+            db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+
+def _send_fcm_wake(device_id):
+    """Push a wake ping. Returns (delivered: bool, reason: str)."""
+    from flask import current_app
+    key = current_app.config.get('FCM_SERVER_KEY', '')
+    if not key:
+        return False, 'FCM_SERVER_KEY not configured (env var on the server)'
+    from ..models import Device
+    device = Device.query.filter_by(device_id=device_id).first()
+    token = device.fcm_token if device else None
+    if not token:
+        return False, 'device has no FCM token yet (needs one manual wake-up to report it)'
+    try:
+        import urllib.request
+        payload = json.dumps({
+            'to': token,
+            'priority': 'high',
+            'data': {'type': 'wake', 'ts': str(_now_ms())}
+        }).encode()
+        req = urllib.request.Request(
+            current_app.config.get('FCM_SEND_URL', 'https://fcm.googleapis.com/fcm/send'),
+            data=payload,
+            headers={'Authorization': 'key=' + key, 'Content-Type': 'application/json'},
+            method='POST'
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            body = resp.read().decode()
+            ok = resp.status == 200 and '"success":1' in body
+            return ok, ('delivered' if ok else body[:200])
+    except Exception as e:
+        return False, str(e)[:200]
+
+
+@bp.route('/parent/wake/<device_id>', methods=['POST'])
+@parent_required
+def wake_device(device_id):
+    real_id, err = _resolve_or_403(device_id)
+    if err:
+        return err
+    parent_id = _caller_id()
+    from ..models import Device
+    device = Device.query.filter_by(device_id=real_id).first()
+    if not device:
+        return jsonify({'error': 'Device not found'}), 404
+
+    cmd = RemoteCommand(
+        device_id=real_id,
+        parent_id=parent_id,
+        command='wake',
+        status='pending'
+    )
+    db.session.add(cmd)
+    db.session.commit()
+
+    ok, reason = _send_fcm_wake(real_id)
+    if ok:
+        cmd.status = 'delivered'
+        cmd.delivered_at = _now_ms()
+        db.session.commit()
+
+    return jsonify({
+        'delivered': ok,
+        'reason': reason,
+        'command_id': cmd.id,
+        'device_online': (_now_ms() - (device.last_seen or 0)) < 600000
+    })

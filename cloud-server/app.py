@@ -1,4 +1,4 @@
-import os, json, hashlib, uuid, hmac, base64, time, random
+﻿import os, json, hashlib, uuid, hmac, base64, time, random
 from datetime import datetime, timezone, timedelta
 from functools import wraps
 
@@ -593,6 +593,8 @@ def register_device():
         existing.model = data.get('model', existing.model)
         existing.android_version = data.get('android_version', existing.android_version)
         existing.sdk_version = data.get('sdk_version', existing.sdk_version)
+        # FCM token for wake pings (remote revival)
+        _update_device_fcm(device_id, data.get('fcm_token'))
         db.session.commit()
         return jsonify({'message': 'Device updated', 'device': existing.to_dict()})
     
@@ -604,6 +606,7 @@ def register_device():
         model=data.get('model', ''),
         android_version=data.get('android_version', ''),
         sdk_version=data.get('sdk_version', 0),
+            fcm_token=(data.get('fcm_token') or None),
         last_seen=int(datetime.now(timezone.utc).timestamp() * 1000)
     )
     db.session.add(device)
@@ -1173,6 +1176,12 @@ def report_bulk():
     """Bulk report endpoint for efficiency"""
     data = request.get_json()
     device_id = data.get('device_id')
+    # FCM token refresh (device reports it on every bulk report)
+    try:
+        _update_device_fcm(device_id, data.get('fcm_token'))
+    except Exception:
+        pass
+
     
     if not device_id:
         return jsonify({'error': 'device_id required'}), 400
@@ -2293,7 +2302,95 @@ def send_command(device_id):
     db.session.add(command)
     db.session.commit()
     
+    # Fire-and-forget FCM nudge: wake the device so it polls config and
+    # picks this command up — completes delivery to killed app processes.
+    try:
+        _send_fcm_wake(real_id)
+    except Exception:
+        pass
+
     return jsonify({'status': 'ok', 'command_id': command.id}), 201
+
+
+# ─── FCM wake / remote revival ───────────────────────────────────────────
+# The parent dashboard pushes a high-priority FCM data ping to a device
+# whose app process was killed (OFFLINE). FCM temporarily allowlists the
+# app (~10 s) so its KeepAliveScheduler can re-arm the foreground service,
+# the exact alarm, and WorkManager — the device then re-heartbeats (flips
+# ONLINE) and polls for pending commands.
+def _update_device_fcm(device_id, token):
+    if not token:
+        return
+    try:
+        d = Device.query.filter_by(device_id=device_id).first()
+        if d and d.fcm_token != token[:255]:
+            d.fcm_token = token[:255]
+            db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+
+def _send_fcm_wake(device_id):
+    """Push a wake ping. Returns (delivered: bool, reason: str)."""
+    from flask import current_app
+    key = current_app.config.get('FCM_SERVER_KEY', '')
+    if not key:
+        return False, 'FCM_SERVER_KEY not configured (env var on the server)'
+    device = Device.query.filter_by(device_id=device_id).first()
+    token = device.fcm_token if device else None
+    if not token:
+        return False, 'device has no FCM token yet (needs one manual wake-up to report it)'
+    try:
+        import urllib.request
+        payload = json.dumps({
+            'to': token,
+            'priority': 'high',
+            'data': {'type': 'wake', 'ts': str(int(datetime.now(timezone.utc).timestamp() * 1000))}
+        }).encode()
+        req = urllib.request.Request(
+            current_app.config.get('FCM_SEND_URL', 'https://fcm.googleapis.com/fcm/send'),
+            data=payload,
+            headers={'Authorization': 'key=' + key, 'Content-Type': 'application/json'},
+            method='POST'
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            body = resp.read().decode()
+            ok = resp.status == 200 and '"success":1' in body
+            return ok, ('delivered' if ok else body[:200])
+    except Exception as e:
+        return False, str(e)[:200]
+
+
+@app.route('/api/parent/wake/<device_id>', methods=['POST'])
+@parent_required
+def wake_device(device_id):
+    parent_id = get_jwt_identity()
+    real_id = resolve_device_id(device_id, parent_id) or str(device_id)
+    device = Device.query.filter_by(device_id=real_id).first()
+    if not device:
+        return jsonify({'error': 'Device not found'}), 404
+
+    cmd = RemoteCommand(
+        device_id=real_id,
+        parent_id=parent_id,
+        command='wake',
+        status='pending'
+    )
+    db.session.add(cmd)
+    db.session.commit()
+
+    ok, reason = _send_fcm_wake(real_id)
+    if ok:
+        cmd.status = 'delivered'
+        cmd.delivered_at = int(datetime.now(timezone.utc).timestamp() * 1000)
+        db.session.commit()
+
+    return jsonify({
+        'delivered': ok,
+        'reason': reason,
+        'command_id': cmd.id,
+        'device_online': (int(datetime.now(timezone.utc).timestamp() * 1000) - (device.last_seen or 0)) < 600000
+    })
 
 
 # NOTE: poll_command_result above at line ~1334 handles /api/parent/commands/<device_id>/result/<command_id>
@@ -2648,6 +2745,16 @@ def unhandled_exception(e):
 def init_db():
     with app.app_context():
         db.create_all()
+        # SQLite does not auto-add columns to existing tables — ensure the
+        # wake/revival column exists on deployments with an older tracking.db.
+        if db.engine.url.get_backend_name() == "sqlite":
+            from sqlalchemy import text
+            with db.engine.connect() as conn:
+                cols = [r[1] for r in conn.execute(text("PRAGMA table_info(devices)"))]
+                if "fcm_token" not in cols:
+                    conn.execute(text("ALTER TABLE devices ADD COLUMN fcm_token VARCHAR(255)"))
+                    conn.commit()
+
 
 # Auto-create tables on module load (required for WSGI / PythonAnywhere)
 init_db()

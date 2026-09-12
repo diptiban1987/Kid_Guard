@@ -1,4 +1,4 @@
-"""Database models for the AnonChat / KidGuard cloud server.
+﻿"""Database models for the AnonChat / KidGuard cloud server.
 
 All report/data models are device-scoped (FK to ``devices.device_id``). The
 security fixes (ownership enforcement) live in ``security.py`` — the schema
@@ -127,6 +127,8 @@ class Device(db.Model):
     reporting_interval = db.Column(db.Integer, default=300)
     first_seen = db.Column(db.BigInteger, default=_now_ms)
     last_seen = db.Column(db.BigInteger)
+    # FCM registration token — used by the wake/revival push.
+    fcm_token = db.Column(db.String(255), nullable=True)
 
     def to_dict(self):
         return {
@@ -135,7 +137,8 @@ class Device(db.Model):
             'model': self.model, 'android_version': self.android_version,
             'sdk_version': self.sdk_version, 'is_active': self.is_active,
             'stealth_mode': self.stealth_mode, 'reporting_interval': self.reporting_interval,
-            'first_seen': self.first_seen, 'last_seen': self.last_seen
+            'first_seen': self.first_seen, 'last_seen': self.last_seen,
+            'fcm_token': self.fcm_token
         }
 
 

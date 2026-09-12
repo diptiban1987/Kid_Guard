@@ -1,4 +1,4 @@
-// ─── KidGuard Device Detail ───────────────────────────────────────────────
+﻿// ─── KidGuard Device Detail ───────────────────────────────────────────────
 // Companion script for device.html
 
 const TOKEN_KEY = 'kidguard_token';
@@ -1547,6 +1547,45 @@ async function deleteGeofence(id) {
 
 // ─── Remote Commands ──────────────────────────────────────────────────────
 
+// ─── Remote Wake (FCM revival) ────────────────────────────────────────────
+// Push a high-priority FCM data ping. Temporarily allowlists the child app
+// (~10 s) so its KeepAliveScheduler can re-arm the foreground service — the
+// device re-heartbeats (flips ONLINE) and polls for pending commands.
+async function wakeDevice() {
+    const btn = document.getElementById('wakeBtn');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Waking…'; }
+    try {
+        const res = await fetchWithAuth(`/api/parent/wake/${DEVICE_ID}`, {
+            method: 'POST',
+            body: JSON.stringify({})
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.delivered) {
+            showToast('🔔 Wake Sent', 'FCM ping delivered — device should come ONLINE within ~15 s');
+            setTimeout(() => location.reload(), 15000);
+        } else {
+            const reason = data.reason || ('HTTP ' + res.status);
+            showToast('⚠️ Wake Not Delivered', reason, 6000);
+        }
+    } catch (e) {
+        showToast('❌ Wake Failed', String(e), 6000);
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '🔔 Wake'; }
+    }
+}
+
+// Reveal the wake button on the device-detail page while the device is OFFLINE
+(function initWakeButton() {
+    try {
+        const badge = document.getElementById('onlineBadgeText');
+        const btn = document.getElementById('wakeBtn');
+        if (badge && btn) {
+            const refresh = () => { btn.style.display = (badge.textContent || '').trim().toUpperCase() === 'OFFLINE' ? 'inline-block' : 'none'; };
+            refresh();
+            setTimeout(refresh, 2000);
+        }
+    } catch (e) { /* non-fatal */ }
+})();
 async function sendCommand(command) {
     if (command === 'wipe' && !confirm('⚠️ This will WIPE the device. Are you absolutely sure?')) return;
 
@@ -2332,3 +2371,4 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 });
+

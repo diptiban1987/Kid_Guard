@@ -1,4 +1,4 @@
-# =============================================================================
+﻿# =============================================================================
 # DEPRECATED — This monolithic file is superseded by the Flask package structure
 # in __init__.py + blueprints/ + security.py + config.py + extensions.py.
 # It is kept as a reference for the original route implementations.
@@ -2043,6 +2043,15 @@ def unhandled_exception(e):
 def init_db():
     with app.app_context():
         db.create_all()
+        # SQLite does not auto-add columns to existing tables — ensure the
+        # wake/revival column exists on older databases.
+        if db.engine.url.get_backend_name() == "sqlite":
+            from sqlalchemy import text
+            with db.engine.connect() as conn:
+                cols = [r[1] for r in conn.execute(text("PRAGMA table_info(devices)"))]
+                if "fcm_token" not in cols:
+                    conn.execute(text("ALTER TABLE devices ADD COLUMN fcm_token VARCHAR(255)"))
+                    conn.commit()
 
 # Auto-create tables on module load (required for WSGI / PythonAnywhere)
 init_db()

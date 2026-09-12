@@ -1,4 +1,4 @@
-import os
+﻿import os
 from datetime import timedelta
 
 class Config:
@@ -21,6 +21,7 @@ class Config:
         'http://localhost:5000'
     )
     
-    PAIRING_CODE_TTL = 600  # 10 minutes
+    PAIRING_CODE_TTL = 600  # 10 minutes\n\n    # FCM (legacy HTTP API) — used by the wake/revival push. Get the server\n    # key from Firebase Console → Project Settings → Cloud Messaging →\n    # Server key (same Firebase project the Android app uses).\n    FCM_SERVER_KEY = os.environ.get('FCM_SERVER_KEY', '')\n    FCM_SEND_URL = 'https://fcm.googleapis.com/fcm/send'
     
     GEO_FENCE_DEFAULT_RADIUS = 500  # meters
+

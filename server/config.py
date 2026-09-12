@@ -1,4 +1,4 @@
-import os
+﻿import os
 from datetime import timedelta
 
 
@@ -57,6 +57,11 @@ class Config:
     # ── Pairing ──────────────────────────────────────────────────────────
     PAIRING_CODE_TTL = int(os.environ.get('PAIRING_CODE_TTL', '600'))  # seconds
 
+    # FCM (legacy HTTP API) — used by the wake/revival push. Server key from
+    # Firebase Console → Project Settings → Cloud Messaging.
+    FCM_SERVER_KEY = os.environ.get('FCM_SERVER_KEY', '')
+    FCM_SEND_URL = 'https://fcm.googleapis.com/fcm/send'
+
     # ── Geofence ─────────────────────────────────────────────────────────
     GEO_FENCE_DEFAULT_RADIUS = 500  # meters
 
@@ -82,3 +87,4 @@ class Config:
     # ── SocketIO ─────────────────────────────────────────────────────────
     # Auto-detected in create_app(); this flag forces it off.
     DISABLE_SOCKETIO = os.environ.get('DISABLE_SOCKETIO', '') == '1'
+

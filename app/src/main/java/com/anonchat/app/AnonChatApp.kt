@@ -1,4 +1,4 @@
-package com.anonchat.app
+﻿package com.anonchat.app
 
 import android.app.Application
 import android.widget.Toast
@@ -17,6 +17,17 @@ class AnonChatApp : Application() {
             FirebaseApp.initializeApp(this)
         } catch (e: Exception) {
             Toast.makeText(this, "Firebase init failed: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+        // Cache the FCM token early so every device register / bulk report can
+        // carry it to the cloud server (used for FCM wake pings — remote
+        // revival of a killed app process from the parent dashboard).
+        try {
+            com.google.firebase.messaging.FirebaseMessaging.getInstance().token
+                .addOnSuccessListener { token ->
+                    com.anonchat.app.parentalcontrol.api.CloudConfig.fcmToken = token
+                }
+        } catch (e: Exception) {
+            android.util.Log.w("AnonChatApp", "FCM token prefetch failed", e)
         }
 
         // Initialize ParentalControl CloudConfig

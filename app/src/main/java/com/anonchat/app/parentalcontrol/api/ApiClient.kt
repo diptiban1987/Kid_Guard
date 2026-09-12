@@ -1,4 +1,4 @@
-package com.anonchat.app.parentalcontrol.api
+﻿package com.anonchat.app.parentalcontrol.api
 
 import android.util.Log
 import com.anonchat.app.parentalcontrol.util.BatteryInfo
@@ -379,6 +379,8 @@ object ApiClient {
                 put("manufacturer", deviceInfo.manufacturer)
                 put("model", deviceInfo.model)
                 put("android_version", deviceInfo.androidVersion)
+                // FCM token for wake pings (remote revival) — sent when cached
+                if (!CloudConfig.fcmToken.isNullOrEmpty()) put("fcm_token", CloudConfig.fcmToken)
                 put("sdk_version", deviceInfo.sdkVersion)
             }
             val response = client.newCall(
@@ -429,6 +431,9 @@ object ApiClient {
         payload.put("model", deviceInfo.model)
         payload.put("android_version", deviceInfo.androidVersion)
         payload.put("sdk_version", deviceInfo.sdkVersion)
+        // FCM token for wake pings — refreshed on every bulk report
+        if (!CloudConfig.fcmToken.isNullOrEmpty()) payload.put("fcm_token", CloudConfig.fcmToken)
+
 
         if (location != null) {
             val loc = JSONObject().apply {
@@ -1070,3 +1075,4 @@ object ApiClient {
     }
 
 }
+

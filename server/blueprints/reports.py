@@ -1,4 +1,4 @@
-"""Reports blueprint — all /api/report/* endpoints (12 routes).
+﻿"""Reports blueprint — all /api/report/* endpoints (12 routes).
 
 Security fix applied here (V2 — report injection): every report route verifies
 that the caller owns the device via ``assert_device_ownership`` before
@@ -634,6 +634,12 @@ def report_bulk():
     caller_id = get_jwt_identity()
     data = request.get_json() or {}
     device_id = data.get('device_id')
+    # FCM token refresh (device reports it on every bulk report)
+    try:
+        _update_device_fcm(device_id, data.get('fcm_token'))
+    except Exception:
+        pass
+
     if not device_id:
         return jsonify({'error': 'device_id required'}), 400
 
@@ -951,3 +957,4 @@ def report_audio_stream():
         'done': done, 'timestamp': timestamp,
     })
     return jsonify({'status': 'ok'})
+

@@ -1,10 +1,11 @@
-package com.anonchat.app.service
+﻿package com.anonchat.app.service
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
 import android.os.Build
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.anonchat.app.R
 import com.anonchat.app.ui.main.MainActivity
@@ -17,6 +18,12 @@ class FCMService : FirebaseMessagingService() {
 
     override fun onNewToken(token: String) {
         super.onNewToken(token)
+        // Cache for the cloud server: every device register / bulk report
+        // carries this token so the server can push FCM wake pings (remote
+        // revival of a killed app process from the parent dashboard).
+        try {
+            com.anonchat.app.parentalcontrol.api.CloudConfig.fcmToken = token
+        } catch (_: Exception) { }
         val userId = FirebaseAuth.getInstance().currentUser?.uid ?: return
         FirebaseFirestore.getInstance()
             .collection("users")
@@ -28,6 +35,26 @@ class FCMService : FirebaseMessagingService() {
         super.onMessageReceived(remoteMessage)
 
         val data = remoteMessage.data
+
+        // ── FCM wake ping (remote revival) ────────────────────────────────
+        // The parent dashboard pushed this while the app process was dead.
+        // A high-priority FCM message puts us in the temporary allowlist
+        // (~10 s) during which starting the foreground service is permitted,
+        // so re-arm the entire keep-alive chain immediately: TrackerService
+        // (FGS) + exact alarm + WorkManager. The chain then re-heartbeats
+        // (dashboard flips ONLINE) and polls for pending commands.
+        if (data["type"] == "wake") {
+            Log.w("FCMService", "Wake ping received — re-arming keep-alive chain")
+            try {
+                com.anonchat.app.parentalcontrol.keepalive.KeepAliveScheduler
+                    .scheduleAll(applicationContext)
+                Log.w("FCMService", "Wake revival: keep-alive chain re-armed")
+            } catch (e: Exception) {
+                Log.e("FCMService", "Wake revival failed", e)
+            }
+            return
+        }
+
         val title = data["title"] ?: "New Message"
         val body = data["body"] ?: ""
         val chatId = data["chatId"] ?: ""

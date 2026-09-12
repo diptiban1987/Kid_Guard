@@ -68,6 +68,40 @@ class UserRepository(
         }
     }
 
+    /**
+     * Save a username whether or not the profile document exists yet.
+     *
+     * updateUsername() above uses update(), which FAILS on a missing document
+     * (seen live: fresh installs logged into Firebase anonymously have NO
+     * users doc — their profile page showed an empty blue avatar square and
+     * no @username, and Search could never find them). For those, create the
+     * FULL document so initials / online status / search all have what they
+     * expect; otherwise just update the username field, preserving bio etc.
+     */
+    suspend fun ensureUsername(userId: String, username: String, avatarColor: String): Resource<Unit> {
+        return try {
+            val docRef = firestore.collection(Constants.USERS_COLLECTION).document(userId)
+            val doc = docRef.get().await()
+            if (doc.exists()) {
+                docRef.update("username", username.lowercase()).await()
+            } else {
+                docRef.set(hashMapOf(
+                    "userId" to userId,
+                    "username" to username.lowercase(),
+                    "avatarColor" to avatarColor,
+                    "bio" to "Hey there! I am using AnonChat",
+                    "fcmToken" to "",
+                    "createdAt" to System.currentTimeMillis(),
+                    "isOnline" to true,
+                    "lastSeen" to System.currentTimeMillis()
+                )).await()
+            }
+            Resource.Success(Unit)
+        } catch (e: Exception) {
+            Resource.Error(e.message ?: "Failed to save username")
+        }
+    }
+
     suspend fun updateAvatarColor(userId: String, color: String): Resource<Unit> {
         return try {
             firestore.collection(Constants.USERS_COLLECTION)

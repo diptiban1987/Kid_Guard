@@ -43,6 +43,83 @@
             android:layout_marginBottom="4dp" />
 
         <TextView
+            android:id="@+id/tvUsernameFallback"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="No username yet — other phones can't find you in Search"
+            android:textColor="#FF9800"
+            android:textSize="12sp"
+            android:visibility="gone"
+            android:layout_marginBottom="4dp" />
+
+        <TextView
+            android:id="@+id/btnEditUsername"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="✏️ Edit username"
+            android:textColor="#4FC3F7"
+            android:textSize="13sp"
+            android:padding="4dp"
+            android:layout_marginBottom="16dp" />
+
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/tilUsername"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColorHint="#80FFFFFF"
+            android:visibility="gone"
+            android:layout_marginBottom="4dp">
+
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/etUsername"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="Username (3-20 characters)"
+                android:textColor="#FFFFFF"
+                android:textColorHint="#80FFFFFF"
+                android:inputType="text"
+                android:maxLength="20"
+                android:padding="12dp" />
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <TextView
+            android:id="@+id/tvUsernameStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:visibility="gone"
+            android:layout_marginBottom="4dp" />
+
+        <LinearLayout
+            android:id="@+id/rowUsernameButtons"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:visibility="gone"
+            android:layout_marginBottom="16dp">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnSaveUsername"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="44dp"
+                android:layout_marginEnd="8dp"
+                android:text="Save Username"
+                android:textAllCaps="false"
+                android:textSize="14sp"
+                android:backgroundTint="#6C63FF" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnCancelUsername"
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="44dp"
+                android:text="Cancel"
+                android:textAllCaps="false"
+                android:textColor="#80FFFFFF" />
+        </LinearLayout>
+
+        <TextView
             android:id="@+id/tvBio"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"

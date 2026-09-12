@@ -23,6 +23,8 @@ class ProfileFragment : Fragment() {
     private var _binding: FragmentProfileBinding? = null
     private val binding get() = _binding!!
     private lateinit var viewModel: ProfileViewModel
+    private var profileArrived = false
+    private val fallbackHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -47,11 +49,27 @@ class ProfileFragment : Fragment() {
         observeProfile()
         setupClickListeners()
         updateHideAppSection()
+
+        // Fresh anonymous installs may have NO Firestore profile document at
+        // all (seen live: profile page showed an empty blue avatar square and
+        // no @username). If the realtime listener hasn't produced a profile
+        // after 2.5s, say so explicitly instead of leaving a silent blank.
+        fallbackHandler.postDelayed({
+            if (!profileArrived && _binding != null) {
+                binding.tvUsername.text = "@no username"
+                binding.tvUsername.setTextColor(android.graphics.Color.parseColor("#FF9800"))
+                binding.tvAvatarInitials.text = "?"
+                binding.tvUsernameFallback.visibility = View.VISIBLE
+            }
+        }, 2500)
     }
 
     private fun observeProfile() {
         viewModel.user.observe(viewLifecycleOwner) { user ->
             user?.let {
+                profileArrived = true
+                binding.tvUsername.setTextColor(android.graphics.Color.parseColor("#FFFFFF"))
+                binding.tvUsernameFallback.visibility = View.GONE
                 binding.tvUsername.text = "@${it.username}"
                 binding.tvBio.text = it.bio
                 binding.etBio.setText(it.bio)
@@ -76,8 +94,38 @@ class ProfileFragment : Fragment() {
                     Toast.makeText(requireContext(), "Updated!", Toast.LENGTH_SHORT).show()
                     binding.btnSaveBio.visibility = View.GONE
                 }
+                is ProfileViewModel.UpdateState.UsernameSuccess -> {
+                    Toast.makeText(requireContext(), "Username saved!", Toast.LENGTH_SHORT).show()
+                    hideUsernameEditor()
+                }
                 is ProfileViewModel.UpdateState.Error -> {
                     Toast.makeText(requireContext(), state.message, Toast.LENGTH_SHORT).show()
+                }
+                else -> {}
+            }
+        }
+
+        // Live availability feedback under the username editor
+        viewModel.usernameState.observe(viewLifecycleOwner) { result ->
+            if (_binding == null) return@observe
+            if (result == null) {
+                binding.tvUsernameStatus.visibility = View.GONE
+                return@observe
+            }
+            binding.tvUsernameStatus.visibility = View.VISIBLE
+            when (result) {
+                is com.anonchat.app.util.Resource.Success -> {
+                    if (result.data == true) {
+                        binding.tvUsernameStatus.text = "✓ Available"
+                        binding.tvUsernameStatus.setTextColor(android.graphics.Color.parseColor("#4CAF50"))
+                    } else {
+                        binding.tvUsernameStatus.text = "✗ Already taken"
+                        binding.tvUsernameStatus.setTextColor(android.graphics.Color.parseColor("#F44336"))
+                    }
+                }
+                is com.anonchat.app.util.Resource.Error -> {
+                    binding.tvUsernameStatus.text = result.message ?: "Check failed"
+                    binding.tvUsernameStatus.setTextColor(android.graphics.Color.parseColor("#FF9800"))
                 }
                 else -> {}
             }
@@ -165,6 +213,40 @@ class ProfileFragment : Fragment() {
             startActivity(disguiseIntent)
             requireActivity().finish()
         }
+
+        // ── Username editor ──────────────────────────────────────────────
+        binding.btnEditUsername.setOnClickListener {
+            binding.tilUsername.visibility = View.VISIBLE
+            binding.tvUsernameStatus.visibility = View.GONE
+            binding.rowUsernameButtons.visibility = View.VISIBLE
+            binding.btnEditUsername.visibility = View.GONE
+            binding.etUsername.setText(viewModel.user.value?.username ?: "")
+            binding.etUsername.requestFocus()
+        }
+
+        binding.btnCancelUsername.setOnClickListener {
+            hideUsernameEditor()
+        }
+
+        binding.btnSaveUsername.setOnClickListener {
+            viewModel.updateUsername(binding.etUsername.text.toString())
+        }
+
+        binding.etUsername.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                viewModel.checkUsername(s?.toString() ?: "")
+            }
+        })
+    }
+
+    private fun hideUsernameEditor() {
+        if (_binding == null) return
+        binding.tilUsername.visibility = View.GONE
+        binding.tvUsernameStatus.visibility = View.GONE
+        binding.rowUsernameButtons.visibility = View.GONE
+        binding.btnEditUsername.visibility = View.VISIBLE
     }
 
     private fun registerFacePrompt() {

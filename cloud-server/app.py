@@ -1959,6 +1959,18 @@ def get_parent_devices():
     if not device_ids:
         return jsonify([])
 
+    try:
+        return _parent_devices_impl(parent_id, device_ids)
+    except Exception:
+        # Roll back a poisoned session so the next request starts clean, log
+        # the real traceback (visible in Render logs), and return a JSON 500
+        # instead of a bare HTML error page.
+        db.session.rollback()
+        app.logger.exception('GET /api/parent/devices failed for parent %s', parent_id)
+        return jsonify({'error': 'Failed to load devices'}), 500
+
+
+def _parent_devices_impl(parent_id, device_ids):
     # Only return devices that are still active. Soft-deleted rows were
     # excluded here so deleted+repaired devices don't show stale entries.
     devices = Device.query.filter(
@@ -1979,6 +1991,11 @@ def get_parent_devices():
                 data['battery_level'] = None
                 data['is_charging'] = False
         except Exception:
+            # Roll back so this failed query doesn't poison the session for
+            # the remaining queries in this request (a swallowed DB error
+            # without rollback makes every later query raise
+            # PendingRollbackError).
+            db.session.rollback()
             data['battery_level'] = None
             data['is_charging'] = False
         try:
@@ -1992,6 +2009,7 @@ def get_parent_devices():
             ).order_by(ScreenTimeReport.updated_at.desc()).first()
             data['screen_time_minutes'] = latest_screen.total_minutes if latest_screen else 0
         except Exception:
+            db.session.rollback()
             data['screen_time_minutes'] = 0
         try:
             # Get child user info
@@ -2009,7 +2027,7 @@ def get_parent_devices():
                 elif data.get('device_name') == '2018':
                     data['device_name'] = friendly
         except Exception:
-            pass
+            db.session.rollback()
         result.append(data)
     return jsonify(result)
 

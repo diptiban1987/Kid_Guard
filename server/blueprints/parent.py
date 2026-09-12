@@ -11,6 +11,7 @@ import base64
 from datetime import datetime, timezone
 
 from flask import Blueprint, request, jsonify, current_app
+from sqlalchemy import func
 
 from ..extensions import db
 from ..models import (
@@ -122,47 +123,100 @@ def get_parent_stats():
 @bp.route('/parent/devices')
 @parent_required
 def get_parent_devices():
+    """Dashboard device list — the dashboard's heaviest endpoint.
+
+    Previously ran 5+ queries PER DEVICE (latest battery, screen time, and 4
+    per-table COUNTs); with the 30s poll cycle that multiplied into constant
+    load on the free-tier database. Any mid-handler DB failure also poisoned
+    the SQLAlchemy session — the bare ``except`` blocks swallowed it WITHOUT
+    ``rollback()`` — so later queries in the same request raised
+    PendingRollbackError and the request 500'd with a bare HTML page. Three
+    changes:
+
+      - per-device COUNTs became 4 grouped COUNT queries TOTAL (independent of
+        device count),
+      - the screen-time lookup uses the ``date`` day-key column: the model has
+        NO ``timestamp`` column, so the old ``timestamp >= today_start`` filter
+        raised AttributeError on EVERY call and always reported 0 minutes,
+      - every guarded block rolls the session back on failure, and unexpected
+        exceptions are logged with traceback and answered with a JSON 500 (the
+        rollback guarantees the next request starts on a clean session).
+    """
     parent_id = _caller_id()
     device_ids = get_child_device_ids(parent_id)
     if not device_ids:
         return jsonify([])
 
-    devices = Device.query.filter(Device.device_id.in_(device_ids)).order_by(Device.last_seen.desc()).all()
-    result = []
-    for d in devices:
-        data = d.to_dict()
-        try:
-            latest_battery = BatteryReport.query.filter_by(device_id=d.device_id)\
-                .order_by(BatteryReport.received_at.desc()).first()
-            data['battery_level'] = latest_battery.level if latest_battery else None
-            data['is_charging'] = latest_battery.is_charging if latest_battery else False
-        except Exception:
-            data['battery_level'] = None
-            data['is_charging'] = False
-        try:
-            today_start = int(datetime.now(timezone.utc).replace(hour=0, minute=0, second=0).timestamp() * 1000)
-            latest_screen = ScreenTimeReport.query.filter_by(device_id=d.device_id)\
-                .filter(ScreenTimeReport.timestamp >= today_start)\
-                .order_by(ScreenTimeReport.id.desc()).first()
-            data['screen_time_minutes'] = latest_screen.total_minutes if latest_screen else 0
-        except Exception:
-            data['screen_time_minutes'] = 0
-        try:
-            data['locations_count'] = LocationReport.query.filter_by(device_id=d.device_id).count()
-            data['sms_count'] = SmsMessage.query.filter_by(device_id=d.device_id).count()
-            data['calls_count'] = CallLog.query.filter_by(device_id=d.device_id).count()
-            data['apps_count'] = InstalledApp.query.filter_by(device_id=d.device_id).count()
-        except Exception:
-            pass
-        try:
-            child_user = User.query.filter_by(id=d.user_id).first() if d.user_id else None
-            if child_user:
-                data['child_name'] = child_user.display_name
-                data['child_email'] = child_user.email
-        except Exception:
-            pass
-        result.append(data)
-    return jsonify(result)
+    try:
+        devices = Device.query.filter(Device.device_id.in_(device_ids)).order_by(Device.last_seen.desc()).all()
+        if not devices:
+            return jsonify([])
+
+        # Grouped per-table counts: 4 queries TOTAL regardless of device count
+        # (previously 4 x N per request — the main free-tier DB load driver).
+        def _grouped_counts(model):
+            try:
+                rows = db.session.query(
+                    model.device_id, func.count(model.id)
+                ).filter(
+                    model.device_id.in_([d.device_id for d in devices])
+                ).group_by(model.device_id).all()
+                return dict(rows)
+            except Exception:
+                db.session.rollback()
+                return {}
+
+        loc_counts = _grouped_counts(LocationReport)
+        sms_counts = _grouped_counts(SmsMessage)
+        call_counts = _grouped_counts(CallLog)
+        app_counts = _grouped_counts(InstalledApp)
+
+        # ScreenTimeReport's canonical day-key is the `date` string (YYYY-MM-DD).
+        today_key = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+
+        result = []
+        for d in devices:
+            data = d.to_dict()
+            try:
+                latest_battery = BatteryReport.query.filter_by(device_id=d.device_id)\
+                    .order_by(BatteryReport.received_at.desc()).first()
+                data['battery_level'] = latest_battery.level if latest_battery else None
+                data['is_charging'] = latest_battery.is_charging if latest_battery else False
+            except Exception:
+                db.session.rollback()
+                data['battery_level'] = None
+                data['is_charging'] = False
+            try:
+                latest_screen = ScreenTimeReport.query.filter_by(
+                    device_id=d.device_id, date=today_key
+                ).order_by(ScreenTimeReport.updated_at.desc()).first()
+                data['screen_time_minutes'] = latest_screen.total_minutes if latest_screen else 0
+            except Exception:
+                db.session.rollback()
+                data['screen_time_minutes'] = 0
+
+            data['locations_count'] = loc_counts.get(d.device_id, 0)
+            data['sms_count'] = sms_counts.get(d.device_id, 0)
+            data['calls_count'] = call_counts.get(d.device_id, 0)
+            data['apps_count'] = app_counts.get(d.device_id, 0)
+
+            try:
+                child_user = User.query.filter_by(id=d.user_id).first() if d.user_id else None
+                if child_user:
+                    data['child_name'] = child_user.display_name
+                    data['child_email'] = child_user.email
+            except Exception:
+                db.session.rollback()
+            result.append(data)
+        return jsonify(result)
+    except Exception:
+        # Last-resort guard: log the REAL traceback (visible in Render logs)
+        # and answer with a JSON 500 instead of a bare HTML error page. The
+        # rollback guarantees the next request on this worker starts clean
+        # instead of inheriting the failed transaction.
+        db.session.rollback()
+        current_app.logger.exception('GET /parent/devices failed for parent %s', parent_id)
+        return jsonify({'error': 'Failed to load devices'}), 500
 
 
 @bp.route('/parent/devices/<device_id>/delete', methods=['POST'])

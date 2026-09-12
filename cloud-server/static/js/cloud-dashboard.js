@@ -6,7 +6,7 @@ let currentDeviceId = null;
 let TOKEN = localStorage.getItem('kidguard_token');
 let USER = null;
 let pollInterval = null;
-let refreshIntervalMs = 30000;
+let refreshIntervalMs = 60000;
 
 // Cached data for child detail tabs
 let cachedActivities = null;
@@ -140,22 +140,46 @@ function startPolling() {
     pollInterval = setInterval(pollDashboard, refreshIntervalMs);
 }
 
+// Overlap guard: a poll cycle that fires 4–6 requests can take longer than
+// the interval on a cold Render instance. Starting a second cycle while the
+// first is still in flight doubles the burst — exactly what trips the
+// free-tier rate limiter. Serialize cycles instead.
+let pollCycleBusy = false;
+
 function pollDashboard() {
+    // Hidden tab: skip the cycle entirely. A background tab previously kept
+    // firing the full 4–6 request burst every 30s/60s while the parent wasn't
+    // even looking — free rate-limit burn with zero UX benefit.
+    if (document.hidden) return;
+    if (pollCycleBusy) return;
+    pollCycleBusy = true;
+    const release = () => { pollCycleBusy = false; };
+
     const overview = document.getElementById('overviewSection');
     if (overview && !overview.classList.contains('hidden')) {
-        loadDashboard();
+        loadDashboard().catch(release).then(release);
     }
-    checkForUpdates();
-    checkPendingPairings();
+    // Stagger the lightweight calls a few seconds apart instead of firing all
+    // 4–6 requests in one parallel burst every cycle. The limiter counts
+    // bursts, not totals — spreading them keeps each cycle under its threshold.
+    setTimeout(() => { checkForUpdates().finally(release); }, 2500);
+    setTimeout(checkPendingPairings, 6000);
 }
 
-let lastUpdateTime = 0;
+// Last successful /parent/updates server_time, persisted so a page reload
+// doesn't restart the feed at since=0 (which made every cycle re-scan the
+// full history instead of just the increment since the last success).
+let lastUpdateTime = parseInt(localStorage.getItem('kidguard_updates_since') || '0', 10) || 0;
 
 async function checkForUpdates() {
     try {
         const res = await fetchWithAuth('/api/parent/updates?since=' + lastUpdateTime);
         const data = await res.json();
-        lastUpdateTime = data.server_time || Date.now();
+        // Only advance the cursor on SUCCESS — if this cycle 429'd or got a
+        // challenge page, the next cycle must retry the same window rather
+        // than silently skipping it.
+        lastUpdateTime = data.server_time || lastUpdateTime || Date.now();
+        localStorage.setItem('kidguard_updates_since', String(lastUpdateTime));
         if (data.notifications) {
             data.notifications.forEach(n => showNotification(n.title, n.message));
         }
@@ -1162,7 +1186,13 @@ async function fetchWithAuth(url, options = {}) {
     options.headers['Authorization'] = `Bearer ${TOKEN}`;
     options.headers['Content-Type'] = 'application/json';
     
-    const res = await fetch(url, options);
+    // Shared resilience wrapper (net-resilience.js): absorbs Render edge
+    // security-check challenges, 5xx pages and network blips with backoff
+    // retries + on-page banner, honors Retry-After on 429s, and de-duplicates
+    // concurrent identical GETs. 401/403 JSON passes through to the refresh
+    // flow below.
+    const doFetch = (window.KidGuardNet && window.KidGuardNet.fetch) ? window.KidGuardNet.fetch : fetch;
+    const res = await doFetch(url, options);
     if (res.status === 401 || res.status === 403) {
         const refresh = localStorage.getItem('kidguard_refresh');
         if (refresh) {

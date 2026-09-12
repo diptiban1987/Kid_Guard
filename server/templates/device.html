@@ -2080,7 +2080,19 @@
     function playMicChunk(audio_b64, sampleRate) {
         if (!cmdMicAudioCtx || !audio_b64) return;
         try {
-            const audioBuf = pcmBase64ToAudioBuffer(cmdMicAudioCtx, audio_b64, sampleRate);
+            // Inline PCM decode — pcmBase64ToAudioBuffer lives in another
+            // script closure and is NOT reachable from here (that mistake
+            // silently killed all modal audio via the swallowed catch).
+            const raw = atob(audio_b64);
+            const buf = new ArrayBuffer(raw.length);
+            const view = new Uint8Array(buf);
+            for (let i = 0; i < raw.length; i++) view[i] = raw.charCodeAt(i);
+            const int16 = new Int16Array(buf);
+            const float32 = new Float32Array(int16.length);
+            for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768.0;
+            const audioBuf = cmdMicAudioCtx.createBuffer(1, float32.length, sampleRate || 16000);
+            audioBuf.getChannelData(0).set(float32);
+            // Schedule back-to-back on the WebAudio clock (gap-free playback).
             const now = cmdMicAudioCtx.currentTime;
             if (cmdMicNextStart < now + 0.05) cmdMicNextStart = now + 0.05;
             const src = cmdMicAudioCtx.createBufferSource();
@@ -2088,7 +2100,7 @@
             src.connect(cmdMicAudioCtx.destination);
             src.start(cmdMicNextStart);
             cmdMicNextStart += audioBuf.duration;
-        } catch(e) {}
+        } catch(e) { console.warn('playMicChunk error:', e); }
     }
 
     function animateMicBarsFromAudio(audio_b64) {

@@ -23,6 +23,13 @@ RUN pip install --no-cache-dir -r server/requirements.txt
 # Copy the server package only (keeps image small; ignores Android sources)
 COPY server/ ./server/
 
+# OTA artifacts: app_mgmt.py's repo fallback reads cloud-server/apk when the
+# ephemeral uploads dir has no version.json (Render free tier wipes uploads
+# on every deploy). Without this, check-update answered latest_version=0 and
+# devices were told "you're up to date" forever — v1.2 devices never got the
+# v1.3 update.
+COPY cloud-server/apk/ ./cloud-server/apk/
+
 # Upload directory (mounted as a Render Disk in prod; ephemeral on free tier)
 RUN mkdir -p /app/uploads /app/uploads/apk
 

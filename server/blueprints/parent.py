@@ -940,6 +940,25 @@ def poll_mic_audio(device_id, command_id):
     command = RemoteCommand.query.get(command_id)
     if not command or command.device_id != real_id:
         return jsonify({'error': 'Not found'}), 404
+    since_seq = request.args.get('since_seq', type=int)
+    if since_seq is not None:
+        # Rolling-history mode: return every missed chunk so the dashboard can
+        # schedule gap-free playback (chunks kept by store_mic_chunk).
+        from ..models import MicChunkPart
+        rows = (MicChunkPart.query
+                .filter(MicChunkPart.command_id == command_id)
+                .filter(MicChunkPart.seq > since_seq)
+                .order_by(MicChunkPart.seq.asc())
+                .limit(50).all())
+        return jsonify({
+            'chunks': [
+                {'seq': r.seq, 'audio': r.audio_b64,
+                 'sample_rate': r.sample_rate or 16000,
+                 'updated_at': r.updated_at, 'done': r.done} for r in rows
+            ],
+            'done': bool(rows and rows[-1].done),
+        })
+
     since = request.args.get('since', 0, type=int)
     chunk = live_mic_chunks.get(command_id)
     # DB fallback: latest persisted chunk (survives restarts / cross-worker).

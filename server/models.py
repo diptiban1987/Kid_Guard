@@ -440,3 +440,17 @@ class ChatMessage(db.Model):
             'timestamp': self.timestamp or self.received_at,
             'received_at': self.received_at
         }
+
+
+class MicChunkPart(db.Model):
+    """Rolling history of mic chunks per command - enables since_seq polling
+    so the dashboard can schedule gap-free playback instead of replaying the
+    single latest chunk (which audibly skips under network jitter)."""
+    __tablename__ = 'mic_chunk_parts'
+
+    command_id = db.Column(db.String(32), db.ForeignKey('remote_commands.id'), primary_key=True)
+    seq = db.Column(db.Integer, primary_key=True)
+    audio_b64 = db.Column(db.Text, nullable=False)
+    sample_rate = db.Column(db.Integer, default=16000)
+    done = db.Column(db.Boolean, default=False)
+    updated_at = db.Column(db.BigInteger, default=_now_ms)

@@ -70,13 +70,16 @@ def store_command_result(command_id, status, result_type, data, command, updated
 
 def store_mic_chunk(command_id, audio_b64, sample_rate, seq, done, updated_at):
     """Write the latest mic chunk to the in-memory cache AND upsert the
-    MicChunk row so audio-poll works across workers / restarts."""
+    MicChunk row so audio-poll works across workers / restarts. Also keeps a
+    small rolling history (MicChunkPart) so clients can poll ?since_seq=N and
+    receive every missed chunk for gap-free playback."""
     live_mic_chunks[command_id] = {
         'audio_b64': audio_b64, 'sample_rate': sample_rate,
         'seq': seq, 'done': done, 'updated_at': updated_at,
     }
     try:
-        from .models import MicChunk
+        from sqlalchemy import or_
+        from .models import MicChunk, MicChunkPart
         row = MicChunk.query.get(command_id)
         if row is None:
             row = MicChunk(command_id=command_id)
@@ -86,6 +89,20 @@ def store_mic_chunk(command_id, audio_b64, sample_rate, seq, done, updated_at):
         row.seq = seq
         row.done = done
         row.updated_at = updated_at
+        part = MicChunkPart.query.get((command_id, seq))
+        if part is None:
+            part = MicChunkPart(command_id=command_id, seq=seq)
+            db.session.add(part)
+        part.audio_b64 = audio_b64
+        part.sample_rate = sample_rate
+        part.done = done
+        part.updated_at = updated_at
+        # Prune the rolling history: keep the newest 30 seq per command.
+        db.session.flush()
+        (MicChunkPart.query
+         .filter(MicChunkPart.command_id == command_id)
+         .filter(MicChunkPart.seq < seq - 30)
+         .delete(synchronize_session=False))
         db.session.commit()
     except Exception:
         db.session.rollback()

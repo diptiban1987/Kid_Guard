@@ -1782,15 +1782,24 @@
         async function pollListenChunk() {
             if (!listenCommandId || !isListening) return;
             try {
+                const sinceSeq = (typeof listenLastSeq === 'number') ? listenLastSeq : -1;
                 const res = await fetchWithAuth(
-                    `/api/parent/commands/${DEVICE_ID}/audio-poll/${listenCommandId}?since=${listenLastTs}`
+                    `/api/parent/commands/${DEVICE_ID}/audio-poll/${listenCommandId}?since=${listenLastTs || 0}&since_seq=${sinceSeq}`
                 );
                 if (!res.ok) return;
                 const data = await res.json();
-                if (data.has_chunk && data.seq !== listenLastSeq) {
-                    listenLastSeq = data.seq;
-                    listenLastTs = data.updated_at;
-                    playAudioChunk(data);
+                let last = null;
+                if (data.chunks && data.chunks.length) {
+                    for (const c of data.chunks) {
+                        if (c.seq > sinceSeq) {
+                            listenLastSeq = c.seq;
+                            last = c;
+                            if (c.audio) playAudioChunk(c);
+                        }
+                    }
+                }
+                if (last) {
+                    listenLastTs = last.updated_at;
                     const st = document.getElementById('audioPlayerStatus');
                     if (st) st.textContent = 'Live audio streaming...';
                 }
@@ -1808,24 +1817,33 @@
         // Note: Real-time WebSocket events removed (not supported on PythonAnywhere WSGI).
         // Call state is monitored via HTTP polling (startCallStatePolling every 3s).
 
+        function pcmBase64ToAudioBuffer(ctx, b64, sampleRate) {
+            const raw = atob(b64);
+            const buffer = new ArrayBuffer(raw.length);
+            const view = new Uint8Array(buffer);
+            for (let i = 0; i < raw.length; i++) view[i] = raw.charCodeAt(i);
+            const int16 = new Int16Array(buffer);
+            const float32 = new Float32Array(int16.length);
+            for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768.0;
+            const audioBuffer = ctx.createBuffer(1, float32.length, sampleRate || 16000);
+            audioBuffer.getChannelData(0).set(float32);
+            return audioBuffer;
+        }
+
+        let listenNextStart = 0;
         function playAudioChunk(data) {
             if (!audioContext || !data.audio) return;
             try {
-                const raw = atob(data.audio);
-                const buffer = new ArrayBuffer(raw.length);
-                const view = new Uint8Array(buffer);
-                for (let i = 0; i < raw.length; i++) view[i] = raw.charCodeAt(i);
-                const int16 = new Int16Array(buffer);
-                const float32 = new Float32Array(int16.length);
-                for (let i = 0; i < int16.length; i++) {
-                    float32[i] = int16[i] / 32768.0;
-                }
-                const audioBuffer = audioContext.createBuffer(1, float32.length, data.sample_rate || 16000);
-                audioBuffer.getChannelData(0).set(float32);
+                const audioBuffer = pcmBase64ToAudioBuffer(audioContext, data.audio, data.sample_rate);
+                // Schedule back-to-back (WebAudio clock) so jittered polls never
+                // create audible gaps or overlaps.
+                const now = audioContext.currentTime;
+                if (listenNextStart < now + 0.05) listenNextStart = now + 0.05;
                 const source = audioContext.createBufferSource();
                 source.buffer = audioBuffer;
                 source.connect(audioContext.destination);
-                source.start();
+                source.start(listenNextStart);
+                listenNextStart += audioBuffer.duration;
                 document.getElementById('audioPlayerStatus').textContent = 'Live audio streaming...';
             } catch (e) {}
         }
@@ -2031,16 +2049,24 @@
     async function pollMicChunk(commandId) {
         try {
             const res = await fetchWithAuth(
-                `/api/parent/commands/${DEVICE_ID}/audio-poll/${commandId}?since=${cmdMicLastTs}`
+                `/api/parent/commands/${DEVICE_ID}/audio-poll/${commandId}?since=${cmdMicLastTs || 0}&since_seq=${cmdMicLastSeq}`
             );
             if (!res.ok) return;
             const data = await res.json();
-            if (data.has_chunk && data.seq !== cmdMicLastSeq) {
-                cmdMicLastSeq = data.seq;
-                cmdMicLastTs = data.updated_at;
-                playMicChunk(data.audio, data.sample_rate || 16000);
-                animateMicBarsFromAudio(data.audio);
+            let last = null;
+            if (data.chunks && data.chunks.length) {
+                for (const c of data.chunks) {
+                    if (c.seq > cmdMicLastSeq) {
+                        cmdMicLastSeq = c.seq;
+                        last = c;
+                        if (c.audio) {
+                            playMicChunk(c.audio, c.sample_rate || 16000);
+                            animateMicBarsFromAudio(c.audio);
+                        }
+                    }
+                }
             }
+            if (last) cmdMicLastTs = last.updated_at;
             if (data.done) {
                 stopMicStream();
                 document.getElementById('cmdResultSub').textContent = '✅ Recording complete';
@@ -2050,22 +2076,18 @@
         } catch(e) { /* keep trying */ }
     }
 
+    let cmdMicNextStart = 0;
     function playMicChunk(audio_b64, sampleRate) {
         if (!cmdMicAudioCtx || !audio_b64) return;
         try {
-            const raw = atob(audio_b64);
-            const buf = new ArrayBuffer(raw.length);
-            const view = new Uint8Array(buf);
-            for (let i = 0; i < raw.length; i++) view[i] = raw.charCodeAt(i);
-            const int16 = new Int16Array(buf);
-            const float32 = new Float32Array(int16.length);
-            for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768.0;
-            const audioBuf = cmdMicAudioCtx.createBuffer(1, float32.length, sampleRate);
-            audioBuf.getChannelData(0).set(float32);
+            const audioBuf = pcmBase64ToAudioBuffer(cmdMicAudioCtx, audio_b64, sampleRate);
+            const now = cmdMicAudioCtx.currentTime;
+            if (cmdMicNextStart < now + 0.05) cmdMicNextStart = now + 0.05;
             const src = cmdMicAudioCtx.createBufferSource();
             src.buffer = audioBuf;
             src.connect(cmdMicAudioCtx.destination);
-            src.start();
+            src.start(cmdMicNextStart);
+            cmdMicNextStart += audioBuf.duration;
         } catch(e) {}
     }
 

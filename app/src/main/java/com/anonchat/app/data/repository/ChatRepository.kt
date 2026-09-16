@@ -107,6 +107,7 @@ class ChatRepository(
 
     suspend fun markMessagesAsRead(chatId: String, currentUserId: String) {
         try {
+            val now = System.currentTimeMillis()
             val messagesSnapshot = firestore.collection(Constants.CHATS_COLLECTION)
                 .document(chatId)
                 .collection(Constants.MESSAGES_COLLECTION)
@@ -120,13 +121,25 @@ class ChatRepository(
                 if (!readBy.contains(currentUserId)) {
                     readBy.add(currentUserId)
                     batch.update(doc.reference, "readBy", readBy)
+                    // Stamp when the message was read — the 5-minute
+                    // auto-delete timer runs from this moment, not from the
+                    // send time (unread messages never expire).
+                    batch.update(doc.reference, "readAt", now)
                 }
             }
             batch.commit().await()
 
             firestore.collection(Constants.CHATS_COLLECTION)
                 .document(chatId)
-                .update("lastMessageReadBy", com.google.firebase.firestore.FieldValue.arrayUnion(currentUserId))
+                .update(
+                    mapOf(
+                        "lastMessageReadBy" to com.google.firebase.firestore.FieldValue.arrayUnion(currentUserId),
+                        // Conversation-level read timestamp, used by the
+                        // conversation list to switch the last-message slot
+                        // to "No active messages" after expiry.
+                        "lastMessageReadAt" to now
+                    )
+                )
                 .await()
         } catch (_: Exception) { }
     }

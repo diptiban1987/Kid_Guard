@@ -44,7 +44,6 @@ class ChatViewModel(
     private var typingListener: ListenerRegistration? = null
     private var otherUserListener: ListenerRegistration? = null
 
-    private var sessionStartTime: Long = System.currentTimeMillis()
     private var rawMessagesList: List<Message> = emptyList()
     private var autoExpiryJob: kotlinx.coroutines.Job? = null
 
@@ -60,7 +59,7 @@ class ChatViewModel(
         autoExpiryJob?.cancel()
         autoExpiryJob = viewModelScope.launch {
             while (isActive) {
-                kotlinx.coroutines.delay(5000L) // Refresh every 5 seconds to auto-remove messages older than 5 min
+                kotlinx.coroutines.delay(5000L) // Re-evaluate read-based expiry every 5 seconds
                 if (rawMessagesList.isNotEmpty()) {
                     _messages.postValue(filterVisibleMessagesForUI(rawMessagesList))
                 }
@@ -75,7 +74,9 @@ class ChatViewModel(
     }
 
     fun wipeSessionOnExit() {
-        sessionStartTime = System.currentTimeMillis()
+        // Clears the on-screen list; on re-entry messages reload from
+        // Firestore and visibility is governed by read-state (see
+        // filterVisibleMessagesForUI) — not by sessions.
         _messages.value = emptyList()
     }
 
@@ -99,18 +100,35 @@ class ChatViewModel(
     /**
      * Filter messages for UI display:
      * - Database retains 100% of past chat messages permanently in backend.
-     * - Timer-based auto-delete: Messages older than 5 minutes (300,000 ms) automatically disappear.
-     * - Auto-wipe on exit: Only messages created during the current active session are displayed.
+     * - Read-based auto-delete: the 5-minute delete timer starts when the
+     *   RECIPIENT reads the message (readAt), NOT when it was sent. Unread
+     *   messages stay visible — even across sessions — so the recipient
+     *   actually gets to read them. Once read, the message disappears for
+     *   BOTH participants 5 minutes later.
+     * - Manually deleted messages are always hidden.
      */
     private fun filterVisibleMessagesForUI(allMessages: List<Message>): List<Message> {
         if (allMessages.isEmpty()) return emptyList()
         val now = System.currentTimeMillis()
-        val fiveMinutesAgo = now - (5 * 60 * 1000L) // 5 minutes in ms
 
         return allMessages.filter { msg ->
-            !msg.isDeleted &&
-            msg.timestamp >= fiveMinutesAgo &&
-            msg.timestamp >= sessionStartTime
+            if (msg.isDeleted) return@filter false
+
+            // Recipient of this message = the participant who is not the sender.
+            val recipientId = if (msg.senderId == currentUserId) otherUserId else currentUserId
+            if (!msg.readBy.contains(recipientId)) {
+                // Unread by its recipient → keep visible (no timer running).
+                return@filter true
+            }
+
+            if (msg.readAt <= 0L) {
+                // Read under the old regime (no read timestamp recorded):
+                // treat as expired — those messages predate this feature.
+                return@filter false
+            }
+
+            // Read → visible for 5 minutes after the read moment, then gone.
+            (now - msg.readAt) <= (5 * 60 * 1000L)
         }
     }
 

@@ -44,13 +44,12 @@ class ConversationsAdapter(
 
             binding.tvAvatarInitials.text = otherName.take(2).uppercase()
 
-            // Privacy: message content is never previewed in the conversation
-            // list — disappearing messages must leave no text behind. After
-            // expiry the row shows the neutral "No active messages"
-            // placeholder instead; while a message is still active nothing
-            // is shown (content-free "typing…" hint excepted).
-            val now = System.currentTimeMillis()
-            val isExpired = (now - chat.lastMessageTimestamp) > (5 * 60 * 1000L)
+            // Privacy + read-based expiry: message content is never previewed
+            // in the list. The "No active messages" placeholder appears only
+            // once the last message has been READ and its 5-minute post-read
+            // window has elapsed (isLastMessageExpired) — an unread message
+            // keeps the conversation "active" so the recipient can read it.
+            val isExpired = chat.isLastMessageExpired()
 
             binding.tvLastMessage.visibility = android.view.View.GONE
             if (isExpired) {

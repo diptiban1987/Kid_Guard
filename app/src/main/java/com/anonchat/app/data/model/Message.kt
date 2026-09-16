@@ -10,6 +10,10 @@ data class Message(
     val imageUrl: String = "",
     val timestamp: Long = System.currentTimeMillis(),
     val readBy: List<String> = emptyList(),
+    // When the recipient read this message (ms-since-epoch). 0 = unread.
+    // The 5-minute auto-delete timer starts from THIS moment, not from the
+    // send time — unread messages never expire until they are read.
+    val readAt: Long = 0,
     val isDeleted: Boolean = false
 ) {
     fun isSentByCurrentUser(currentUserId: String): Boolean {

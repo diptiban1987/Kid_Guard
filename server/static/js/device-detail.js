@@ -520,19 +520,19 @@ async function loadAllData() {
         const range = activeRange;
         const stagger = (i, fn) => new Promise(res => setTimeout(res, i * 100)).then(fn);
         const [locations, activity, sms, calls, apps, screentime, webhistory, media, geofences, restrictions, schedule, social, chats] = await Promise.all([
-            stagger(0, () => fetchWithAuth(`/api/parent/locations/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, [])).catch(() => [])),
-            stagger(1, () => fetchWithAuth(`/api/parent/activity/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, [])).catch(() => [])),
-            stagger(2, () => fetchWithAuth(`/api/parent/sms/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, [])).catch(() => [])),
-            stagger(3, () => fetchWithAuth(`/api/parent/calls/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, [])).catch(() => [])),
-            stagger(4, () => fetchWithAuth(`/api/parent/apps/${DEVICE_ID}`).then(r => safeJson(r, [])).catch(() => [])),
-            stagger(5, () => fetchWithAuth(`/api/parent/screentime/${DEVICE_ID}?days=7`).then(r => safeJson(r, [])).catch(() => [])),
-            stagger(6, () => fetchWithAuth(`/api/parent/webhistory/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, [])).catch(() => [])),
-            stagger(7, () => fetchWithAuth(`/api/parent/media/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, [])).catch(() => [])),
-            stagger(8, () => fetchWithAuth(`/api/parent/geofences/${DEVICE_ID}`).then(r => safeJson(r, [])).catch(() => [])),
-            stagger(9, () => fetchWithAuth(`/api/parent/restrictions/${DEVICE_ID}`).then(r => safeJson(r, [])).catch(() => [])),
-            stagger(10, () => fetchWithAuth(`/api/parent/schedule/${DEVICE_ID}`).then(r => safeJson(r, [])).catch(() => [])),
-            stagger(11, () => fetchWithAuth(`/api/parent/social/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, [])).catch(() => [])),
-            stagger(12, () => fetchWithAuth(`/api/parent/device/${DEVICE_ID}/chats?limit=500`).then(r => safeJson(r, [])).catch(() => []))
+            stagger(0, () => fetchWithAuth(`/api/parent/locations/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, [])).catch(e => { loadHadFailures = true; return []; })),
+            stagger(1, () => fetchWithAuth(`/api/parent/activity/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, [])).catch(e => { loadHadFailures = true; return []; })),
+            stagger(2, () => fetchWithAuth(`/api/parent/sms/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, [])).catch(e => { loadHadFailures = true; return []; })),
+            stagger(3, () => fetchWithAuth(`/api/parent/calls/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, [])).catch(e => { loadHadFailures = true; return []; })),
+            stagger(4, () => fetchWithAuth(`/api/parent/apps/${DEVICE_ID}`).then(r => safeJson(r, [])).catch(e => { loadHadFailures = true; return []; })),
+            stagger(5, () => fetchWithAuth(`/api/parent/screentime/${DEVICE_ID}?days=7`).then(r => safeJson(r, [])).catch(e => { loadHadFailures = true; return []; })),
+            stagger(6, () => fetchWithAuth(`/api/parent/webhistory/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, [])).catch(e => { loadHadFailures = true; return []; })),
+            stagger(7, () => fetchWithAuth(`/api/parent/media/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, [])).catch(e => { loadHadFailures = true; return []; })),
+            stagger(8, () => fetchWithAuth(`/api/parent/geofences/${DEVICE_ID}`).then(r => safeJson(r, [])).catch(e => { loadHadFailures = true; return []; })),
+            stagger(9, () => fetchWithAuth(`/api/parent/restrictions/${DEVICE_ID}`).then(r => safeJson(r, [])).catch(e => { loadHadFailures = true; return []; })),
+            stagger(10, () => fetchWithAuth(`/api/parent/schedule/${DEVICE_ID}`).then(r => safeJson(r, [])).catch(e => { loadHadFailures = true; return []; })),
+            stagger(11, () => fetchWithAuth(`/api/parent/social/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, [])).catch(e => { loadHadFailures = true; return []; })),
+            stagger(12, () => fetchWithAuth(`/api/parent/device/${DEVICE_ID}/chats?limit=500`).then(r => safeJson(r, [])).catch(e => { loadHadFailures = true; return []; }))
         ]);
 
         // Cache
@@ -825,8 +825,19 @@ function updateTabBadges() {
         const count = getCount();
 
         if (count === 0) {
-            // Hide the tab entirely when there's no data.
-            btn.classList.add('hidden');
+            // Hide the tab entirely when there's no data — but NEVER when this
+            // load had failures (a blocked/failed fetch also yields 0, and
+            // hiding then makes the tab look like it vanished mid-session),
+            // and NEVER for the tab the user is currently viewing (its panel
+            // must not be pulled out from under them; it re-evaluates on the
+            // next successful refresh).
+            if (loadHadFailures || btn.classList.contains('active')) {
+                // The zero count cannot be trusted (or the user is viewing
+                // this tab) — make sure the tab stays/becomes visible.
+                btn.classList.remove('hidden');
+            } else {
+                btn.classList.add('hidden');
+            }
             if (badge) {
                 badge.textContent = '0';
                 badge.classList.remove('loading');

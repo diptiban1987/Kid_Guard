@@ -528,6 +528,12 @@ async function loadChildDetail(deviceId) {
     currentDeviceId = deviceId;
 
     try {
+        // Success flags: a failed fetch resolves to [] below (so downstream
+        // code always gets arrays), but the cache must KEEP the previous
+        // data in that case — a transient challenge/5xx can never be
+        // allowed to blank out the media grid mid-session.
+        let webhistoryLoaded = false;
+        let mediaLoaded = false;
         const [locations, screentime, activities, sms, calls, apps, geofences, webhistory, media, restrictions, schedule] = await Promise.all([
             fetchWithAuth(`/api/parent/locations/${deviceId}?limit=200`).then(r => r.json()),
             fetchWithAuth(`/api/parent/screentime/${deviceId}?days=7`).then(r => r.json()),
@@ -536,19 +542,19 @@ async function loadChildDetail(deviceId) {
             fetchWithAuth(`/api/parent/calls/${deviceId}?limit=20`).then(r => r.json()),
             fetchWithAuth(`/api/parent/apps/${deviceId}`).then(r => r.json()),
             fetchWithAuth(`/api/parent/geofences/${deviceId}`).then(r => r.json()),
-            fetchWithAuth(`/api/parent/webhistory/${deviceId}?limit=50`).then(r => r.json()).catch(() => []),
-            fetchWithAuth(`/api/parent/media/${deviceId}`).then(r => r.json()).catch(() => []),
+            fetchWithAuth(`/api/parent/webhistory/${deviceId}?limit=50`).then(r => r.json()).then(d => { webhistoryLoaded = true; return d; }).catch(() => []),
+            fetchWithAuth(`/api/parent/media/${deviceId}`).then(r => r.json()).then(d => { mediaLoaded = true; return d; }).catch(() => []),
             fetchWithAuth(`/api/parent/restrictions/${deviceId}`).then(r => r.json()).catch(() => []),
             fetchWithAuth(`/api/parent/schedule/${deviceId}`).then(r => r.json()).catch(() => [])
         ]);
 
-        // Cache data for tab switching
+        // Cache data for tab switching (keep previous data on fetch failure)
         cachedActivities = activities;
         cachedSms = sms;
         cachedCalls = calls;
         cachedApps = apps;
-        cachedWebHistory = webhistory;
-        cachedMedia = media;
+        cachedWebHistory = webhistoryLoaded ? webhistory : (Array.isArray(cachedWebHistory) ? cachedWebHistory : webhistory);
+        cachedMedia = mediaLoaded ? media : (Array.isArray(cachedMedia) ? cachedMedia : media);
 
         // Location map
         childMap.eachLayer(layer => {

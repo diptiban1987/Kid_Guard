@@ -520,35 +520,40 @@ async function loadAllData() {
         const range = activeRange;
         const stagger = (i, fn) => new Promise(res => setTimeout(res, i * 100)).then(fn);
         const [locations, activity, sms, calls, apps, screentime, webhistory, media, geofences, restrictions, schedule, social, chats] = await Promise.all([
-            stagger(0, () => fetchWithAuth(`/api/parent/locations/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, [])).catch(e => { loadHadFailures = true; return []; })),
-            stagger(1, () => fetchWithAuth(`/api/parent/activity/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, [])).catch(e => { loadHadFailures = true; return []; })),
-            stagger(2, () => fetchWithAuth(`/api/parent/sms/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, [])).catch(e => { loadHadFailures = true; return []; })),
-            stagger(3, () => fetchWithAuth(`/api/parent/calls/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, [])).catch(e => { loadHadFailures = true; return []; })),
-            stagger(4, () => fetchWithAuth(`/api/parent/apps/${DEVICE_ID}`).then(r => safeJson(r, [])).catch(e => { loadHadFailures = true; return []; })),
-            stagger(5, () => fetchWithAuth(`/api/parent/screentime/${DEVICE_ID}?days=7`).then(r => safeJson(r, [])).catch(e => { loadHadFailures = true; return []; })),
-            stagger(6, () => fetchWithAuth(`/api/parent/webhistory/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, [])).catch(e => { loadHadFailures = true; return []; })),
-            stagger(7, () => fetchWithAuth(`/api/parent/media/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, [])).catch(e => { loadHadFailures = true; return []; })),
-            stagger(8, () => fetchWithAuth(`/api/parent/geofences/${DEVICE_ID}`).then(r => safeJson(r, [])).catch(e => { loadHadFailures = true; return []; })),
-            stagger(9, () => fetchWithAuth(`/api/parent/restrictions/${DEVICE_ID}`).then(r => safeJson(r, [])).catch(e => { loadHadFailures = true; return []; })),
-            stagger(10, () => fetchWithAuth(`/api/parent/schedule/${DEVICE_ID}`).then(r => safeJson(r, [])).catch(e => { loadHadFailures = true; return []; })),
-            stagger(11, () => fetchWithAuth(`/api/parent/social/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, [])).catch(e => { loadHadFailures = true; return []; })),
-            stagger(12, () => fetchWithAuth(`/api/parent/device/${DEVICE_ID}/chats?limit=500`).then(r => safeJson(r, [])).catch(e => { loadHadFailures = true; return []; }))
+            stagger(0, () => fetchWithAuth(`/api/parent/locations/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, null)).catch(e => { loadHadFailures = true; return null; })),
+            stagger(1, () => fetchWithAuth(`/api/parent/activity/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, null)).catch(e => { loadHadFailures = true; return null; })),
+            stagger(2, () => fetchWithAuth(`/api/parent/sms/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, null)).catch(e => { loadHadFailures = true; return null; })),
+            stagger(3, () => fetchWithAuth(`/api/parent/calls/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, null)).catch(e => { loadHadFailures = true; return null; })),
+            stagger(4, () => fetchWithAuth(`/api/parent/apps/${DEVICE_ID}`).then(r => safeJson(r, null)).catch(e => { loadHadFailures = true; return null; })),
+            stagger(5, () => fetchWithAuth(`/api/parent/screentime/${DEVICE_ID}?days=7`).then(r => safeJson(r, null)).catch(e => { loadHadFailures = true; return null; })),
+            stagger(6, () => fetchWithAuth(`/api/parent/webhistory/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, null)).catch(e => { loadHadFailures = true; return null; })),
+            stagger(7, () => fetchWithAuth(`/api/parent/media/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, null)).catch(e => { loadHadFailures = true; return null; })),
+            stagger(8, () => fetchWithAuth(`/api/parent/geofences/${DEVICE_ID}`).then(r => safeJson(r, null)).catch(e => { loadHadFailures = true; return null; })),
+            stagger(9, () => fetchWithAuth(`/api/parent/restrictions/${DEVICE_ID}`).then(r => safeJson(r, null)).catch(e => { loadHadFailures = true; return null; })),
+            stagger(10, () => fetchWithAuth(`/api/parent/schedule/${DEVICE_ID}`).then(r => safeJson(r, null)).catch(e => { loadHadFailures = true; return null; })),
+            stagger(11, () => fetchWithAuth(`/api/parent/social/${DEVICE_ID}?range=${range}`).then(r => safeJson(r, null)).catch(e => { loadHadFailures = true; return null; })),
+            stagger(12, () => fetchWithAuth(`/api/parent/device/${DEVICE_ID}/chats?limit=500`).then(r => safeJson(r, null)).catch(e => { loadHadFailures = true; return null; }))
         ]);
 
-        // Cache
-        cachedLocations = locations;
-        cachedActivity = activity;
-        cachedSMS = sms;
-        cachedCalls = calls;
-        cachedApps = apps;
-        cachedScreenTime = screentime;
-        cachedWebHistory = webhistory;
-        cachedMedia = media;
-        cachedGeofences = geofences;
-        cachedRestrictions = restrictions;
-        cachedSchedule = schedule;
-        cachedSocial = social;
-        cachedChats = Array.isArray(chats) ? chats : (chats.messages || []);
+        // Cache. A failed fetch resolves to null (see above) — in that case
+        // KEEP the previous data, so a transient challenge/5xx can never
+        // blank out a panel (e.g. media grid wiped to "No media files found")
+        // mid-session. A genuine empty result ([]) still overwrites.
+        cachedLocations = locations ?? cachedLocations;
+        cachedActivity = activity ?? cachedActivity;
+        cachedSMS = sms ?? cachedSMS;
+        cachedCalls = calls ?? cachedCalls;
+        cachedApps = apps ?? cachedApps;
+        cachedScreenTime = screentime ?? cachedScreenTime;
+        cachedWebHistory = webhistory ?? cachedWebHistory;
+        cachedMedia = media ?? cachedMedia;
+        cachedGeofences = geofences ?? cachedGeofences;
+        cachedRestrictions = restrictions ?? cachedRestrictions;
+        cachedSchedule = schedule ?? cachedSchedule;
+        cachedSocial = social ?? cachedSocial;
+        if (chats !== null) {
+            cachedChats = Array.isArray(chats) ? chats : (chats.messages || []);
+        }
 
         // Run every renderer inside its own try/catch so a single panel failure
         // (e.g. ctx.roundRect on older WebViews) cannot kill the rest of the page.
@@ -556,7 +561,7 @@ async function loadAllData() {
         // "Failed to load device data" toast.
         const renderers = [
             ['stats',    () => renderStats()],
-            ['map',      () => renderMap(locations, geofences)],
+            ['map',      () => renderMap(cachedLocations, cachedGeofences)],
             ['activity', () => renderActivityPanel()],
             ['sms',      () => renderSMSPanel()],
             ['calls',    () => renderCallsPanel()],
@@ -567,7 +572,7 @@ async function loadAllData() {
             ['geofence', () => renderGeofences()],
             ['restrict', () => renderRestrictions()],
             ['schedule', () => renderSchedule()],
-            ['screenti', () => renderScreenTimeCard(screentime)],
+            ['screenti', () => renderScreenTimeCard(cachedScreenTime)],
             ['battery',  () => renderBatteryCard(deviceInfo)],
         ];
         let firstError = null;
@@ -812,57 +817,28 @@ function setupRangeChips() {
     });
 }
 
-// Show count on each tab. Tabs whose data is missing are hidden entirely
-// (per the user request "If not show the menus then add numbers to the newly
-// arrived as numbers"). Newly arrived tabs get a count pill.
+// Show the item count on each tab. Tabs are ALWAYS visible — hiding empty
+// tabs was reverted because a failed/blocked refresh (edge challenge,
+// network blip, slow endpoint) also reports 0 items, which made the Media
+// tab button and its content vanish mid-session. A "0" badge is unambiguous
+// and no refresh can ever remove part of the UI anymore.
 function updateTabBadges() {
-    let firstAvailableTab = null;
-
     Object.entries(TAB_COUNT_SOURCES).forEach(([key, getCount]) => {
         const btn = document.querySelector(`#dataTabBar .tab[data-dtab="${key}"]`);
         if (!btn) return;
         const badge = btn.querySelector('.tab-badge');
-        const count = getCount();
+        const count = getCount() || 0;
 
-        if (count === 0) {
-            // Hide the tab entirely when there's no data — but NEVER when this
-            // load had failures (a blocked/failed fetch also yields 0, and
-            // hiding then makes the tab look like it vanished mid-session),
-            // and NEVER for the tab the user is currently viewing (its panel
-            // must not be pulled out from under them; it re-evaluates on the
-            // next successful refresh).
-            if (loadHadFailures || btn.classList.contains('active')) {
-                // The zero count cannot be trusted (or the user is viewing
-                // this tab) — make sure the tab stays/becomes visible.
-                btn.classList.remove('hidden');
-            } else {
-                btn.classList.add('hidden');
-            }
-            if (badge) {
-                badge.textContent = '0';
-                badge.classList.remove('loading');
-                badge.classList.add('zero');
-            }
-        } else {
-            btn.classList.remove('hidden');
-            if (badge) {
-                badge.textContent = count > 999 ? '999+' : String(count);
-                badge.classList.remove('zero', 'loading');
-            }
-            if (!firstAvailableTab) firstAvailableTab = btn;
+        // Defensive: make sure every tab is always visible, whatever a
+        // previous code path did.
+        btn.classList.remove('hidden');
+
+        if (badge) {
+            badge.textContent = count > 999 ? '999+' : String(count);
+            badge.classList.remove('loading', 'zero');
+            if (count === 0) badge.classList.add('zero');
         }
     });
-
-    // If the currently-active tab got hidden, fall forward to the first
-    // available tab so the user isn't staring at an empty panel.
-    const active = document.querySelector('#dataTabBar .tab.active');
-    if (active && active.classList.contains('hidden') && firstAvailableTab) {
-        document.querySelectorAll('#dataTabBar .tab').forEach(t => t.classList.remove('active'));
-        firstAvailableTab.classList.add('active');
-        document.querySelectorAll('.tab-content-panel').forEach(p => p.classList.remove('active'));
-        const panel = document.getElementById(`panel-${firstAvailableTab.dataset.dtab}`);
-        if (panel) panel.classList.add('active');
-    }
 }
 
 // ─── Activity Panel ───────────────────────────────────────────────────────

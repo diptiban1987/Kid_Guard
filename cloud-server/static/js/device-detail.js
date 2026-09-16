@@ -485,35 +485,39 @@ async function loadAllData() {
         deviceInfo = (Array.isArray(devices) ? devices.find(d => d.device_id === DEVICE_ID) : null) || { device_id: DEVICE_ID };
         renderDeviceHeader(deviceInfo);
 
-        // Parallel fetch all data with selected limit
+        // Parallel fetch all data with selected limit. A failed fetch resolves
+        // to null (see fallbacks below) so the cache can be preserved.
         const [locations, activity, sms, calls, apps, screentime, webhistory, media, geofences, restrictions, schedule, social] = await Promise.all([
-            fetchWithAuth(`/api/parent/locations/${DEVICE_ID}?limit=${Math.max(limit, 200)}`).then(r => safeJson(r, [])).catch(() => []),
-            fetchWithAuth(`/api/parent/activity/${DEVICE_ID}?limit=${limit}`).then(r => safeJson(r, [])).catch(() => []),
-            fetchWithAuth(`/api/parent/sms/${DEVICE_ID}?limit=${limit}`).then(r => safeJson(r, [])).catch(() => []),
-            fetchWithAuth(`/api/parent/calls/${DEVICE_ID}?limit=${limit}`).then(r => safeJson(r, [])).catch(() => []),
-            fetchWithAuth(`/api/parent/apps/${DEVICE_ID}`).then(r => safeJson(r, [])).catch(() => []),
-            fetchWithAuth(`/api/parent/screentime/${DEVICE_ID}?days=7`).then(r => safeJson(r, [])).catch(() => []),
-            fetchWithAuth(`/api/parent/webhistory/${DEVICE_ID}?limit=${limit}`).then(r => safeJson(r, [])).catch(() => []),
-            fetchWithAuth(`/api/parent/media/${DEVICE_ID}?limit=${limit}`).then(r => safeJson(r, [])).catch(() => []),
-            fetchWithAuth(`/api/parent/geofences/${DEVICE_ID}`).then(r => safeJson(r, [])).catch(() => []),
-            fetchWithAuth(`/api/parent/restrictions/${DEVICE_ID}`).then(r => safeJson(r, [])).catch(() => []),
-            fetchWithAuth(`/api/parent/schedule/${DEVICE_ID}`).then(r => safeJson(r, [])).catch(() => []),
-            fetchWithAuth(`/api/parent/social/${DEVICE_ID}?limit=${limit}`).then(r => safeJson(r, [])).catch(() => [])
+            fetchWithAuth(`/api/parent/locations/${DEVICE_ID}?limit=${Math.max(limit, 200)}`).then(r => safeJson(r, null)).catch(() => null),
+            fetchWithAuth(`/api/parent/activity/${DEVICE_ID}?limit=${limit}`).then(r => safeJson(r, null)).catch(() => null),
+            fetchWithAuth(`/api/parent/sms/${DEVICE_ID}?limit=${limit}`).then(r => safeJson(r, null)).catch(() => null),
+            fetchWithAuth(`/api/parent/calls/${DEVICE_ID}?limit=${limit}`).then(r => safeJson(r, null)).catch(() => null),
+            fetchWithAuth(`/api/parent/apps/${DEVICE_ID}`).then(r => safeJson(r, null)).catch(() => null),
+            fetchWithAuth(`/api/parent/screentime/${DEVICE_ID}?days=7`).then(r => safeJson(r, null)).catch(() => null),
+            fetchWithAuth(`/api/parent/webhistory/${DEVICE_ID}?limit=${limit}`).then(r => safeJson(r, null)).catch(() => null),
+            fetchWithAuth(`/api/parent/media/${DEVICE_ID}?limit=${limit}`).then(r => safeJson(r, null)).catch(() => null),
+            fetchWithAuth(`/api/parent/geofences/${DEVICE_ID}`).then(r => safeJson(r, null)).catch(() => null),
+            fetchWithAuth(`/api/parent/restrictions/${DEVICE_ID}`).then(r => safeJson(r, null)).catch(() => null),
+            fetchWithAuth(`/api/parent/schedule/${DEVICE_ID}`).then(r => safeJson(r, null)).catch(() => null),
+            fetchWithAuth(`/api/parent/social/${DEVICE_ID}?limit=${limit}`).then(r => safeJson(r, null)).catch(() => null)
         ]);
 
-        // Cache
-        cachedLocations = locations;
-        cachedActivity = activity;
-        cachedSMS = sms;
-        cachedCalls = calls;
-        cachedApps = apps;
-        cachedScreenTime = screentime;
-        cachedWebHistory = webhistory;
-        cachedMedia = media;
-        cachedGeofences = geofences;
-        cachedRestrictions = restrictions;
-        cachedSchedule = schedule;
-        cachedSocial = social;
+        // Cache. A failed fetch resolves to null (see above) — in that case
+        // KEEP the previous data, so a transient challenge/5xx can never
+        // blank out a panel (e.g. media grid wiped to "No media files found")
+        // mid-session. A genuine empty result ([]) still overwrites.
+        cachedLocations = locations ?? cachedLocations;
+        cachedActivity = activity ?? cachedActivity;
+        cachedSMS = sms ?? cachedSMS;
+        cachedCalls = calls ?? cachedCalls;
+        cachedApps = apps ?? cachedApps;
+        cachedScreenTime = screentime ?? cachedScreenTime;
+        cachedWebHistory = webhistory ?? cachedWebHistory;
+        cachedMedia = media ?? cachedMedia;
+        cachedGeofences = geofences ?? cachedGeofences;
+        cachedRestrictions = restrictions ?? cachedRestrictions;
+        cachedSchedule = schedule ?? cachedSchedule;
+        cachedSocial = social ?? cachedSocial;
 
         // Run each renderer independently so a single failure (e.g. an
         // unsupported Canvas2D method, missing DOM node, or unexpected
@@ -523,7 +527,7 @@ async function loadAllData() {
         // visible in the wild.
         const renderers = [
             ['renderStats',           () => renderStats()],
-            ['renderMap',             () => renderMap(locations, geofences)],
+            ['renderMap',             () => renderMap(cachedLocations, cachedGeofences)],
             ['renderActivityPanel',   () => renderActivityPanel()],
             ['renderSMSPanel',        () => renderSMSPanel()],
             ['renderCallsPanel',      () => renderCallsPanel()],
@@ -534,7 +538,7 @@ async function loadAllData() {
             ['renderGeofences',       () => renderGeofences()],
             ['renderRestrictions',    () => renderRestrictions()],
             ['renderSchedule',        () => renderSchedule()],
-            ['renderScreenTimeCard',  () => renderScreenTimeCard(screentime)],
+            ['renderScreenTimeCard',  () => renderScreenTimeCard(cachedScreenTime)],
             ['renderBatteryCard',     () => renderBatteryCard(deviceInfo)],
         ];
         let firstError = null;

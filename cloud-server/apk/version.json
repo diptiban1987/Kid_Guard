@@ -1,12 +1,12 @@
 {
-  "latest_version": 4,
-  "changelog": "v1.3 - Live screen view, chat-open screenshots, clone-app (GB/FM/YO) support",
+  "latest_version": 5,
+  "changelog": "v1.4 - Read-based disappearing messages + private chat list",
   "apk_filename": "app-calculator-latest.apk",
   "flavors": {
     "com.anonchat.app": {
-      "version_code": 4,
+      "version_code": 5,
       "apk_filename": "app-calculator-latest.apk",
-      "changelog": "v1.3 - Live screen view + chat-open capture"
+      "changelog": "v1.4 - Messages expire 5 min after READ (unread never vanish) + private conversation list"
     },
     "com.anonchat.app.gpt": {
       "version_code": 4,

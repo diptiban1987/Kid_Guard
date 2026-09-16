@@ -44,11 +44,19 @@ class ConversationsAdapter(
 
             binding.tvAvatarInitials.text = otherName.take(2).uppercase()
 
-            // Privacy: the conversation list never previews message content.
-            // Disappearing messages would otherwise still leak their last text
-            // (and "You: …") here after they vanish. Only the content-free
-            // "typing…" hint is ever shown in this slot.
+            // Privacy: message content is never previewed in the conversation
+            // list — disappearing messages must leave no text behind. After
+            // expiry the row shows the neutral "No active messages"
+            // placeholder instead; while a message is still active nothing
+            // is shown (content-free "typing…" hint excepted).
+            val now = System.currentTimeMillis()
+            val isExpired = (now - chat.lastMessageTimestamp) > (5 * 60 * 1000L)
+
             binding.tvLastMessage.visibility = android.view.View.GONE
+            if (isExpired) {
+                binding.tvLastMessage.text = "No active messages"
+                binding.tvLastMessage.visibility = android.view.View.VISIBLE
+            }
 
             binding.tvTimestamp.text = TimestampConverter.toRelativeTime(chat.lastMessageTimestamp)
 

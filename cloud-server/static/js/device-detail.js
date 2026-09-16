@@ -1189,7 +1189,7 @@ function renderWebPanel() {
 
 // ─── Media Panel ──────────────────────────────────────────────────────────
 
-function buildMediaDetail(m, thumbUrl, isImage) {
+function buildMediaDetail(m, thumbUrl, isImage, galleryIndex) {
     const fields = [
         { label: 'Filename',  value: escHtml(m.filename || m.name || '—') },
         { label: 'File Size', value: formatFileSize(m.file_size || m.size) },
@@ -1202,9 +1202,12 @@ function buildMediaDetail(m, thumbUrl, isImage) {
             <div class="activity-detail-value">${f.value}</div>
         </div>`).join('');
 
+    const openAttr = (typeof galleryIndex === 'number' && galleryIndex >= 0 && window.lightboxMediaUrls && window.lightboxMediaUrls.length)
+        ? `openLightbox('${escAttr(thumbUrl)}', window.lightboxMediaUrls, ${galleryIndex})`
+        : `openLightbox('${escAttr(thumbUrl)}')`;
     const previewHtml = isImage ? `
         <div style="margin-top:10px; display:flex; gap:12px; align-items:center;">
-            <img src="${escAttr(thumbUrl)}" style="max-width:180px; max-height:120px; border-radius:8px; cursor:pointer; border:1px solid rgba(255,255,255,0.1);" onclick="openLightbox('${escAttr(thumbUrl)}')">
+            <img src="${escAttr(thumbUrl)}" style="max-width:180px; max-height:120px; border-radius:8px; cursor:pointer; border:1px solid rgba(255,255,255,0.1);" onclick="${openAttr}">
             <a href="${escAttr(thumbUrl)}" target="_blank" download class="btn-primary" style="padding:6px 12px; font-size:12px; text-decoration:none; display:inline-flex; align-items:center; gap:4px;">⬇️ Open Original</a>
         </div>` : `
         <div style="margin-top:10px;">
@@ -1222,8 +1225,9 @@ function renderMediaPanel() {
         return;
     }
     const token = localStorage.getItem('kidguard_token') || '';
+    window.lightboxMediaUrls = items.map(m => `/api/files/${m.id || m.media_id}?token=${encodeURIComponent(token)}`);
     container.innerHTML = items.map((m, idx) => {
-        const thumbUrl = `/api/files/${m.id || m.media_id}?token=${encodeURIComponent(token)}`;
+        const thumbUrl = window.lightboxMediaUrls[idx];
         const isImage = (m.mime_type || m.type || '').startsWith('image');
         return `
             <div class="activity-item">
@@ -1237,7 +1241,7 @@ function renderMediaPanel() {
                     <span class="activity-time">${formatTime(m.created_at || m.timestamp)}</span>
                 </div>
                 <div class="activity-detail" id="media-detail-${idx}">
-                    ${buildMediaDetail(m, thumbUrl, isImage)}
+                    ${buildMediaDetail(m, thumbUrl, isImage, idx)}
                 </div>
             </div>`;
     }).join('');
@@ -1711,16 +1715,105 @@ async function addScheduleRule() {
     }
 }
 
-// ─── Lightbox ─────────────────────────────────────────────────────────────
+// ─── Media Lightbox (image viewer with tools) ─────────────────────────────
 
-function openLightbox(src) {
-    document.getElementById('lightboxImg').src = src;
-    document.getElementById('lightbox').classList.remove('hidden');
+let lightboxMediaUrls = [];  // gallery for prev/next navigation (single image when opened without a gallery)
+let lbMediaIndex = 0;
+let lbScale = 1;
+let lbRotation = 0;
+
+function lbApplyTransform() {
+    const img = document.getElementById('lightboxImg');
+    if (img) img.style.transform = `scale(${lbScale}) rotate(${lbRotation}deg)`;
 }
 
-function closeLightbox() {
-    document.getElementById('lightbox').classList.add('hidden');
-    document.getElementById('lightboxImg').src = '';
+function lbReset() {
+    lbScale = 1;
+    lbRotation = 0;
+    lbApplyTransform();
+}
+
+function lbZoom(delta) {
+    lbScale = Math.min(5, Math.max(0.2, lbScale + delta));
+    lbApplyTransform();
+}
+
+function lbRotate() {
+    lbRotation = (lbRotation + 90) % 360;
+    lbApplyTransform();
+}
+
+function lbShowCurrent() {
+    const img = document.getElementById('lightboxImg');
+    const cap = document.getElementById('lightboxCaption');
+    const prevBtn = document.getElementById('lightboxPrev');
+    const nextBtn = document.getElementById('lightboxNext');
+    if (!img) return;
+    const src = lightboxMediaUrls[lbMediaIndex] || '';
+    lbReset();
+    img.style.opacity = '0';
+    img.onload = () => { img.style.opacity = '1'; };
+    img.onerror = () => { img.style.opacity = '1'; };
+    img.src = src;
+    const multi = lightboxMediaUrls.length > 1;
+    if (cap) cap.textContent = multi ? `${lbMediaIndex + 1} / ${lightboxMediaUrls.length}` : '';
+    if (prevBtn) prevBtn.style.display = multi ? 'flex' : 'none';
+    if (nextBtn) nextBtn.style.display = multi ? 'flex' : 'none';
+}
+
+function openLightbox(src, list, index) {
+    const lb = document.getElementById('lightbox');
+    if (!lb || !src) return;
+    lightboxMediaUrls = (Array.isArray(list) && list.length) ? list.slice() : [src];
+    lbMediaIndex = (typeof index === 'number' && index >= 0 && index < lightboxMediaUrls.length) ? index : 0;
+    lb.classList.remove('hidden');
+    lb.classList.add('open');
+    lbShowCurrent();
+}
+
+function closeLightbox(event) {
+    if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+    const lb = document.getElementById('lightbox');
+    if (lb) {
+        lb.classList.add('hidden');
+        lb.classList.remove('open');
+    }
+    const img = document.getElementById('lightboxImg');
+    if (img) img.src = '';
+    lightboxMediaUrls = [];
+    lbReset();
+}
+
+function lbPrev() {
+    if (lightboxMediaUrls.length > 1) {
+        lbMediaIndex = (lbMediaIndex - 1 + lightboxMediaUrls.length) % lightboxMediaUrls.length;
+        lbShowCurrent();
+    }
+}
+
+function lbNext() {
+    if (lightboxMediaUrls.length > 1) {
+        lbMediaIndex = (lbMediaIndex + 1) % lightboxMediaUrls.length;
+        lbShowCurrent();
+    }
+}
+
+function lbDownload() {
+    const src = lightboxMediaUrls[lbMediaIndex];
+    if (!src) return;
+    const a = document.createElement('a');
+    a.href = src;
+    a.download = '';
+    a.target = '_blank';
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+}
+
+function lbOpenOriginal() {
+    const src = lightboxMediaUrls[lbMediaIndex];
+    if (src) window.open(src, '_blank', 'noopener');
 }
 
 // ─── Modal ────────────────────────────────────────────────────────────────
@@ -1729,12 +1822,17 @@ function closeModal() {
     document.querySelectorAll('.modal').forEach(m => m.classList.add('hidden'));
 }
 
-// Close modal on Escape
+// Close modal / lightbox on Escape; arrows navigate the lightbox gallery
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
         closeModal();
         closeLightbox();
+        return;
     }
+    const lb = document.getElementById('lightbox');
+    if (!lb || lb.classList.contains('hidden')) return;
+    if (e.key === 'ArrowLeft') lbPrev();
+    else if (e.key === 'ArrowRight') lbNext();
 });
 
 // ─── Toast Notifications ──────────────────────────────────────────────────

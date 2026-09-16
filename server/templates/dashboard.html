@@ -497,15 +497,28 @@
         </div>
     </div>
 
-    <!-- Lightbox -->
-    <div class="lightbox" id="lightbox" onclick="closeLightbox()">
-        <button class="lightbox-close" onclick="closeLightbox()">&times;</button>
-        <img id="lightboxImg" src="" alt="Media preview">
+    <!-- Lightbox (media viewer with tools) -->
+    <div class="lightbox hidden" id="lightbox" onclick="closeLightbox(event)">
+        <button class="lightbox-close" onclick="closeLightbox(event)" title="Close (Esc)">&times;</button>
+        <button class="lightbox-nav lightbox-prev" id="lightboxPrev" onclick="event.stopPropagation(); lbPrev()" title="Previous (Left arrow)">&#10094;</button>
+        <button class="lightbox-nav lightbox-next" id="lightboxNext" onclick="event.stopPropagation(); lbNext()" title="Next (Right arrow)">&#10095;</button>
+        <div class="lightbox-stage">
+            <img id="lightboxImg" src="" alt="Media preview" onclick="event.stopPropagation()">
+        </div>
+        <div class="lightbox-toolbar" onclick="event.stopPropagation()">
+            <span class="lightbox-caption" id="lightboxCaption"></span>
+            <button onclick="lbZoom(-0.25)" title="Zoom out">&#8722;</button>
+            <button onclick="lbZoom(0.25)" title="Zoom in">+</button>
+            <button onclick="lbRotate()" title="Rotate 90&#176;">&#10227;</button>
+            <button onclick="lbReset()" title="Reset view">&#9974;</button>
+            <button onclick="lbDownload()" title="Download">&#11015;</button>
+            <button onclick="lbOpenOriginal()" title="Open original in new tab">&#8599;</button>
+        </div>
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="/static/js/net-resilience.js?v=4"></script>
-    <script src="/static/js/cloud-dashboard.js?v=5"></script>
+    <script src="/static/js/cloud-dashboard.js?v=6"></script>
     <style>
         .active-call-alert {
             display: flex;

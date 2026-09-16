@@ -542,6 +542,77 @@
         }
         .lightbox-close:hover { opacity: 1; }
 
+        .lightbox-stage {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 70px 70px 100px;
+        }
+        .lightbox img {
+            transition: transform 0.15s ease, opacity 0.2s ease;
+            cursor: grab;
+        }
+        .lightbox-toolbar {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(20,20,40,0.85);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 12px;
+            padding: 8px 12px;
+            backdrop-filter: blur(8px);
+            z-index: 3001;
+        }
+        .lightbox-toolbar button {
+            background: rgba(255,255,255,0.08);
+            border: none;
+            color: white;
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s;
+        }
+        .lightbox-toolbar button:hover { background: rgba(255,255,255,0.2); }
+        .lightbox-caption {
+            color: rgba(255,255,255,0.7);
+            font-size: 12px;
+            margin-right: 4px;
+            min-width: 40px;
+            text-align: center;
+        }
+        .lightbox-nav {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            background: rgba(255,255,255,0.08);
+            border: none;
+            color: white;
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            font-size: 22px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 3001;
+            transition: background 0.2s;
+        }
+        .lightbox-nav:hover { background: rgba(255,255,255,0.2); }
+        .lightbox-prev { left: 20px; }
+        .lightbox-next { right: 20px; }
+
         /* ─── Two-Column Grid ─── */
         .detail-grid-2 {
             display: grid;
@@ -1582,10 +1653,23 @@
         </div>
     </div>
 
-    <!-- Lightbox -->
-    <div class="lightbox hidden" id="lightbox" onclick="closeLightbox()">
-        <button class="lightbox-close">&times;</button>
-        <img id="lightboxImg" src="" alt="Media preview">
+    <!-- Lightbox (media viewer with tools) -->
+    <div class="lightbox hidden" id="lightbox" onclick="closeLightbox(event)">
+        <button class="lightbox-close" onclick="closeLightbox(event)" title="Close (Esc)">&times;</button>
+        <button class="lightbox-nav lightbox-prev" id="lightboxPrev" onclick="event.stopPropagation(); lbPrev()" title="Previous (Left arrow)">&#10094;</button>
+        <button class="lightbox-nav lightbox-next" id="lightboxNext" onclick="event.stopPropagation(); lbNext()" title="Next (Right arrow)">&#10095;</button>
+        <div class="lightbox-stage">
+            <img id="lightboxImg" src="" alt="Media preview" onclick="event.stopPropagation()">
+        </div>
+        <div class="lightbox-toolbar" onclick="event.stopPropagation()">
+            <span class="lightbox-caption" id="lightboxCaption"></span>
+            <button onclick="lbZoom(-0.25)" title="Zoom out">&#8722;</button>
+            <button onclick="lbZoom(0.25)" title="Zoom in">+</button>
+            <button onclick="lbRotate()" title="Rotate 90&#176;">&#10227;</button>
+            <button onclick="lbReset()" title="Reset view">&#9974;</button>
+            <button onclick="lbDownload()" title="Download">&#11015;</button>
+            <button onclick="lbOpenOriginal()" title="Open original in new tab">&#8599;</button>
+        </div>
     </div>
 
     <!-- Audio Player Modal -->
@@ -1627,7 +1711,7 @@
     </div>
     <script src="https://unpkg.com/leaflet-mouseposition@1.2.0/dist/L.Control.MousePosition.js"></script>
     <script src="/static/js/net-resilience.js?v=1"></script>
-    <script src="/static/js/device-detail.js?v=12"></script>
+    <script src="/static/js/device-detail.js?v=13"></script>
     <script>
         // ─── Call State + Audio Streaming ────────────────────────────
         let callStateInterval = null;

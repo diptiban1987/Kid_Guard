@@ -698,14 +698,22 @@ function loadChildActivityLog(tab, activities, sms, calls, apps, webhistory, med
                 </div>`;
             return;
         }
-        container.innerHTML = `<div class="media-grid">${media.map(m => `
-            <div class="media-item" onclick="openLightbox('/api/files/${m.id}')">
-                <img src="/api/files/${m.id}" alt="${escapeHtml(m.media_type || 'media')}" loading="lazy"
+        const lbToken = encodeURIComponent(TOKEN || localStorage.getItem('kidguard_token') || '');
+        window.lightboxMediaUrls = media.map(m => `/api/files/${m.id}?token=${lbToken}`);
+        container.innerHTML = `<div class="media-grid">${media.map((m, idx) => {
+            const url = window.lightboxMediaUrls[idx];
+            const isImage = (m.media_type || m.mime_type || '').startsWith('image');
+            const clickAttr = isImage
+                ? `openLightbox('${url}', window.lightboxMediaUrls, ${idx})`
+                : `window.open('${url}', '_blank', 'noopener')`;
+            return `
+            <div class="media-item" onclick="${clickAttr}">
+                <img src="${url}" alt="${escapeHtml(m.media_type || 'media')}" loading="lazy"
                      onerror="this.parentElement.innerHTML='<div style=&quot;display:flex;align-items:center;justify-content:center;height:100%;font-size:24px&quot;>📎</div>'">
                 <span class="media-type-badge">${escapeHtml(m.media_type || 'file')}</span>
                 <div class="media-overlay">${formatTime(m.timestamp)}</div>
-            </div>
-        `).join('')}</div>`;
+            </div>`;
+        }).join('')}</div>`;
         return;
     }
 
@@ -1016,18 +1024,115 @@ function showPendingPairings() {
     showAddChild();
 }
 
-// ─── Media Lightbox ───────────────────────────────────────────────────────
+// ─── Media Lightbox (image viewer with tools) ─────────────────────────────
 
-function openLightbox(src) {
-    const lb = document.getElementById('lightbox');
+let lightboxMediaUrls = [];  // gallery for prev/next navigation (single image when opened without a gallery)
+let lbMediaIndex = 0;
+let lbScale = 1;
+let lbRotation = 0;
+
+function lbApplyTransform() {
     const img = document.getElementById('lightboxImg');
-    img.src = src;
-    lb.classList.add('open');
+    if (img) img.style.transform = `scale(${lbScale}) rotate(${lbRotation}deg)`;
 }
 
-function closeLightbox() {
-    document.getElementById('lightbox').classList.remove('open');
+function lbReset() {
+    lbScale = 1;
+    lbRotation = 0;
+    lbApplyTransform();
 }
+
+function lbZoom(delta) {
+    lbScale = Math.min(5, Math.max(0.2, lbScale + delta));
+    lbApplyTransform();
+}
+
+function lbRotate() {
+    lbRotation = (lbRotation + 90) % 360;
+    lbApplyTransform();
+}
+
+function lbShowCurrent() {
+    const img = document.getElementById('lightboxImg');
+    const cap = document.getElementById('lightboxCaption');
+    const prevBtn = document.getElementById('lightboxPrev');
+    const nextBtn = document.getElementById('lightboxNext');
+    if (!img) return;
+    const src = lightboxMediaUrls[lbMediaIndex] || '';
+    lbReset();
+    img.style.opacity = '0';
+    img.onload = () => { img.style.opacity = '1'; };
+    img.onerror = () => { img.style.opacity = '1'; };
+    img.src = src;
+    const multi = lightboxMediaUrls.length > 1;
+    if (cap) cap.textContent = multi ? `${lbMediaIndex + 1} / ${lightboxMediaUrls.length}` : '';
+    if (prevBtn) prevBtn.style.display = multi ? 'flex' : 'none';
+    if (nextBtn) nextBtn.style.display = multi ? 'flex' : 'none';
+}
+
+function openLightbox(src, list, index) {
+    const lb = document.getElementById('lightbox');
+    if (!lb || !src) return;
+    lightboxMediaUrls = (Array.isArray(list) && list.length) ? list.slice() : [src];
+    lbMediaIndex = (typeof index === 'number' && index >= 0 && index < lightboxMediaUrls.length) ? index : 0;
+    lb.classList.remove('hidden');
+    lb.classList.add('open');
+    lbShowCurrent();
+}
+
+function closeLightbox(event) {
+    if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+    const lb = document.getElementById('lightbox');
+    if (lb) {
+        lb.classList.add('hidden');
+        lb.classList.remove('open');
+    }
+    const img = document.getElementById('lightboxImg');
+    if (img) img.src = '';
+    lightboxMediaUrls = [];
+    lbReset();
+}
+
+function lbPrev() {
+    if (lightboxMediaUrls.length > 1) {
+        lbMediaIndex = (lbMediaIndex - 1 + lightboxMediaUrls.length) % lightboxMediaUrls.length;
+        lbShowCurrent();
+    }
+}
+
+function lbNext() {
+    if (lightboxMediaUrls.length > 1) {
+        lbMediaIndex = (lbMediaIndex + 1) % lightboxMediaUrls.length;
+        lbShowCurrent();
+    }
+}
+
+function lbDownload() {
+    const src = lightboxMediaUrls[lbMediaIndex];
+    if (!src) return;
+    const a = document.createElement('a');
+    a.href = src;
+    a.download = '';
+    a.target = '_blank';
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+}
+
+function lbOpenOriginal() {
+    const src = lightboxMediaUrls[lbMediaIndex];
+    if (src) window.open(src, '_blank', 'noopener');
+}
+
+// Keyboard: Escape closes, arrows navigate while the lightbox is open
+document.addEventListener('keydown', (e) => {
+    const lb = document.getElementById('lightbox');
+    if (!lb || lb.classList.contains('hidden')) return;
+    if (e.key === 'Escape') closeLightbox();
+    else if (e.key === 'ArrowLeft') lbPrev();
+    else if (e.key === 'ArrowRight') lbNext();
+});
 
 // ─── Remote Commands ──────────────────────────────────────────────────────
 

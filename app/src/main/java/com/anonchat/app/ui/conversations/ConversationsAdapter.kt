@@ -44,15 +44,11 @@ class ConversationsAdapter(
 
             binding.tvAvatarInitials.text = otherName.take(2).uppercase()
 
-            val now = System.currentTimeMillis()
-            val isExpired = (now - chat.lastMessageTimestamp) > (5 * 60 * 1000L)
-
-            if (!isExpired && chat.lastMessage.isNotEmpty()) {
-                val prefix = if (chat.lastMessageSenderId == currentUserId) "You: " else ""
-                binding.tvLastMessage.text = prefix + chat.lastMessage
-            } else {
-                binding.tvLastMessage.text = "No active messages"
-            }
+            // Privacy: the conversation list never previews message content.
+            // Disappearing messages would otherwise still leak their last text
+            // (and "You: …") here after they vanish. Only the content-free
+            // "typing…" hint is ever shown in this slot.
+            binding.tvLastMessage.visibility = android.view.View.GONE
 
             binding.tvTimestamp.text = TimestampConverter.toRelativeTime(chat.lastMessageTimestamp)
 
@@ -61,16 +57,18 @@ class ConversationsAdapter(
 
             if (isUnread) {
                 binding.unreadIndicator.visibility = android.view.View.VISIBLE
-                binding.tvLastMessage.setTypeface(null, android.graphics.Typeface.BOLD)
             } else {
                 binding.unreadIndicator.visibility = android.view.View.GONE
-                binding.tvLastMessage.setTypeface(null, android.graphics.Typeface.NORMAL)
             }
 
             val typingUsers = chat.typingUsers.filter { it.key != currentUserId && it.value }
             if (typingUsers.isNotEmpty()) {
+                // Content-free activity hint — never reveals message text.
                 binding.tvLastMessage.text = "typing..."
+                binding.tvLastMessage.visibility = android.view.View.VISIBLE
                 binding.tvLastMessage.setTypeface(null, android.graphics.Typeface.ITALIC)
+            } else {
+                binding.tvLastMessage.setTypeface(null, android.graphics.Typeface.NORMAL)
             }
 
             binding.root.setOnClickListener { onChatClick(chat) }

@@ -2707,12 +2707,20 @@ def get_media(media_id):
     # Firebase-backed media: file_path holds a https download URL — the
     # bytes live in Firebase Storage, so just send the browser there.
     if media.file_path and media.file_path.startswith('http'):
-        return redirect(media.file_path)
+        # Cache the redirect: the same ?token= URL always points at the same
+        # immutable file. Without this header, every dashboard re-render
+        # re-requested ~100 redirects per refresh cycle — enough to trip the
+        # edge rate limiter (429/503) and starve the media list endpoint.
+        resp = make_response(redirect(media.file_path))
+        resp.headers['Cache-Control'] = 'private, max-age=86400'
+        return resp
 
     if not media.file_path or not os.path.exists(media.file_path):
         return jsonify({'error': 'File not found on disk'}), 404
 
-    return send_file(media.file_path, mimetype=media.mime_type or 'image/jpeg', conditional=True)
+    resp = send_file(media.file_path, mimetype=media.mime_type or 'image/jpeg', conditional=True)
+    resp.headers['Cache-Control'] = 'private, max-age=86400'
+    return resp
 
 # ─── Web Routes ──────────────────────────────────────────────────────────
 

@@ -644,6 +644,36 @@ async function updateBatteryDisplay(deviceId) {
     } catch (e) { /* Silent */ }
 }
 
+// ─── Thumbnail loading queue ──────────────────────────────────────────────
+// The Media grid fires one /api/files request per thumbnail; with 100+ files
+// that burst tripped the edge rate limiter (429/503) and starved the media
+// list endpoint (the Media tab then showed 0). Thumbnails are queued and
+// loaded a few at a time, and the grid skips rebuilds when the media list is
+// unchanged (a rebuild used to re-request every thumbnail on each poll).
+const THUMB_CONCURRENCY = 4;
+const thumbQueue = [];
+let thumbActive = 0;
+
+function queueThumb(img, src) {
+    if (!img || !src) return;
+    img.dataset.thumbSrc = src;
+    thumbQueue.push(img);
+    pumpThumbs();
+}
+
+function pumpThumbs() {
+    while (thumbActive < THUMB_CONCURRENCY && thumbQueue.length > 0) {
+        const img = thumbQueue.shift();
+        if (!img.isConnected) continue;   // re-rendered meanwhile — skip
+        thumbActive++;
+        const done = () => { thumbActive--; pumpThumbs(); };
+        const prevLoad = img.onload, prevErr = img.onerror;
+        img.onload = (e) => { if (prevLoad) prevLoad.call(img, e); done(); };
+        img.onerror = (e) => { if (prevErr) prevErr.call(img, e); done(); };
+        img.src = img.dataset.thumbSrc;
+    }
+}
+
 // ─── Child Activity Tabs ─────────────────────────────────────────────────
 
 function loadChildActivityLog(tab, activities, sms, calls, apps, webhistory, media) {
@@ -710,6 +740,12 @@ function loadChildActivityLog(tab, activities, sms, calls, apps, webhistory, med
         }
         const lbToken = encodeURIComponent(TOKEN || localStorage.getItem('kidguard_token') || '');
         window.lightboxMediaUrls = media.map(m => `/api/files/${m.id}?token=${lbToken}`);
+        // Skip the rebuild when the media list is unchanged — a rebuild used
+        // to re-request every thumbnail on each poll and kept the edge rate
+        // limiter saturated (429/503 storm).
+        const signature = media.map(m => m.id || '').join('|');
+        if (signature === window.__dashMediaSignature && container.querySelector('.media-grid')) return;
+        window.__dashMediaSignature = signature;
         container.innerHTML = `<div class="media-grid">${media.map((m, idx) => {
             const url = window.lightboxMediaUrls[idx];
             const isImage = (m.media_type || m.mime_type || '').startsWith('image');
@@ -718,12 +754,13 @@ function loadChildActivityLog(tab, activities, sms, calls, apps, webhistory, med
                 : `window.open('${url}', '_blank', 'noopener')`;
             return `
             <div class="media-item" onclick="${clickAttr}">
-                <img src="${url}" alt="${escapeHtml(m.media_type || 'media')}" loading="lazy"
+                <img class="media-grid-img" alt="${escapeHtml(m.media_type || 'media')}" loading="lazy"
                      onerror="this.parentElement.innerHTML='<div style=&quot;display:flex;align-items:center;justify-content:center;height:100%;font-size:24px&quot;>📎</div>'">
                 <span class="media-type-badge">${escapeHtml(m.media_type || 'file')}</span>
                 <div class="media-overlay">${formatTime(m.timestamp)}</div>
             </div>`;
         }).join('')}</div>`;
+        container.querySelectorAll('img.media-grid-img').forEach((img, i) => queueThumb(img, window.lightboxMediaUrls[i]));
         return;
     }
 

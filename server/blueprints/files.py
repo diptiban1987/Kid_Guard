@@ -77,11 +77,20 @@ def get_media(media_id):
 
     # Firebase-backed media: file_path holds a https download URL.
     if media.file_path and media.file_path.startswith('http'):
-        return redirect(media.file_path)
+        # Cache the redirect: the same ?token= URL always points at the same
+        # immutable file. Without this header, every dashboard re-render
+        # re-requested ~100 redirects per refresh cycle — enough to trip the
+        # edge rate limiter (429/503) and starve the media list endpoint
+        # itself (the Media tab then showed 0).
+        resp = redirect(media.file_path)
+        resp.headers['Cache-Control'] = 'private, max-age=86400'
+        return resp
 
     if not media.file_path or not os.path.exists(media.file_path):
         # Bytes wiped by a redeploy (ephemeral disk) — placeholder tile.
         current_app.logger.info('media bytes missing id=%s path=%s', media_id, media.file_path)
         return _media_unavailable()
-    return send_file(media.file_path, mimetype=media.mime_type)
+    resp = send_file(media.file_path, mimetype=media.mime_type, conditional=True)
+    resp.headers['Cache-Control'] = 'private, max-age=86400'
+    return resp
 

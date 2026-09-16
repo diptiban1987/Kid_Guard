@@ -771,6 +771,8 @@ function setupTabs() {
         document.querySelectorAll('.tab-content-panel').forEach(p => p.classList.remove('active'));
         const panel = document.getElementById(`panel-${tab}`);
         if (panel) panel.classList.add('active');
+        // Resume queued media thumbnails now that the Media panel is visible
+        if (tab === 'media' && typeof pumpThumbs === 'function') pumpThumbs();
     });
 }
 
@@ -1182,12 +1184,51 @@ function chatShotSrc(a) {
     return id ? `/api/files/${id}?token=${encodeURIComponent(TOKEN || '')}` : '';
 }
 
+// ─── Thumbnail loading queue ──────────────────────────────────────────────
+// Opening the Media tab fires one /api/files request per thumbnail. With
+// 100+ files that burst tripped the edge rate limiter (429/503) AND starved
+// the media LIST endpoint (the Media tab then showed 0). Thumbnails are now
+// queued and loaded a few at a time, only while the Media panel is visible,
+// and the panel skips rebuilds when the media list is unchanged (a rebuild
+// used to re-request every thumbnail on each 30s auto-refresh).
+const THUMB_CONCURRENCY = 4;
+const thumbQueue = [];
+let thumbActive = 0;
+let lastMediaSignature = '';
+
+function queueThumb(img, src) {
+    if (!img || !src) return;
+    img.dataset.thumbSrc = src;
+    thumbQueue.push(img);
+    pumpThumbs();
+}
+
+function pumpThumbs() {
+    const panel = document.getElementById('panel-media');
+    if (panel && !panel.classList.contains('active')) return;  // resumed on tab switch
+    while (thumbActive < THUMB_CONCURRENCY && thumbQueue.length > 0) {
+        const img = thumbQueue.shift();
+        if (!img.isConnected) continue;   // re-rendered meanwhile — skip
+        thumbActive++;
+        const done = () => { thumbActive--; pumpThumbs(); };
+        const prevLoad = img.onload, prevErr = img.onerror;
+        img.onload = (e) => { if (prevLoad) prevLoad.call(img, e); done(); };
+        img.onerror = (e) => { if (prevErr) prevErr.call(img, e); done(); };
+        img.src = img.dataset.thumbSrc;
+    }
+}
+
 function renderMediaPanel() {
     const container = document.getElementById('panel-media');
+    if (!container) return;
     if (cachedMedia.length === 0) {
+        lastMediaSignature = '';
         container.innerHTML = '<div class="empty-state"><div class="empty-icon">🖼️</div>No media files found</div>';
         return;
     }
+    const signature = cachedMedia.map(m => m.id || m.media_id || '').join('|');
+    if (signature === lastMediaSignature && container.querySelector('.media-thumb')) return;
+    lastMediaSignature = signature;
     window.lightboxMediaUrls = cachedMedia.map(m => mediaSrc(m));
     container.innerHTML = `<div class="media-grid">${cachedMedia.map((m, idx) => {
         const thumbUrl = window.lightboxMediaUrls[idx];
@@ -1197,11 +1238,12 @@ function renderMediaPanel() {
             : `window.open('${escAttr(thumbUrl)}', '_blank', 'noopener')`;
         return `
             <div class="media-thumb" onclick="${clickAttr}">
-                <img src="${escAttr(thumbUrl)}" alt="${escAttr(m.filename || 'media')}" loading="lazy"
+                <img class="media-thumb-img" alt="${escAttr(m.filename || 'media')}" loading="lazy"
                      onerror="this.style.display='none'">
                 <span class="media-type-icon">${isImage ? '🖼️' : '📄'}</span>
             </div>`;
     }).join('')}</div>`;
+    container.querySelectorAll('img.media-thumb-img').forEach((img, i) => queueThumb(img, window.lightboxMediaUrls[i]));
 }
 
 // ─── Social Panel ─────────────────────────────────────────────────────────

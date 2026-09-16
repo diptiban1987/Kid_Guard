@@ -1221,14 +1221,22 @@ function buildMediaDetail(m, thumbUrl, isImage, galleryIndex) {
     return `<div class="activity-detail-grid">${gridHtml}</div>${previewHtml}`;
 }
 
+let lastMediaSignature = '';
+
 function renderMediaPanel() {
     const container = document.getElementById('panel-media');
     const items = filterList(cachedMedia, [m => m.filename, m => m.mime_type]);
     if (items.length === 0) {
+        lastMediaSignature = '';
         container.innerHTML = `<div class="empty-state"><div class="empty-icon">🖼️</div>${currentSearchQuery ? 'No matching media files' : 'No media files found'}</div>`;
         return;
     }
     const token = localStorage.getItem('kidguard_token') || '';
+    // Skip the rebuild when the media list is unchanged — a rebuild re-creates
+    // every detail preview <img>, re-requesting them all on each auto-refresh.
+    const signature = items.map(m => m.id || m.media_id || '').join('|');
+    if (signature === lastMediaSignature && container.querySelector('.activity-item')) return;
+    lastMediaSignature = signature;
     window.lightboxMediaUrls = items.map(m => `/api/files/${m.id || m.media_id}?token=${encodeURIComponent(token)}`);
     container.innerHTML = items.map((m, idx) => {
         const thumbUrl = window.lightboxMediaUrls[idx];

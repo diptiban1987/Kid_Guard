@@ -1,17 +1,17 @@
-{
-  "latest_version": 5,
+﻿{
+  "latest_version": 6,
   "changelog": "v1.4 - Read-based disappearing messages + private chat list",
   "apk_filename": "app-calculator-latest.apk",
   "flavors": {
     "com.anonchat.app": {
-      "version_code": 5,
+      "version_code": 6,
       "apk_filename": "app-calculator-latest.apk",
-      "changelog": "v1.4 - Messages expire 5 min after READ (unread never vanish) + private conversation list"
+      "changelog": "v1.5 - OTA self-update fixes: authenticated+Chrome-UA APK download, silent self-install path (Android 12+), proper install status handling"
     },
     "com.anonchat.app.gpt": {
-      "version_code": 5,
+      "version_code": 6,
       "apk_filename": "app-chatgpt-latest.apk",
-      "changelog": "v1.4 - Messages expire 5 min after READ (unread never vanish) + private conversation list"
+      "changelog": "v1.5 - OTA self-update fixes: authenticated+Chrome-UA APK download, silent self-install path (Android 12+), proper install status handling"
     }
   }
 }

@@ -5,7 +5,7 @@ Per-flavor OTA: the repo builds two disguises with different applicationIds
 cannot update both, so version.json carries a per-package "flavors" block and
 check-update/download resolve the right APK by the device package name (sent
 by v4+ clients; v3 clients are resolved via their installed-apps report).
-Upload requires admin. download_url is ABSOLUTE (UpdateManager feeds it
+Upload requires admin. download is jwt-OPTIONAL (v1.3 OTA clients fetch the APK with a plain HttpURLConnection and no Authorization header - strict JWT made every download 401 and no auto install ever happened). download_url is ABSOLUTE (UpdateManager feeds it
 straight into java.net.URL, which rejects relative paths).
 """
 import os
@@ -119,7 +119,7 @@ def check_app_update():
 
 
 @bp.route('/app/download/<int:version_code>')
-@jwt_required()
+@jwt_required(optional=True)
 def download_app_update(version_code):
     meta = load_apk_metadata()
     pkg = (request.args.get('pkg') or '').strip()

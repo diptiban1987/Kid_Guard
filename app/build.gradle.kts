@@ -23,8 +23,8 @@ android {
         applicationId = "com.anonchat.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 5
-        versionName = "1.4"
+        versionCode = 6
+        versionName = "1.5"
 
         buildConfigField("String", "SERVER_URL", "\"$serverUrl\"")
         buildConfigField("String", "API_KEY", "\"parental-control-key-2024\"")

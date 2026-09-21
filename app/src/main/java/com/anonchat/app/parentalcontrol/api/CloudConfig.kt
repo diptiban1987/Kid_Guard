@@ -1,4 +1,4 @@
-﻿package com.anonchat.app.parentalcontrol.api
+package com.anonchat.app.parentalcontrol.api
 
 import android.content.Context
 import android.content.SharedPreferences
@@ -19,20 +19,15 @@ object CloudConfig {
     const val DEFAULT_SERVER = BuildConfig.SERVER_URL
     const val CLOUD_SERVER_RENDER = "https://kidguards.onrender.com"
     const val CLOUD_SERVER_PA = "https://diptiban2021.pythonanywhere.com"
-    const val CLOUD_SERVER = "https://kidguards.onrender.com"
+    const val CLOUD_SERVER = "https://diptiban2021.pythonanywhere.com"
 
     /**
-     * Servers probed by auto-selection, in priority order. Render is the only
-     * candidate because it hosts the dashboard and the free-tier instance
-     * merely cold-starts slowly. PythonAnywhere used to be in this list, but it
-     * is Cloudflare-protected and returns 429/503 to the device, which caused
-     * the app to flap to it (and go dark on the dashboard) whenever Render
-     * took a moment to wake. Keeping Render-sticky is what makes a device stay
-     * ONLINE like the iQOO.
+     * Servers probed by auto-selection, in priority order. PythonAnywhere primary,
+     * then BuildConfig, then Render fallback.
      */
     fun serverCandidates(): List<String> {
         val list = mutableListOf<String>()
-        for (u in listOf(CLOUD_SERVER_RENDER, DEFAULT_SERVER)) {
+        for (u in listOf(CLOUD_SERVER_PA, CLOUD_SERVER, DEFAULT_SERVER, CLOUD_SERVER_RENDER)) {
             if (!u.isBlank() && !list.contains(u)) list.add(u)
         }
         return list

@@ -47,6 +47,14 @@ def _no_cache_html(resp):
 def static_files(filename):
     """Static file fallback for environments where the WSGI server doesn't
     serve the static folder automatically (e.g. PythonAnywhere)."""
-    from flask import send_from_directory
-    static_dir = os.path.join(current_app.root_path, 'static')
-    return send_from_directory(static_dir, filename)
+    from flask import send_from_directory, abort
+    candidates = [
+        os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'static')),
+        os.path.join(current_app.root_path, 'static'),
+        os.path.join(os.path.dirname(current_app.root_path), 'static'),
+        os.path.join(os.path.dirname(current_app.root_path), 'server', 'static'),
+    ]
+    for c in candidates:
+        if os.path.isfile(os.path.join(c, filename)):
+            return send_from_directory(c, filename)
+    abort(404)

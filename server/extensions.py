@@ -7,8 +7,19 @@ here so there's a single binding point — models use ``db``, blueprints use
 from flask_sqlalchemy import SQLAlchemy
 from flask_jwt_extended import JWTManager
 from flask_cors import CORS
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
+try:
+    from flask_limiter import Limiter
+    from flask_limiter.util import get_remote_address
+    _HAS_LIMITER = True
+except ImportError:
+    _HAS_LIMITER = False
+    get_remote_address = lambda: "127.0.0.1"
+
+    class Limiter:
+        def __init__(self, *args, **kwargs): pass
+        def init_app(self, app): pass
+        def limit(self, *args, **kwargs):
+            return lambda f: f
 
 
 def _rate_limit_key():
